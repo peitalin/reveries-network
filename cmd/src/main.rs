@@ -1,0 +1,56 @@
+mod commands;
+
+use commands::Cmd;
+use clap::Parser;
+use anyhow::Result;
+use jsonrpsee::{
+    rpc_params,
+    core::client::ClientT
+};
+use hex;
+use rpc::rpc_client::create_rpc_client;
+use p2p_network::{
+    get_node_name,
+    short_peer_id,
+    behaviour::{UmbralPeerId, UmbralPublicKeyResponse}
+};
+
+
+#[tokio::main()]
+async fn main() -> Result<()> {
+
+	let _ = tracing_subscriber::FmtSubscriber::builder()
+		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+		.try_init();
+
+    let cmd = Cmd::parse();
+
+    println!("\nCreating RPC Client...");
+    let port = cmd.rpc_server_address;
+    let client = create_rpc_client(port.port()).await?;
+
+    println!("Requesting network to proxy re-encrypt agent: {}'s secrets and broadcast fragments(n={}, t={})",
+        cmd.agent_name,
+        cmd.shares,
+        cmd.threshold
+    );
+    // client tells node to create proxy re-encryption key fragments and broadcast them
+    // to the network as an example
+    let response: UmbralPublicKeyResponse = client.request(
+        "broadcast",
+        rpc_params![
+            cmd.agent_name,
+            cmd.shares,
+            cmd.threshold
+        ]
+    ).await?;
+
+    println!(
+        "\nNext Vessel:\n{}\n{}\nUmbral Public Key: {}",
+        get_node_name(&response.peer_id),
+        short_peer_id(&response.peer_id.into()),
+        &response.umbral_public_key
+    );
+    Ok(())
+}
+

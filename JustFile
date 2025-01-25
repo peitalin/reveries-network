@@ -1,0 +1,66 @@
+
+# default recipe to display help information
+default:
+  @just --list
+
+# Run runtime crate
+run-runtime:
+    cargo run --bin runtime
+
+
+# Runs node 1
+run-node1:
+    echo 'Running Node 1';
+    cargo run --bin rpc -- \
+        --listen-address /ip4/0.0.0.0/tcp/40111 \
+        --secret-key-seed 1 \
+        --topics chat,kfrag0.bob,kfrag1.bob,kfrag2.bob,kfrag3.bob \
+        --rpc-port 8001
+
+# Runs node 2
+run-node2:
+    @echo 'Running Node 2';
+    cargo run --bin rpc -- \
+        --listen-address /ip4/0.0.0.0/tcp/40222 \
+        --secret-key-seed 2 \
+        --topics chat,request.bob,broadcast.bob,kfrag0.bob \
+        --rpc-port 8002
+
+# Runs node 3
+run-node3:
+    @echo 'Running Node 3';
+    cargo run --bin rpc -- \
+        --listen-address /ip4/0.0.0.0/tcp/40333 \
+        --secret-key-seed 3 \
+        --topics chat,request.bob,broadcast.bob,kfrag1.bob \
+        --rpc-port 8003
+
+# Runs node 4
+run-node4:
+    @echo 'Running Node 4';
+    cargo run --bin rpc -- \
+        --listen-address /ip4/0.0.0.0/tcp/40444 \
+        --secret-key-seed 4 \
+        --topics chat,request.bob,broadcast.bob,kfrag2.bob \
+        --rpc-port 8004
+
+# Runs node 5
+run-node5:
+    @echo 'Running Node 5';
+    cargo run --bin rpc -- \
+        --listen-address /ip4/0.0.0.0/tcp/40555 \
+        --secret-key-seed 5 \
+        --topics chat,request.bob,broadcast.bob,kfrag3.bob \
+        --rpc-port 8005
+
+
+run-client:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8001 \
+        --agent-name bob \
+        --shares 3 \
+        --threshold 2
+
+
+run-cait:
+    cargo run --release --bin cait -- 100 300 1000000

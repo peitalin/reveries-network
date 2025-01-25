@@ -1,0 +1,23 @@
+[package]
+name = "runtime"
+version = "0.1.0"
+edition = "2021"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk" }
+
+[dependencies]
+rig-core = "0.6.0"
+dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
+
+anyhow = { workspace = true }
+dotenv = { workspace = true }
+eyre = { workspace = true }
+hex = { workspace = true }
+libp2p = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+umbral-pre = { workspace = true }
+
