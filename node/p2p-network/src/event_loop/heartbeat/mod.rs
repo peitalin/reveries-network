@@ -122,7 +122,9 @@ impl NetworkBehaviour for Behaviour {
         Ok(HeartbeatHandler::new(self.config.clone()))
     }
 
-    fn on_swarm_event(&mut self, _event: FromSwarm) {}
+    fn on_swarm_event(&mut self, event: FromSwarm) {
+        println!("SwarmEvent: {:?}", event);
+    }
 
     fn on_connection_handler_event(
         &mut self,

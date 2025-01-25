@@ -1,10 +1,6 @@
 mod stdin_handlers;
-mod file_handlers;
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::collections::{HashMap, HashSet};
 use anyhow::{Result, anyhow};
 use colored::Colorize;
 use futures::{
@@ -17,7 +13,6 @@ use libp2p::{
     core::Multiaddr, request_response::ResponseChannel, PeerId
 };
 use crate::get_node_name;
-use crate::SendError;
 use crate::commands::NodeCommand;
 use crate::behaviour::{
     FileEvent,
@@ -45,7 +40,6 @@ pub struct NodeClient {
     pub node_name: String,
     pub chat_sender: mpsc::Sender<ChatMessage>,
     pub kfrags_sender: mpsc::Sender<KfragsMessage>,
-    file_paths: HashMap<String, PathBuf>,
     umbral_key: UmbralKey, // keep private
     umbral_capsule: Option<umbral_pre::Capsule>,
     umbral_ciphertext: Option<Box<[u8]>>,
@@ -68,7 +62,6 @@ impl NodeClient {
             node_name: node_name,
             chat_sender: chat_sender,
             kfrags_sender: kfrags_sender,
-            file_paths: HashMap::new(),
             umbral_key: umbral_key,
             umbral_capsule: None,
             umbral_ciphertext: None,
@@ -132,7 +125,7 @@ impl NodeClient {
             match network_event_receiver.next().await {
                 // Reply with the content of the file on incoming requests.
                 Some(FileEvent::InboundRequest { request, frag_num, channel }) => {
-                    self.serve_files_and_cfrags(request, frag_num, channel).await?;
+                    self.serve_files_and_cfrags(request, frag_num, channel).await;
                 }
                 e => todo!("<network_event_receiver>: {:?}", e),
             }
@@ -143,31 +136,14 @@ impl NodeClient {
         request: String,
         frag_num: Option<u32>,
         channel: ResponseChannel<FileResponse>
-    ) -> Result<()> {
-        match frag_num {
-            // serve file from disk
-            None => {
-                let file_name = request;
-                match self.file_paths.get(&file_name) {
-                    Some(path) => {
-                        let file = std::fs::read(&path)
-                            .map_err(|e| SendError(e.to_string()))?;
-                        self.respond_file(file, channel).await;
-                    }
-                    None => {
-                        self.log(format!("file_name not found {}", file_name));
-                    }
-                }
-            }
-            // serve kfrag(n)
-            Some(kfrag_num) => {
-                let agent_name = request;
-                self.respond_cfrags(agent_name, kfrag_num, channel).await;
-            }
+    ) {
+        if let Some(kfrag_num) = frag_num {
+            let agent_name = request;
+            self.respond_cfrags(agent_name, kfrag_num, channel).await;
+        } else {
+            self.log(format!("frag_num missing"));
         }
-        Ok(())
     }
-
 
     pub async fn broadcast_kfrags(
         &mut self,
@@ -295,7 +271,7 @@ impl NodeClient {
 
                         nc.command_sender
                             .send(NodeCommand::RequestFile {
-                                file_name: agent_name2,
+                                agent_name: agent_name2,
                                 frag_num: Some(kfrag_num),
                                 peer: peer_id,
                                 sender
@@ -353,8 +329,6 @@ impl NodeClient {
         ) {
             Ok(plaintext_bob) => {
 
-                // let decrypted_data = String::from_utf8(plaintext_bob.to_vec())
-                //     .expect("error deserializing plaintext");
                 let decrypted_data = serde_json::from_slice::<serde_json::Value>(&plaintext_bob)
                     .expect("error marshalling decrypted plaintext to JSON data");
 

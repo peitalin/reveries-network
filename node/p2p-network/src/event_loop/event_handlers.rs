@@ -1,7 +1,4 @@
-use futures::{
-    channel::oneshot,
-    prelude::*,
-};
+use futures::prelude::*;
 use libp2p::{
     kad, mdns, request_response, swarm::SwarmEvent
 };
@@ -28,14 +25,7 @@ impl EventLoop {
                 // StartProviding event
                 kad::Event::OutboundQueryProgressed {
                     id, result: kad::QueryResult::StartProviding(_), ..
-                } => {
-
-                    let sender: oneshot::Sender<()> = self
-                        .pending_start_providing
-                        .remove(&id)
-                        .expect("Completed query to be previously pending.");
-                    let _ = sender.send(());
-                }
+                } => {}
 
                 // GetProviders event
                 kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
@@ -252,19 +242,17 @@ impl EventLoop {
                         match &peer_info.peer_heartbeat_data.heartbeat_payload.tee_attestation {
                             Some(quote) => {
                                 self.log(format!(
-                                    "{} HeartbeatData:\n\tBlock: {}\n\tDurations: {:?}\n\tECDSA attestation key: 0x{}",
+                                    "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
                                     short_peer_id(peer_id),
                                     peer_info.peer_heartbeat_data.heartbeat_payload.block_height,
-                                    peer_info.peer_heartbeat_data.durations,
                                     hex::encode(quote.signature.ecdsa_attestation_key),
                                 ));
                             },
                             None => {
                                 self.log(format!(
-                                    "{} HeartbeatData:\n\tBlock: {}\n\tDurations: {:?}\n\t{:?}",
+                                    "{} HeartbeatData: Block: {}\n\t{:?}",
                                     short_peer_id(peer_id),
                                     peer_info.peer_heartbeat_data.heartbeat_payload.block_height,
-                                    peer_info.peer_heartbeat_data.durations,
                                     peer_info.peer_heartbeat_data.heartbeat_payload
                                 ));
                             }

@@ -96,9 +96,9 @@ pub async fn new(secret_key_seed: Option<u8>)
                 heartbeat: heartbeat::Behaviour::new(
                     heartbeat::Config::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        Duration::from_millis(4_000),
+                        Duration::from_millis(5_000),
                         // Idle time before sending next `TeeAttestationBytes`
-                        Duration::from_millis(4_000),
+                        Duration::from_millis(5_000),
                         // Max failures allowed. Requests connection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
                     ),

@@ -187,66 +187,6 @@ impl Display for CapsuleFragmentIndexed {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum StdInputCommand {
-    Chat,
-    Unknown(String),
-    BroadcastKfrags(
-        String, // Topic: agent_name
-        usize,  // shares: number of Umbral MPC fragments
-        usize   // threshold: number of required Umbral fragments
-    ),
-    RequestCfrags(String),
-}
-
-impl Display for StdInputCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let d = AGENT_DELIMITER;
-        match self {
-            Self::Chat => write!(f, "chat"),
-            Self::Unknown(s) => write!(f, "{}", s),
-            Self::BroadcastKfrags(agent_name, n, t) => {
-                write!(f, "broadcast{d}{}{d}({n},{t})", agent_name)
-            }
-            Self::RequestCfrags(agent_name) => write!(f, "request{}{}", d, agent_name),
-        }
-    }
-}
-
-impl Into<String> for StdInputCommand {
-    fn into(self) -> String {
-        let d = AGENT_DELIMITER;
-        match self {
-            Self::Chat => "chat".to_string(),
-            Self::Unknown(a) => a.to_string(),
-            Self::BroadcastKfrags(a, n, t) => {
-                format!("broadcast{d}{}{d}({n},{t})", a)
-            }
-            Self::RequestCfrags(a) => format!("request{}{}", d, a),
-        }
-    }
-}
-
-impl From<String> for StdInputCommand {
-    fn from(s: String) -> Self {
-        let (topic, agent_name, nshare_threshold) = split_topic_by_delimiter(&s);
-        let agent_name = agent_name.to_string();
-        match topic {
-            "chat" => Self::Chat,
-            "request" => Self::RequestCfrags(agent_name),
-            "broadcast" => match nshare_threshold {
-                Some((n, t)) => Self::BroadcastKfrags(agent_name, n, t),
-                None => {
-                    println!("Wrong format. Should be: 'broadcast.<agent_name>.(nshares, threshold)'");
-                    println!("Defaulting to (n=3, t=2) share threshold");
-                    Self::BroadcastKfrags(agent_name, 3, 2)
-                }
-            }
-            _ => Self::Unknown(s)
-        }
-    }
-}
-
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct UmbralPeerId(pub String);
@@ -331,7 +271,6 @@ impl Display for KfragsTopic {
             Self::Unknown(s) => write!(f, "{}", s),
         }
     }
-
 }
 
 impl Into<Vec<u8>> for KfragsTopic {
@@ -346,13 +285,13 @@ impl Into<String> for KfragsTopic {
         let d = AGENT_DELIMITER;
         match self {
             Self::Kfrag(agent_name, frag_num) => format!("kfrag{}{}{}", frag_num, d, agent_name),
-            Self::RequestCfrags(a) => format!("request{}{}", d, a),
+            Self::RequestCfrags(agent_name) => format!("request{}{}", d, agent_name),
             Self::Unknown(s) => format!("{}", s),
         }
     }
 }
 
-fn split_topic_by_delimiter(topic_str: &str) -> (&str, &str, Option<(usize, usize)>) {
+pub(crate) fn split_topic_by_delimiter(topic_str: &str) -> (&str, &str, Option<(usize, usize)>) {
     match topic_str {
         "chat" => ("chat", "", None),
         "unknown" => ("unknown", "", None),

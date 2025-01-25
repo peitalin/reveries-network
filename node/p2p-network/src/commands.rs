@@ -30,16 +30,12 @@ pub enum NodeCommand {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
-    StartProviding {
-        file_name: String,
-        sender: oneshot::Sender<()>,
-    },
     GetProviders {
-        file_name: String,
+        agent_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     RequestFile {
-        file_name: String,
+        agent_name: String,
         frag_num: Option<u32>,
         peer: PeerId,
         sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,

@@ -62,7 +62,6 @@ pub struct EventLoop {
 
     pending: PendingRequests,
     // file sharing
-    pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
     pending_request_file: HashMap<
         request_response::OutboundRequestId,
@@ -117,7 +116,6 @@ impl EventLoop {
             pending_get_umbral_pks: HashMap::new(),
             peer_manager: PeerManager::new(),
             pending: PendingRequests::new(),
-            pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
             pending_request_file: Default::default(),
         }
@@ -265,41 +263,30 @@ impl EventLoop {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            NodeCommand::StartProviding { file_name, sender } => {
+            NodeCommand::GetProviders { agent_name, sender } => {
 
+                self.log(format!("Command::GetProviders filename: {:?}", agent_name));
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kademlia
-                    .start_providing(file_name.into_bytes().into())
-                    .expect("No store error.");
-
-                self.pending_start_providing.insert(query_id, sender);
-            }
-            NodeCommand::GetProviders { file_name, sender } => {
-
-                self.log(format!("Command::GetProviders filename: {:?}", file_name));
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_providers(file_name.into_bytes().into());
+                    .get_providers(agent_name.into_bytes().into());
 
                 self.pending_get_providers.insert(query_id, sender);
             }
             NodeCommand::RequestFile {
-                file_name,
+                agent_name,
                 frag_num,
                 peer,
                 sender,
             } => {
-                self.log(format!("Command::RequestFile FileRequest({:?}, {:?})", file_name, frag_num));
+                self.log(format!("Command::RequestFile FileRequest({:?}, {:?})", agent_name, frag_num));
 
                 let request_id = self
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FileRequest(file_name, frag_num));
+                    .send_request(&peer, FileRequest(agent_name, frag_num));
 
                 self.pending_request_file.insert(request_id, sender);
             }

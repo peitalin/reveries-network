@@ -1,7 +1,13 @@
 
-use tokio::io::AsyncBufReadExt;
+use std::{
+    collections::{HashMap, HashSet}, fmt::Display, str::FromStr
+};
 use futures::SinkExt;
-use crate::behaviour::{ChatMessage, StdInputCommand};
+use serde::{Deserialize, Serialize};
+use tokio::io::AsyncBufReadExt;
+
+use crate::AGENT_DELIMITER;
+use crate::behaviour::{ChatMessage, split_topic_by_delimiter};
 use super::NodeClient;
 
 
@@ -54,6 +60,67 @@ impl NodeClient {
                     }
                 }
             }
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StdInputCommand {
+    Chat,
+    Unknown(String),
+    BroadcastKfrags(
+        String, // Topic: agent_name
+        usize,  // shares: number of Umbral MPC fragments
+        usize   // threshold: number of required Umbral fragments
+    ),
+    RequestCfrags(String),
+}
+
+impl Display for StdInputCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let d = AGENT_DELIMITER;
+        match self {
+            Self::Chat => write!(f, "chat"),
+            Self::Unknown(s) => write!(f, "{}", s),
+            Self::BroadcastKfrags(agent_name, n, t) => {
+                write!(f, "broadcast{d}{}{d}({n},{t})", agent_name)
+            }
+            Self::RequestCfrags(agent_name) => write!(f, "request{}{}", d, agent_name),
+        }
+    }
+}
+
+impl Into<String> for StdInputCommand {
+    fn into(self) -> String {
+        let d = AGENT_DELIMITER;
+        match self {
+            Self::Chat => "chat".to_string(),
+            Self::Unknown(a) => a.to_string(),
+            Self::BroadcastKfrags(a, n, t) => {
+                format!("broadcast{d}{}{d}({n},{t})", a)
+            }
+            Self::RequestCfrags(a) => format!("request{}{}", d, a),
+        }
+    }
+}
+
+impl From<String> for StdInputCommand {
+    fn from(s: String) -> Self {
+        let (topic, agent_name, nshare_threshold) = split_topic_by_delimiter(&s);
+        let agent_name = agent_name.to_string();
+        match topic {
+            "chat" => Self::Chat,
+            "request" => Self::RequestCfrags(agent_name),
+            "broadcast" => match nshare_threshold {
+                Some((n, t)) => Self::BroadcastKfrags(agent_name, n, t),
+                None => {
+                    println!("Wrong format. Should be: 'broadcast.<agent_name>.(nshares, threshold)'");
+                    println!("Defaulting to (n=3, t=2) share threshold");
+                    Self::BroadcastKfrags(agent_name, 3, 2)
+                }
+            }
+            _ => Self::Unknown(s)
         }
     }
 }
