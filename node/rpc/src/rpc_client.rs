@@ -1,6 +1,6 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use anyhow::Result;
+use color_eyre::Result;
 
 use jsonrpsee::client_transport::ws::{Url, WsTransportClientBuilder};
 use jsonrpsee::core::client::{Client, ClientBuilder};

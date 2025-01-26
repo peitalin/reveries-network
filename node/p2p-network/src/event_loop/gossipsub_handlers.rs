@@ -1,6 +1,6 @@
 
 use std::collections::{HashMap};
-use anyhow::{Result, anyhow};
+use color_eyre::{Result, eyre::anyhow};
 use libp2p::{
     gossipsub,
     gossipsub::IdentTopic

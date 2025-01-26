@@ -14,7 +14,9 @@ use rig::providers::anthropic::{
 };
 
 
-fn main() -> eyre::Result<()> {
+fn main() -> color_eyre::Result<()> {
+
+    color_eyre::install()?;
 
 	let _ = tracing_subscriber::FmtSubscriber::builder()
 		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

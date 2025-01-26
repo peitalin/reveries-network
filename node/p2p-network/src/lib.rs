@@ -34,9 +34,9 @@ pub fn short_peer_id(peer_id: &libp2p::PeerId) -> String {
     format!("PeerId(..{})", end)
 }
 
-pub fn read_file_from_path<'a>(path: &'a str) -> anyhow::Result<Vec<u8>> {
+pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
     std::fs::read(path)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))
+        .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
 }
 
 pub fn get_node_name<'a>(umbral_peer_id: &'a UmbralPeerId) -> String {

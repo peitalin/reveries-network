@@ -1,4 +1,4 @@
-use eyre::{Result, WrapErr};
+use color_eyre::Result;
 use lazy_static::lazy_static;
 use prometheus_exporter::{
     prometheus::{register_int_gauge, IntGauge},
@@ -18,6 +18,6 @@ lazy_static! {
 
 /// Starts the metrics server on port 9200
 pub fn init() -> Result<()> {
-    start("0.0.0.0:9200".parse().wrap_err("Could not parse address")?)?;
+    start("0.0.0.0:9200".parse()?)?;
     Ok(())
 }

@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
 };
-use anyhow::Result;
+use color_eyre::Result;
 use colored::Colorize;
 use futures::{
     channel::{mpsc, oneshot},

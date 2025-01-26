@@ -1,7 +1,7 @@
 use dotenv;
 
 use libp2p::identity::{ed25519, secp256k1};
-use anyhow::Result;
+use color_eyre::Result;
 use serde::{Deserialize, Serialize};
 use rig::{completion::Prompt, providers::openai, providers};
 use rig::providers::anthropic::{

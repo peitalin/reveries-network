@@ -1,7 +1,7 @@
 mod stdin_handlers;
 
 use std::collections::{HashMap, HashSet};
-use anyhow::{Result, anyhow};
+use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use futures::{
     channel::{mpsc, oneshot},
@@ -197,7 +197,7 @@ impl NodeClient {
 
         // choose a random node to become the next vessel
         match umbral_public_keys.iter().next() {
-            None => Err(anyhow::anyhow!("No Umbral PK Peers found")),
+            None => Err(anyhow!("No Umbral PK Peers found")),
             Some(new_vessel_pk) => {
 
                 self.log(format!("Next Vessel: {}\n\t{:?}\n\t{}\n",

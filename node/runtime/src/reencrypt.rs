@@ -1,3 +1,4 @@
+use color_eyre::Result;
 use umbral_pre::{
     decrypt_original, decrypt_reencrypted, encrypt,
     SecretBox,
@@ -63,7 +64,7 @@ impl UmbralKey {
 }
 
 
-pub fn run_reencrypt_example() -> anyhow::Result<String> {
+pub fn run_reencrypt_example() -> Result<String> {
 
     let plaintext = "to be or not to be".as_bytes();
 

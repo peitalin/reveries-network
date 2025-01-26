@@ -2,7 +2,7 @@ mod commands;
 
 use commands::Cmd;
 use clap::Parser;
-use anyhow::Result;
+use color_eyre::Result;
 use jsonrpsee::{
     rpc_params,
     core::client::ClientT
@@ -19,6 +19,7 @@ use p2p_network::{
 #[tokio::main()]
 async fn main() -> Result<()> {
 
+    color_eyre::install()?;
 	let _ = tracing_subscriber::FmtSubscriber::builder()
 		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
 		.try_init();

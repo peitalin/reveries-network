@@ -49,7 +49,7 @@ run-node5:
         --rpc-port 8005
 
 
-run-client:
+run-cmd:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
         --agent-name bob \

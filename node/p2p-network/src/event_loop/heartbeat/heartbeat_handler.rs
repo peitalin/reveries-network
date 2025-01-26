@@ -31,7 +31,7 @@ use std::{
     task::Poll,
     time::Duration,
 };
-use anyhow::{Result, Error};
+use color_eyre::{Result, eyre::Error};
 use tokio::time::{
     sleep,
     Sleep,

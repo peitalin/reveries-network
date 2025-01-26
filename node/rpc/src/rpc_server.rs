@@ -28,7 +28,7 @@ impl Into<ErrorObjectOwned> for RpcError {
 }
 
 
-pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> anyhow::Result<SocketAddr> {
+pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre::Result<SocketAddr> {
 
 	let server = Server::builder().build(format!("0.0.0.0:{}", rpc_port)).await?;
 	let mut module = RpcModule::new(());

@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet}, fmt::Display, str::FromStr
 };
 use regex::Regex;
-use anyhow::Result;
+use color_eyre::Result;
 use libp2p::{
     gossipsub::{self, IdentTopic, TopicHash},
     kad,

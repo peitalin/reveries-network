@@ -2,7 +2,7 @@ mod rpc_server;
 mod rpc_client;
 mod commands;
 
-use anyhow::Result;
+use color_eyre::Result;
 use clap::Parser;
 
 use p2p_network::create_network;
@@ -12,6 +12,8 @@ use rpc_server::run_server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+
+    color_eyre::install()?;
 
 	let _ = tracing_subscriber::FmtSubscriber::builder()
 		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

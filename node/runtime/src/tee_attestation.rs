@@ -1,5 +1,6 @@
 use hex;
-use eyre;
+use color_eyre::Result;
+use color_eyre::eyre::anyhow;
 pub use dcap_rs::types::quotes::version_4::QuoteV4;
 
 #[cfg(target_os = "linux")]
@@ -10,7 +11,7 @@ use tdx::{
 
 
 #[cfg(target_os = "linux")]
-pub fn generate_tee_attestation() -> eyre::Result<(QuoteV4, Vec<u8>)> {
+pub fn generate_tee_attestation() -> Result<(QuoteV4, Vec<u8>)> {
     // Initialise a TDX object
     let tdx = Tdx::new();
 
@@ -31,7 +32,7 @@ pub fn generate_tee_attestation() -> eyre::Result<(QuoteV4, Vec<u8>)> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn generate_tee_attestation() -> eyre::Result<(QuoteV4, Vec<u8>)> {
+pub fn generate_tee_attestation() -> Result<(QuoteV4, Vec<u8>)> {
 
     let attestation_bytes = hex::decode(TEE_MOCK_ATTESTATION_REPORT)?;
     let attestation_report = QuoteV4::from_bytes(&attestation_bytes);

@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
     time::Duration,
 };
-use anyhow::Result;
+use color_eyre::Result;
 use futures::channel::mpsc;
 use libp2p::{
     identity,
