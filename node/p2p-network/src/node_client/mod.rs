@@ -107,8 +107,6 @@ impl NodeClient {
             // None => "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
             None => "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
         };
-        // Listen on all interfaces and whatever port the OS assigns
-        // swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
 
         self.command_sender
             .send(NodeCommand::StartListening { addr, sender })

@@ -236,8 +236,6 @@ impl EventLoop {
                 // need to save heartbeat data to the node locally for quicker retrieval;
                 let p_info = self.peer_manager.vessel_nodes.get(peer_id);
 
-                // self.swarm.behaviour_mut().heartbeat.
-
                 match p_info {
                     Some(peer_info) => {
                         match &peer_info.peer_heartbeat_data.heartbeat_payload.tee_attestation {

@@ -1,5 +1,4 @@
 use crate::behaviour::ChatMessage;
-use runtime::tee_attestation;
 use super::EventLoop;
 
 impl EventLoop {
@@ -8,25 +7,14 @@ impl EventLoop {
 
         self.log(format!("Broadcasting message: {:?}", message));
 
-        /////////// form heartbeat payload here. Move it later
-        self.swarm.behaviour_mut().heartbeat.increment_block_height();
-
         let (
             _tee_quote ,
-            tee_quote_bytes
-        ) = tee_attestation::generate_tee_attestation()
+            _tee_quote_bytes
+        ) = runtime::tee_attestation::generate_tee_attestation(true)
             .expect("tee attestation generation err");
-
-        // self.swarm.behaviour_mut().heartbeat.set_tee_attestation(
-        //     format!("0x{}", hex::encode(tee_attestation_quote.signature.quote_signature))
-        // );
-        self.swarm.behaviour_mut().heartbeat.set_tee_attestation(tee_quote_bytes);
-        //////////
 
         match self.topics.get(&message.topic.to_string()) {
             Some(topic) => {
-
-                // self.swarm.behaviour_mut().heartbeat.
 
                 match self.swarm
                     .behaviour_mut()

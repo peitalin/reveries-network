@@ -18,11 +18,7 @@ pub struct HeartBeatData {
 impl HeartBeatData {
     pub fn new(window: u32) -> Self {
         Self {
-            heartbeat_payload: TeeAttestation {
-                tee_attestation: None,
-                tee_attestation_bytes: None,
-                block_height: 1
-            },
+            heartbeat_payload: TeeAttestation::default(),
             last_heartbeat: Instant::now(),
             last_heartbeat_sys: SystemTime::now(),
             size_moving_window: window,

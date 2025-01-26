@@ -3,7 +3,6 @@ use std::collections::{HashMap};
 use color_eyre::{Result, eyre::anyhow};
 use libp2p::{
     gossipsub,
-    gossipsub::IdentTopic
 };
 use crate::behaviour::{
     CapsuleFragmentIndexed, KeyFragmentIndexed, KfragsBroadcastMessage, KfragsTopic

@@ -79,15 +79,6 @@ impl PeerManager {
         };
     }
 
-    // pub fn increment_heartbeat_block_height(&mut self, peer_id: PeerId) {
-    //     match self.vessel_nodes.get_mut(&peer_id) {
-    //         Some(peer_info) => {
-    //             peer_info.heartbeat_data.increment_block_height();
-    //         }
-    //         None => {}
-    //     };
-    // }
-
     pub fn insert_umbral_kfrag_peer(&mut self, peer_id: PeerId, agent_name: String, frag_num: u32) {
 
         // record Peer as Kfrag holder.
@@ -157,7 +148,6 @@ fn update_peer_heartbeat(
 ) {
     if let Some(peer) = peers.get_mut(peer_id) {
         peer.peer_heartbeat_data.update(block_height);
-    } else {
     }
 }
 

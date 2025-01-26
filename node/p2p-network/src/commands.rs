@@ -1,9 +1,9 @@
 use futures::channel::oneshot;
 use std::{
-    collections::{HashMap, HashSet}, error::Error, fmt::Display, str::FromStr
+    collections::{HashMap, HashSet}, error::Error,
 };
 use libp2p::{
-    request_response::{self, ResponseChannel},
+    request_response::ResponseChannel,
     PeerId,
     Multiaddr
 };
