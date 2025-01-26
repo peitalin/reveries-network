@@ -69,7 +69,6 @@ impl EventLoop {
                             let umbral_pk_response = serde_json::from_slice::<UmbralPublicKeyResponse>(&value)
                                 .expect("err deserializing Umbral PRE Public Key");
 
-                            // sender.send(umbral_pk_response).expect("Receiver not to be dropped");
                             let _ = sender.send(umbral_pk_response).await;
                             // Finish the query. We are only interested in the first result.
                             self.swarm
@@ -236,6 +235,8 @@ impl EventLoop {
 
                 // need to save heartbeat data to the node locally for quicker retrieval;
                 let p_info = self.peer_manager.vessel_nodes.get(peer_id);
+
+                // self.swarm.behaviour_mut().heartbeat.
 
                 match p_info {
                     Some(peer_info) => {

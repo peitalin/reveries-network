@@ -1,11 +1,12 @@
 pub(crate) mod heartbeat_handler;
 
-pub use heartbeat_handler::Config;
-
+pub use heartbeat_handler::HeartbeatConfig;
 use std::{
     collections::VecDeque,
     task::Poll,
 };
+// use std::sync::mpsc;
+use futures::channel::{mpsc, oneshot};
 use runtime::tee_attestation::QuoteV4;
 use heartbeat_handler::{
     HeartbeatHandler,
@@ -31,7 +32,7 @@ use libp2p::{
 use heartbeat_handler::TeeAttestation;
 
 
-pub const HEARTBEAT_PROTOCOL: &str = "/nirvana/heartbeat/0.0.1";
+pub const HEARTBEAT_PROTOCOL: &str = "/1up/heartbeat/0.0.1";
 
 #[derive(Debug, Clone)]
 enum HeartbeatAction {
@@ -46,16 +47,22 @@ enum HeartbeatAction {
 impl HeartbeatAction {
     fn build(self) -> ToSwarm<TeePayloadOutEvent, HeartbeatInEvent> {
         match self {
-            Self::HeartbeatEvent(event) => ToSwarm::GenerateEvent(event),
+            Self::HeartbeatEvent(event) => {
+                ToSwarm::GenerateEvent(event)
+            },
             Self::HeartbeatRequest  {
                 peer_id,
                 connection_id,
                 in_event,
-            } => ToSwarm::NotifyHandler {
-                handler: NotifyHandler::One(connection_id),
-                peer_id,
-                event: in_event,
-            },
+            } => {
+                // Every X seconds, Heartbeat Action is triggered via poll() in Behaviour struct
+                println!("2.>>>> HeartbeatRequest");
+                ToSwarm::NotifyHandler {
+                    handler: NotifyHandler::One(connection_id),
+                    peer_id,
+                    event: in_event,
+                }
+            }
         }
     }
 }
@@ -66,15 +73,19 @@ pub struct TeePayloadOutEvent {
     pub latest_tee_attestation: TeeAttestation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Behaviour {
-    config: Config,
+    pub(crate) config: HeartbeatConfig,
     pending_events: VecDeque<HeartbeatAction>,
-    pub current_heartbeat_payload: TeeAttestation,
+    /// This node's current heartbeat payload which will be broadcasted
+    pub(crate) current_heartbeat_payload: TeeAttestation,
 }
 
 impl Behaviour {
-    pub fn new(config: Config, heartbeat_payload: TeeAttestation) -> Self {
+    pub fn new(
+        config: HeartbeatConfig,
+        heartbeat_payload: TeeAttestation,
+    ) -> Self {
         Self {
             config,
             pending_events: VecDeque::default(),
@@ -123,7 +134,7 @@ impl NetworkBehaviour for Behaviour {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        println!("SwarmEvent: {:?}", event);
+        // println!("SwarmEvent: {:?}", event);
     }
 
     fn on_connection_handler_event(
@@ -132,7 +143,7 @@ impl NetworkBehaviour for Behaviour {
         connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        // println!("1>> connection_handler_event: peerId {} event: {:?}", crate::short_peer_id(peer_id), event);
+        // println!("1>> connection_handler_event: peerId {}", crate::short_peer_id(&peer_id));
         match event {
             HeartbeatOutEvent::HeartbeatPayload(latest_tee_attestation) => {
                 self.pending_events
@@ -159,9 +170,11 @@ impl NetworkBehaviour for Behaviour {
         _: &mut std::task::Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(action) = self.pending_events.pop_front() {
+            // println!("1.>>>> Poll: action.build()");
             return Poll::Ready(action.build())
         }
 
         Poll::Pending
     }
 }
+

@@ -7,6 +7,9 @@ use futures::{
     AsyncWriteExt,
     FutureExt,
 };
+// use std::sync::{mpsc};
+use futures::channel::{mpsc, oneshot};
+use futures::SinkExt;
 use libp2p::{
     core::upgrade::ReadyUpgrade,
     swarm::{
@@ -49,7 +52,7 @@ pub enum HeartbeatOutEvent {
 }
 
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct HeartbeatConfig {
     /// Sending of `TeeAttestation` should not take longer than this
     send_timeout: Duration,
     /// Idle time before sending next `TeeAttestation`
@@ -57,31 +60,36 @@ pub struct Config {
     /// Max failures allowed.
     /// If reached `HeartbeatHandler` will request closing of the connection.
     max_failures: NonZeroU32,
+    /// for Heartbeat Behaviour to communicate with upper level EventLoop
+    pub sender: mpsc::Sender<String>,
 }
 
-impl Config {
+impl HeartbeatConfig {
     pub fn new(
         send_timeout: Duration,
         idle_timeout: Duration,
         max_failures: NonZeroU32,
+        sender: mpsc::Sender<String>
     ) -> Self {
         Self {
             send_timeout,
             idle_timeout,
             max_failures,
+            sender,
         }
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self::new(
-            Duration::from_secs(60),
-            Duration::from_secs(1),
-            NonZeroU32::new(5).expect("5 != 0"),
-        )
-    }
-}
+// impl Default for HeartbeatConfig {
+//     fn default() -> Self {
+//         Self::new(
+//             Duration::from_secs(60),
+//             Duration::from_secs(1),
+//             NonZeroU32::new(5).expect("5 != 0"),
+//             None,
+//         )
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub struct TeeAttestation {
@@ -130,7 +138,7 @@ type InboundData = BoxFuture<'static, Result<(Stream, TeeAttestation), Error>>;
 type OutboundData = BoxFuture<'static, Result<Stream, Error>>;
 
 pub struct HeartbeatHandler {
-    config: Config,
+    config: HeartbeatConfig,
     inbound: Option<InboundData>,
     outbound: Option<OutboundState>,
     timer: Pin<Box<Sleep>>,
@@ -138,7 +146,7 @@ pub struct HeartbeatHandler {
 }
 
 impl HeartbeatHandler {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: HeartbeatConfig) -> Self {
         Self {
             config,
             inbound: None,
@@ -179,7 +187,7 @@ impl ConnectionHandler for HeartbeatHandler {
         if let Some(inbound_stream_and_block_height) = self.inbound.as_mut() {
             match inbound_stream_and_block_height.poll_unpin(cx) {
                 Poll::Ready(Err(_)) => {
-                    debug!(target: "heartbeat", "Incoming heartbeat errored");
+                    debug!(target: "1up", "Incoming heartbeat errored");
                     self.inbound = None;
                 }
                 Poll::Ready(Ok((stream, tee_attestation))) => {
@@ -219,13 +227,15 @@ impl ConnectionHandler for HeartbeatHandler {
 
                     break
                 }
-                Some(OutboundState::SendingTeeAttestation(mut outbound_block_height)) => {
+                Some(OutboundState::SendingTeeAttestation(
+                    mut outbound_block_height
+                )) => {
                     match outbound_block_height.poll_unpin(cx) {
                         Poll::Pending => {
                             if self.timer.poll_unpin(cx).is_ready() {
                                 // Time for successful send expired!
                                 self.failure_count = self.failure_count.saturating_add(1);
-                                debug!(target: "heartbeat", "Sending Heartbeat timed out, this is {} time it failed with this connection", self.failure_count);
+                                debug!(target: "1up", "Sending Heartbeat timed out, this is {} time it failed with this connection", self.failure_count);
                             } else {
                                 self.outbound = Some(OutboundState::SendingTeeAttestation(
                                     outbound_block_height,
@@ -236,13 +246,23 @@ impl ConnectionHandler for HeartbeatHandler {
                         Poll::Ready(Ok(stream)) => {
                             // reset failure count
                             self.failure_count = 0;
+
+                            let _ = async {
+                                self.config.sender
+                                    .send("Callback after reset HB timer".to_string()).await
+                            }.boxed().poll_unpin(cx);
+
                             // start new idle timeout until next request & send
                             self.timer = Box::pin(sleep(self.config.idle_timeout));
                             self.outbound = Some(OutboundState::Idle(stream));
                         }
                         Poll::Ready(Err(_)) => {
                             self.failure_count = self.failure_count.saturating_add(1);
-                            debug!(target: "heartbeat", "Sending Heartbeat failed, {}/{} failures for this connection", self.failure_count,  self.config.max_failures);
+                            debug!(
+                                target: "1up", "Sending Heartbeat failed, {}/{} failures for this connection",
+                                self.failure_count,
+                                self.config.max_failures
+                            );
                         }
                     }
                 }

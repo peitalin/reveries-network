@@ -88,7 +88,7 @@ impl PeerManager {
     //     };
     // }
 
-    pub fn record_umbral_kfrag_peer(&mut self, peer_id: PeerId, agent_name: String, frag_num: u32) {
+    pub fn insert_umbral_kfrag_peer(&mut self, peer_id: PeerId, agent_name: String, frag_num: u32) {
 
         // record Peer as Kfrag holder.
         // make it easy to queyr list of all Peers for a given AgentName

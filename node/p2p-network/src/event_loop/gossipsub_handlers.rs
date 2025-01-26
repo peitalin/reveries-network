@@ -6,7 +6,7 @@ use libp2p::{
     gossipsub::IdentTopic
 };
 use crate::behaviour::{
-    CapsuleFragmentIndexed, KeyFragmentIndexed, KfragsMessage, KfragsTopic
+    CapsuleFragmentIndexed, KeyFragmentIndexed, KfragsBroadcastMessage, KfragsTopic
 };
 use super::EventLoop;
 
@@ -28,7 +28,7 @@ impl EventLoop {
         self.topics.remove(topic_str).ok_or(anyhow!("remove topic err"))
     }
 
-    pub(super) async fn request_kfrags(&mut self, message: KfragsMessage) -> Result<()> {
+    pub(super) async fn request_kfrags(&mut self, message: KfragsBroadcastMessage) -> Result<()> {
 
         self.log(format!("Requesting KeyFrag {:?}\n", message.topic));
         let match_topic = message.topic.to_string();
@@ -49,7 +49,7 @@ impl EventLoop {
         }
     }
 
-    pub(super) async fn broadcast_kfrag(&mut self, message: KfragsMessage) {
+    pub(super) async fn broadcast_kfrag(&mut self, message: KfragsBroadcastMessage) {
 
         self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
         let match_topic = message.topic.to_string();
@@ -148,7 +148,7 @@ impl EventLoop {
                 match topic.clone().into() {
                     KfragsTopic::Kfrag(agent_name, frag_num) => {
                         self.log(format!("Adding Peer to kfrags_peers({}, {}, {})", agent_name, frag_num, peer_id));
-                        self.peer_manager.record_umbral_kfrag_peer(peer_id, agent_name, frag_num);
+                        self.peer_manager.insert_umbral_kfrag_peer(peer_id, agent_name, frag_num);
                     },
                     _ => {}
                 }
