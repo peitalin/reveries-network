@@ -7,7 +7,7 @@ edition = "2021"
 tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk" }
 
 [dependencies]
-rig-core = "0.6.0"
+rig-core = { git = "https://github.com/0xPlaygrounds/rig" }
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 
 dotenv = { workspace = true }
@@ -16,6 +16,7 @@ hex = { workspace = true }
 libp2p = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 umbral-pre = { workspace = true }

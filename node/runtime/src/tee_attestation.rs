@@ -11,7 +11,7 @@ use tdx::{
 
 
 #[cfg(target_os = "linux")]
-pub fn generate_tee_attestation() -> Result<(QuoteV4, Vec<u8>)> {
+pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     // Initialise a TDX object
     let tdx = Tdx::new();
 
@@ -23,21 +23,22 @@ pub fn generate_tee_attestation() -> Result<(QuoteV4, Vec<u8>)> {
     )?;
 
     let attestation_report = QuoteV4::from_bytes(&raw_report);
-    println!(
-        "Attestation Report raw bytes: 0x{}",
-        hex::encode(raw_report)
-    );
-    log_quote_v4_attestation(&attestation_report);
+    if (log) {
+        println!("Attestation Report raw bytes: 0x{}", hex::encode(raw_report));
+        log_quote_v4_attestation(&attestation_report);
+    }
     Ok((attestation_report, attestation_bytes))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn generate_tee_attestation() -> Result<(QuoteV4, Vec<u8>)> {
+pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
 
     let attestation_bytes = hex::decode(TEE_MOCK_ATTESTATION_REPORT)?;
     let attestation_report = QuoteV4::from_bytes(&attestation_bytes);
 
-    log_quote_v4_attestation(&attestation_report);
+    if (log) {
+        log_quote_v4_attestation(&attestation_report);
+    }
     Ok((attestation_report, attestation_bytes))
 }
 

@@ -3,18 +3,18 @@ mod reencrypt;
 mod llm;
 mod tee_attestation;
 
-use libp2p::identity::{ed25519, secp256k1};
-use llm::{AgentSecretsJson, read_agent_secrets};
-use reencrypt::run_reencrypt_example;
-
-use rig::providers::anthropic::{
-    ClientBuilder,
-    completion::CompletionModel,
-    CLAUDE_3_SONNET
+use llm::{
+    read_agent_secrets,
+    connect_to_anthropic,
+    connect_to_deepseek,
 };
+use reencrypt::run_reencrypt_example;
+use rig::completion::Prompt;
 
 
-fn main() -> color_eyre::Result<()> {
+
+#[tokio::main]
+async fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
 
@@ -22,15 +22,32 @@ fn main() -> color_eyre::Result<()> {
 		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
 		.try_init();
 
-    let agent_secrets = read_agent_secrets(0);
-    let anthropic_api_key = agent_secrets.anthropic_api_key;
-    // let (claude, agent) = connect_to_anthropic(&anthropic_api_key);
-    // let response = agent.prompt("does an LLM have a soul?").await?;
-    // println!("anthropic response: {:?}", response);
 
     // run_reencrypt_example();
 
-    tee_attestation::generate_tee_attestation()?;
+
+    let (
+        tee_attestation_quote,
+        tee_attestation_bytes
+    ) = tee_attestation::generate_tee_attestation(true)?;
+
+
+    let agent_secrets = read_agent_secrets(0);
+    // Claude
+    let (
+        claude,
+        agent
+    ) = connect_to_anthropic(&agent_secrets.anthropic_api_key.unwrap());
+
+    //// DeepSeek
+    let agent = connect_to_deepseek(agent_secrets.deepseek_api_key.unwrap()).await;
+    // let ask = &format!("Is the following data a valid TDX QuoteV4 trusted execution environment attestation?\n{:?}", tee_attestation_quote);
+
+    // let ask = "does an LLM have a soul?";
+    // println!("\nAsking: {}\nWaiting for LLM response...", ask);
+
+    // let answer = agent.prompt(ask).await?;
+    // println!("\nAnswer: {}", answer);
 
     Ok(())
 }

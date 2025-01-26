@@ -3,13 +3,16 @@ use dotenv;
 use libp2p::identity::{ed25519, secp256k1};
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
-use rig::{completion::Prompt, providers::openai, providers};
-use rig::providers::anthropic::{
-    ClientBuilder,
-    completion::CompletionModel,
-    CLAUDE_3_SONNET
+
+use rig::{
+    agent::Agent, completion::Prompt, providers::{
+        // openai,
+        anthropic::{
+            completion::CompletionModel, ClientBuilder, CLAUDE_3_SONNET
+        },
+        deepseek::{self, DeepSeekCompletionModel},
+    }
 };
-use rig::agent::Agent;
 
 
 
@@ -28,6 +31,7 @@ pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
     dotenv::dotenv().ok();
     let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
     let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
+    let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY").ok();
 
     let keypair_secp256k1 = secp256k1::Keypair::generate();
     let keypair_ed25519 = ed25519::Keypair::generate();
@@ -55,6 +59,7 @@ pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
         },
         anthropic_api_key: anthropic_api_key,
         openai_api_key: openai_api_key,
+        deepseek_api_key: deepseek_api_key,
         social_accounts: social_accounts,
     }
 }
@@ -83,6 +88,8 @@ pub struct AgentSecretsJson {
 
     pub openai_api_key: Option<String>,
 
+    pub deepseek_api_key: Option<String>,
+
     pub social_accounts: serde_json::Value,
 }
 
@@ -110,5 +117,28 @@ pub async fn test_claude_query(anthropic_api_key: String) -> Result<()> {
     let (claude, agent) = connect_to_anthropic(&anthropic_api_key);
     let response = agent.prompt("does an LLM have a soul?").await?;
     println!("Anthropic Claude response: {:?}", response);
+    Ok(())
+}
+
+pub async fn connect_to_deepseek(deepseek_api_key: String) -> Agent<DeepSeekCompletionModel> {
+    let deepseek_client = deepseek::Client::new(&deepseek_api_key);
+    let agent = deepseek_client
+        .agent("deepseek-chat")
+        .preamble("You are a helpful assistant, knowledgable about computers")
+        .build();
+
+    agent
+}
+
+pub async fn test_deepseek_query(deepseek_api_key: String) -> Result<()> {
+
+    let deepseek_client = deepseek::Client::new(&deepseek_api_key);
+    let agent = deepseek_client
+        .agent("deepseek-chat")
+        .preamble("You are a helpful assistant, well versed in computer technology")
+        .build();
+
+    let answer = agent.prompt("Tell me a joke").await?;
+    println!("Answer: {}", answer);
     Ok(())
 }
