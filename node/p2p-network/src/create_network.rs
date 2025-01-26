@@ -42,7 +42,7 @@ pub async fn new(secret_key_seed: Option<u8>)
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
-    let (heartbeat_sender, heartbeat_receiver) = mpsc::channel(0);
+    let (heartbeat_sender, heartbeat_receiver) = tokio::sync::mpsc::channel(100);
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
@@ -84,12 +84,6 @@ pub async fn new(secret_key_seed: Option<u8>)
                 gossipsub_config
             )?;
 
-            let heartbeat_payload = heartbeat::heartbeat_handler::TeeAttestation {
-                tee_attestation: None,
-                tee_attestation_bytes: None,
-                block_height: 1,
-            };
-
             Ok(Behaviour {
                 kademlia: kad::Behaviour::new(
                     peer_id,
@@ -98,14 +92,13 @@ pub async fn new(secret_key_seed: Option<u8>)
                 heartbeat: heartbeat::Behaviour::new(
                     heartbeat::HeartbeatConfig::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        Duration::from_millis(5_000),
+                        Duration::from_millis(2_000),
                         // Idle time before sending next `TeeAttestationBytes`
-                        Duration::from_millis(5_000),
-                        // Max failures allowed. Requests connection if reached
+                        Duration::from_millis(2_000),
+                        // Max failures allowed. Requests disconnection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
-                        heartbeat_sender,
                     ),
-                    heartbeat_payload,
+                    heartbeat_sender,
                 ),
                 mdns: mdns,
                 gossipsub: gossipsub,

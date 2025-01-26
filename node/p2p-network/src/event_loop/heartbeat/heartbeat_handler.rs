@@ -1,4 +1,12 @@
 use super::HEARTBEAT_PROTOCOL;
+
+use std::{
+    num::NonZeroU32,
+    pin::Pin,
+    task::Poll,
+    time::Duration,
+};
+use color_eyre::{Result, eyre::Error, eyre::anyhow};
 use futures::{
     future::BoxFuture,
     AsyncRead,
@@ -7,9 +15,6 @@ use futures::{
     AsyncWriteExt,
     FutureExt,
 };
-// use std::sync::{mpsc};
-use futures::channel::{mpsc, oneshot};
-use futures::SinkExt;
 use libp2p::{
     core::upgrade::ReadyUpgrade,
     swarm::{
@@ -25,18 +30,12 @@ use libp2p::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    num::NonZeroU32,
-    pin::Pin,
-    task::Poll,
-    time::Duration,
-};
-use color_eyre::{Result, eyre::Error};
 use tokio::time::{
     sleep,
     Sleep,
 };
 use tracing::debug;
+
 use runtime::tee_attestation::QuoteV4;
 
 
@@ -49,6 +48,8 @@ pub enum HeartbeatInEvent {
 pub enum HeartbeatOutEvent {
     HeartbeatPayload(TeeAttestation),
     RequestHeartbeat,
+    HeartbeatFailure,
+    IncreaseBlockHeight
 }
 
 #[derive(Debug, Clone)]
@@ -60,8 +61,6 @@ pub struct HeartbeatConfig {
     /// Max failures allowed.
     /// If reached `HeartbeatHandler` will request closing of the connection.
     max_failures: NonZeroU32,
-    /// for Heartbeat Behaviour to communicate with upper level EventLoop
-    pub sender: mpsc::Sender<String>,
 }
 
 impl HeartbeatConfig {
@@ -69,27 +68,24 @@ impl HeartbeatConfig {
         send_timeout: Duration,
         idle_timeout: Duration,
         max_failures: NonZeroU32,
-        sender: mpsc::Sender<String>
     ) -> Self {
         Self {
             send_timeout,
             idle_timeout,
             max_failures,
-            sender,
         }
     }
 }
 
-// impl Default for HeartbeatConfig {
-//     fn default() -> Self {
-//         Self::new(
-//             Duration::from_secs(60),
-//             Duration::from_secs(1),
-//             NonZeroU32::new(5).expect("5 != 0"),
-//             None,
-//         )
-//     }
-// }
+impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        Self {
+            send_timeout: Duration::from_secs(60),
+            idle_timeout: Duration::from_secs(1),
+            max_failures: NonZeroU32::new(5).expect("5 != 0"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TeeAttestation {
@@ -97,6 +93,16 @@ pub struct TeeAttestation {
     pub tee_attestation: Option<QuoteV4>,
     pub tee_attestation_bytes: Option<Vec<u8>>,
     pub block_height: u32,
+}
+
+impl Default for TeeAttestation {
+    fn default() -> Self {
+        Self {
+            tee_attestation: None,
+            tee_attestation_bytes: None,
+            block_height: 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -155,6 +161,22 @@ impl HeartbeatHandler {
             failure_count: 0,
         }
     }
+
+    // pub fn surface_hb_callback(
+    //     &mut self,
+    //     cx: &mut std::task::Context<'_>
+    // ) -> HeartbeatOutEvent {
+    //     let _ = async {
+    //         self.config.sender
+    //             .send("Poll::Ready Callback from HB timer".to_string()).await
+    //             .map_err(|e| anyhow!(e.to_string()))
+    //     }
+    //     .boxed()
+    //     .poll_unpin(cx);
+
+    //     HeartbeatOutEvent::IncreaseBlockHeight
+    // }
+
 }
 
 impl ConnectionHandler for HeartbeatHandler {
@@ -204,15 +226,19 @@ impl ConnectionHandler for HeartbeatHandler {
         }
 
         loop {
-            // TODO: Close connection properly
-            // if self.failure_count >= self.config.max_failures.into() {
-            //     // Request from `Swarm` to close the faulty connection
-            //     return Poll::Ready(ConnectionHandlerEvent::Close(
-            //         HeartbeatFailure::Timeout,
-            //     ))
-            // }
+
+            // `ConnectionHandlerEvent::Close` was removed.
+            // To close a connection, use ToSwarm::CloseConnection or Swarm::close_connection.
+            // See https://github.com/libp2p/rust-libp2p/issues/3591
+            if self.failure_count >= self.config.max_failures.into() {
+                // Dispatch message to on_connection_handler_event handler to shutdown
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    HeartbeatOutEvent::HeartbeatFailure
+                ))
+            }
 
             match self.outbound.take() {
+
                 Some(OutboundState::RequestingTeeHeartbeat { requested, stream }) => {
                     self.outbound = Some(OutboundState::RequestingTeeHeartbeat {
                         stream,
@@ -227,6 +253,7 @@ impl ConnectionHandler for HeartbeatHandler {
 
                     break
                 }
+
                 Some(OutboundState::SendingTeeAttestation(
                     mut outbound_block_height
                 )) => {
@@ -247,11 +274,6 @@ impl ConnectionHandler for HeartbeatHandler {
                             // reset failure count
                             self.failure_count = 0;
 
-                            let _ = async {
-                                self.config.sender
-                                    .send("Callback after reset HB timer".to_string()).await
-                            }.boxed().poll_unpin(cx);
-
                             // start new idle timeout until next request & send
                             self.timer = Box::pin(sleep(self.config.idle_timeout));
                             self.outbound = Some(OutboundState::Idle(stream));
@@ -266,22 +288,31 @@ impl ConnectionHandler for HeartbeatHandler {
                         }
                     }
                 }
+
+                // Poll timer to see when we can make the next TEE Heartbeat Request
                 Some(OutboundState::Idle(stream)) => match self.timer.poll_unpin(cx) {
                     Poll::Pending => {
                         self.outbound = Some(OutboundState::Idle(stream));
                         break
                     }
                     Poll::Ready(()) => {
+
                         self.outbound = Some(OutboundState::RequestingTeeHeartbeat {
                             stream,
                             requested: false,
                         });
+                        // increment block height and generate new TEE attestation
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                            HeartbeatOutEvent::IncreaseBlockHeight
+                        ));
                     }
                 },
+
                 Some(OutboundState::NegotiatingStream) => {
                     self.outbound = Some(OutboundState::NegotiatingStream);
                     break
                 }
+
                 None => {
                     // Request new stream
                     self.outbound = Some(OutboundState::NegotiatingStream);
@@ -392,7 +423,7 @@ async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, TeeAttestatio
     let num_bytes_read = payload.len() as u64;
 
     // println!("msg_len_array: {:?}", msg_len_array);
-    debug!("receiver: msg_len: {:?}", msg_len);
+    // debug!("receiver: msg_len: {:?}", msg_len);
 
     // trim payload to be msg_len and deserialize into a struct
     match serde_json::from_slice::<TeeAttestationBytes>(&payload) {

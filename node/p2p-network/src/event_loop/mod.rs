@@ -67,7 +67,7 @@ pub struct EventLoop {
         oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
     >,
 
-    heartbeat_receiver: mpsc::Receiver<String>,
+    heartbeat_receiver: tokio::sync::mpsc::Receiver<String>,
 }
 
 struct PendingRequests {
@@ -101,7 +101,7 @@ impl EventLoop {
         node_name: String,
         kfrags_receiver: mpsc::Receiver<KfragsBroadcastMessage>,
         umbral_key: UmbralKey,
-        heartbeat_receiver: mpsc::Receiver<String>,
+        heartbeat_receiver: tokio::sync::mpsc::Receiver<String>,
     ) -> Self {
         Self {
             peer_id,
@@ -135,8 +135,8 @@ impl EventLoop {
         loop {
             tokio::select! {
                 event = self.swarm.select_next_some() => self.handle_event(event).await,
-                heartbeat = self.heartbeat_receiver.next() => match heartbeat {
-                    Some(hb) => self.handle_heartbeat(hb).await,
+                heartbeat = self.heartbeat_receiver.recv() => match heartbeat {
+                    Some(hb) => self.handle_heartbeat_failure(hb).await,
                     // Command channel closed, thus shutting down the network event loop.
                     None => return,
                 },
@@ -146,10 +146,7 @@ impl EventLoop {
                     None => return,
                 },
                 chat_message = self.chat_receiver.next() => match chat_message {
-                    Some(cm) => match cm.topic {
-                        ChatTopic::Chat => self.broadcast_chat_message(cm).await,
-                        _ => {}
-                    },
+                    Some(cm) => self.broadcast_chat_message(cm).await,
                     None => return
                 },
                 kfrags_message = self.kfrags_receiver.next() => match kfrags_message {
@@ -166,9 +163,16 @@ impl EventLoop {
         }
     }
 
-    async fn handle_heartbeat(&mut self, heartbeat: String) {
-        println!("HEARTBEAT Received string: {}", heartbeat);
-        self.swarm.behaviour_mut().heartbeat.increment_block_height();
+    async fn handle_heartbeat_failure(&mut self, heartbeat: String) {
+        self.log(format!("{}", heartbeat));
+        println!("\tTodo: initiating LLM runtime shutdown...");
+        println!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...");
+        // Shutdown the LLM runtime (if in Vessel Mode), but
+        // continue attempting to broadcast the agent_secrets reencryption fragments and ciphertexts.
+        //
+        // If the node never reconnects to the network, then 1up-network nodes will form consensus that
+        // the Vessel is dead, and begin reincarnating the Agent from it's last public agent_secret ciphertexts
+        // on the Kademlia network.
     }
 
     async fn handle_command(&mut self, command: NodeCommand) {
