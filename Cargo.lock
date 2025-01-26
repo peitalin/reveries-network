@@ -5003,8 +5003,7 @@ dependencies = [
 [[package]]
 name = "rig-core"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db412a240081bfa42e95c84b5e2c75e29a6b9b06060623f2b735b40abe08f535"
+source = "git+https://github.com/0xPlaygrounds/rig#0a1119386762677e93a80e36b28563e8ac900d63"
 dependencies = [
  "futures",
  "glob",
@@ -5166,6 +5165,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tdx",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "umbral-pre",
