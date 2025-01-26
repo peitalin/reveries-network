@@ -173,16 +173,15 @@ impl EventLoop {
 
     async fn handle_command(&mut self, command: NodeCommand) {
         match command {
-            NodeCommand::SubscribeTopic { topic, sender } => {
-                let _ = self.subscribe_topic(&topic).await;
-                let _ = sender.send(Ok(()));
+            NodeCommand::SubscribeTopics { topics, sender } => {
+                let subscribed_topics = self.subscribe_topics(&topics).await;
+                let _ = sender.send(subscribed_topics);
             }
-            NodeCommand::UnsubscribeTopic { topic, sender } => {
-                let _ = self.subscribe_topic(&topic).await;
-                let _ = sender.send(Ok(()));
+            NodeCommand::UnsubscribeTopics { topics, sender } => {
+                let unsubscribed_topics = self.unsubscribe_topics(&topics).await;
+                let _ = sender.send(unsubscribed_topics);
             }
             NodeCommand::GetRequestKfragPeers { agent_name, sender } => {
-
                 let peers = self.peer_manager
                     .get_umbral_kfrag_providers(&agent_name)
                     .expect("kfrag peers missing")

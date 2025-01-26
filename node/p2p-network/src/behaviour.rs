@@ -124,7 +124,7 @@ impl Into<TopicHash> for ChatTopic {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KfragsMessage {
+pub struct KfragsBroadcastMessage {
     pub topic: KfragsTopic,
     pub frag_num: usize,
     pub threshold: usize,
@@ -136,7 +136,7 @@ pub struct KfragsMessage {
     pub ciphertext: Option<Box<[u8]>>
 }
 
-impl Into<KeyFragmentIndexed> for KfragsMessage {
+impl Into<KeyFragmentIndexed> for KfragsBroadcastMessage {
     fn into(self) -> KeyFragmentIndexed {
         KeyFragmentIndexed {
             frag_num: self.frag_num,

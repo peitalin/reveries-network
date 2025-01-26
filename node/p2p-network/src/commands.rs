@@ -30,6 +30,14 @@ pub enum NodeCommand {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
+    SubscribeTopics {
+        topics: Vec<String>,
+        sender: oneshot::Sender<Vec<String>>,
+    },
+    UnsubscribeTopics {
+        topics: Vec<String>,
+        sender: oneshot::Sender<Vec<String>>,
+    },
     GetProviders {
         agent_name: String,
         sender: oneshot::Sender<HashSet<PeerId>>,

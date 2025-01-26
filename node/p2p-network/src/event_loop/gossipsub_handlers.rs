@@ -14,18 +14,36 @@ use super::EventLoop;
 
 impl EventLoop {
 
-    pub async fn subscribe_topic(&mut self, topic_str: &str) -> Result<IdentTopic> {
-        let topic = gossipsub::IdentTopic::new(topic_str);
-        self.swarm.behaviour_mut().gossipsub.subscribe(&topic)?;
-        self.topics.insert(topic_str.to_string(), topic.clone());
-        // assert that node is subscribed to only 1 MPC quorum/topic for receiving kfrags
-        Ok(topic)
+    pub async fn subscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
+        topic_strs.iter()
+            .filter_map(|topic_str| {
+                let topic = gossipsub::IdentTopic::new(topic_str);
+                if let Some(_) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic).ok() {
+                    let entry = self.topics
+                            .entry(topic_str.to_string())
+                            .insert_entry(topic);
+                    Some(entry.key().to_string())
+                } else {
+                    None
+                }
+                //// TODO: assert node subscribed to only 1 topic for receiving kfrags
+            })
+            .collect()
     }
 
-    pub async fn unsubscribe_topic(&mut self, topic_str: &str) -> Result<IdentTopic> {
-        let topic = gossipsub::IdentTopic::new(topic_str);
-        self.swarm.behaviour_mut().gossipsub.unsubscribe(&topic)?;
-        self.topics.remove(topic_str).ok_or(anyhow!("remove topic err"))
+    pub async fn unsubscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
+        topic_strs.iter()
+            .filter_map(|topic_str| {
+                let topic = gossipsub::IdentTopic::new(topic_str);
+                if let Some(_) = self.swarm.behaviour_mut().gossipsub.unsubscribe(&topic).ok() {
+                    self.topics.remove(topic_str)
+                        .map(|t| t.to_string())
+                } else {
+                    eprintln!("Could not unsubscribe from topic: {}", topic_str);
+                    None
+                }
+            })
+            .collect()
     }
 
     pub(super) async fn request_kfrags(&mut self, message: KfragsBroadcastMessage) -> Result<()> {

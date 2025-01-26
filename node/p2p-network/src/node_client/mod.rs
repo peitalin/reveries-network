@@ -13,12 +13,13 @@ use libp2p::{
     core::Multiaddr, request_response::ResponseChannel, PeerId
 };
 use crate::get_node_name;
+use crate::SendError;
 use crate::commands::NodeCommand;
 use crate::behaviour::{
     FileEvent,
     FileResponse,
     ChatMessage,
-    KfragsMessage,
+    KfragsBroadcastMessage,
     KfragsTopic,
     UmbralPublicKeyResponse,
     UmbralPeerId,
@@ -39,7 +40,7 @@ pub struct NodeClient {
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub node_name: String,
     pub chat_sender: mpsc::Sender<ChatMessage>,
-    pub kfrags_sender: mpsc::Sender<KfragsMessage>,
+    pub kfrags_broadcast_sender: mpsc::Sender<KfragsBroadcastMessage>,
     umbral_key: UmbralKey, // keep private
     umbral_capsule: Option<umbral_pre::Capsule>,
     umbral_ciphertext: Option<Box<[u8]>>,
@@ -52,7 +53,7 @@ impl NodeClient {
         command_sender: mpsc::Sender<NodeCommand>,
         node_name: String,
         chat_sender: mpsc::Sender<ChatMessage>,
-        kfrags_sender: mpsc::Sender<KfragsMessage>,
+        kfrags_broadcast_sender: mpsc::Sender<KfragsBroadcastMessage>,
         umbral_key: UmbralKey,
     ) -> Self {
 
@@ -61,7 +62,7 @@ impl NodeClient {
             peer_id: peer_id,
             node_name: node_name,
             chat_sender: chat_sender,
-            kfrags_sender: kfrags_sender,
+            kfrags_broadcast_sender: kfrags_broadcast_sender,
             umbral_key: umbral_key,
             umbral_capsule: None,
             umbral_ciphertext: None,
@@ -97,14 +98,17 @@ impl NodeClient {
         self.umbral_ciphertext = Some(ciphertext);
     }
 
-    pub async fn start_listening(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
+    pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
 
         let (sender, receiver) = oneshot::channel();
         // In case a listen address was provided use it, otherwise listen on any address.
         let addr = match listen_address {
             Some(addr) => addr,
-            None => "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
+            // None => "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
+            None => "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
         };
+        // Listen on all interfaces and whatever port the OS assigns
+        // swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
 
         self.command_sender
             .send(NodeCommand::StartListening { addr, sender })
@@ -125,14 +129,50 @@ impl NodeClient {
             match network_event_receiver.next().await {
                 // Reply with the content of the file on incoming requests.
                 Some(FileEvent::InboundRequest { request, frag_num, channel }) => {
-                    self.serve_files_and_cfrags(request, frag_num, channel).await;
+                    self.serve_cfrags(request, frag_num, channel).await;
                 }
                 e => todo!("<network_event_receiver>: {:?}", e),
             }
         }
     }
 
-    async fn serve_files_and_cfrags(&mut self,
+    pub async fn subscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
+
+        let (sender, receiver) = oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::SubscribeTopics { topics, sender })
+            .await
+            .expect("Command receiver not to be dropped.");
+
+        match receiver.await {
+            Ok(subscribed_topics) => {
+                self.log(format!("Subscribed to {:?}", subscribed_topics));
+                Ok(subscribed_topics)
+            }
+            Err(e) => Err(e.into())
+        }
+    }
+
+    pub async fn unsubscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
+
+        let (sender, receiver) = oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::UnsubscribeTopics { topics, sender })
+            .await
+            .expect("Command receiver not to be dropped.");
+
+        match receiver.await {
+            Ok(unsubscribed_topics) => {
+                self.log(format!("Unsubscribed from {:?}", unsubscribed_topics));
+                Ok(unsubscribed_topics)
+            }
+            Err(e) => Err(e.into())
+        }
+    }
+
+    async fn serve_cfrags(&mut self,
         request: String,
         frag_num: Option<u32>,
         channel: ResponseChannel<FileResponse>
@@ -183,8 +223,8 @@ impl NodeClient {
 
                     let topic = KfragsTopic::Kfrag(agent_name.clone(), i as u32);
 
-                    self.kfrags_sender
-                        .send(KfragsMessage {
+                    self.kfrags_broadcast_sender
+                        .send(KfragsBroadcastMessage {
                             topic: topic,
                             frag_num: i,
                             threshold: threshold,

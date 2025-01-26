@@ -42,6 +42,8 @@ pub async fn new(secret_key_seed: Option<u8>)
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
+    let (heartbeat_sender, heartbeat_receiver) = mpsc::channel(0);
+
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
         .with_tcp(
@@ -94,15 +96,16 @@ pub async fn new(secret_key_seed: Option<u8>)
                     kad::store::MemoryStore::new(key.public().to_peer_id())
                 ),
                 heartbeat: heartbeat::Behaviour::new(
-                    heartbeat::Config::new(
+                    heartbeat::HeartbeatConfig::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
                         Duration::from_millis(5_000),
                         // Idle time before sending next `TeeAttestationBytes`
                         Duration::from_millis(5_000),
                         // Max failures allowed. Requests connection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
+                        heartbeat_sender,
                     ),
-                    heartbeat_payload
+                    heartbeat_payload,
                 ),
                 mdns: mdns,
                 gossipsub: gossipsub,
@@ -118,21 +121,20 @@ pub async fn new(secret_key_seed: Option<u8>)
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
 
-    //// Gossipsub
-    // Listen on all interfaces and whatever port the OS assigns
-    swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     //// Kademlia
     swarm.behaviour_mut()
         .kademlia
         .set_mode(Some(kad::Mode::Server));
 
+    // Listen on all interfaces and whatever port the OS assigns
+    // swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
+    // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+
     let (command_sender, command_receiver) = mpsc::channel(0);
     let (network_events_sender, network_events_receiver) = mpsc::channel(0);
     let (chat_sender, chat_receiver) = mpsc::channel(0);
     let (kfrags_sender, kfrags_receiver) = mpsc::channel(0);
-
 
     Ok((
         NodeClient::new(
@@ -152,7 +154,8 @@ pub async fn new(secret_key_seed: Option<u8>)
             chat_receiver,
             node_name,
             kfrags_receiver,
-            umbral_key
+            umbral_key,
+            heartbeat_receiver,
         ),
     ))
 }
