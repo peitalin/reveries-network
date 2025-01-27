@@ -23,7 +23,7 @@ pub struct Behaviour {
     // /// The Behaviour to manage connections to blocked peers.
     // blocked_peer: allow_block_list::Behaviour<allow_block_list::BlockedPeers>,
 
-    pub request_response: request_response::cbor::Behaviour<FileRequest, FileResponse>,
+    pub request_response: request_response::cbor::Behaviour<FragmentRequest, FileResponse>,
 
     /// Stores Umbra public keys for peers, and storing agent secret ciphertexts
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
@@ -58,7 +58,7 @@ pub enum FileEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileRequest(pub String, pub Option<u32>);
+pub struct FragmentRequest(pub String, pub Option<u32>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileResponse(pub Vec<u8>);

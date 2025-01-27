@@ -28,7 +28,7 @@ use crate::behaviour::{
     CapsuleFragmentIndexed,
     ChatMessage,
     FileEvent,
-    FileRequest,
+    FragmentRequest,
     FileResponse,
     KfragsBroadcastMessage,
     KfragsTopic,
@@ -261,7 +261,7 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FileRequest(agent_name, frag_num));
+                    .send_request(&peer, FragmentRequest(agent_name, frag_num));
 
                 self.pending.request_fragments.insert(request_id, sender);
             }

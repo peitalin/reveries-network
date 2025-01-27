@@ -10,6 +10,8 @@ tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk" }
 rig-core = { git = "https://github.com/0xPlaygrounds/rig" }
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 revm = { version = "19.3.0" }
+alloy = { version = "0.3", features = ["full"] }
+
 
 dotenv = { workspace = true }
 color-eyre = { workspace = true }
