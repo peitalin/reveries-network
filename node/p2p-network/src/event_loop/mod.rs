@@ -1,7 +1,7 @@
 mod chat_handlers;
 mod event_handlers;
 mod gossipsub_handlers;
-pub(crate) mod heartbeat;
+pub(crate) mod heartbeat_behaviour;
 mod peer_manager;
 
 use std::{
@@ -27,7 +27,6 @@ use crate::behaviour::{
     Behaviour,
     CapsuleFragmentIndexed,
     ChatMessage,
-    ChatTopic,
     FileEvent,
     FileRequest,
     FileResponse,
@@ -36,44 +35,44 @@ use crate::behaviour::{
     UmbralPeerId,
     UmbralPublicKeyResponse
 };
-use peer_manager::{PeerManager};
+use peer_manager::PeerManager;
 
 
 pub struct EventLoop {
-    peer_id: PeerId,
     swarm: Swarm<Behaviour>,
     command_receiver: mpsc::Receiver<NodeCommand>,
     network_event_sender: mpsc::Sender<FileEvent>,
+
     // chat
+    peer_id: PeerId,
     node_name: String,
     chat_receiver: mpsc::Receiver<ChatMessage>,
     topics: HashMap<String, IdentTopic>,
+
     // Umbral fragments
+    umbral_key: UmbralKey,
     cfrags: HashMap<String, CapsuleFragmentIndexed>,
     kfrags_receiver: mpsc::Receiver<KfragsBroadcastMessage>,
-    umbral_key: UmbralKey,
-    pending_get_umbral_pks: HashMap<
-        UmbralPeerId,
-        tokio::sync::mpsc::Sender<UmbralPublicKeyResponse>
-    >,
 
+    // tracks peer heartbeats status
     peer_manager: PeerManager,
 
+    // pending P2p network requests
     pending: PendingRequests,
-    // file sharing
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    pending_request_file: HashMap<
-        request_response::OutboundRequestId,
-        oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
-    >,
 
-    heartbeat_receiver: tokio::sync::mpsc::Receiver<String>,
+    heartbeat_failure_receiver: tokio::sync::mpsc::Receiver<String>,
 }
 
 struct PendingRequests {
-    start_providing: HashMap<kad::QueryId, oneshot::Sender<()>>,
-    get_providers: HashMap<kad::QueryId, oneshot::Sender<HashSet<PeerId>>>,
-    request_file: HashMap<
+    get_providers: HashMap<
+        kad::QueryId,
+        oneshot::Sender<HashSet<PeerId>>
+    >,
+    get_umbral_pks: HashMap<
+        UmbralPeerId,
+        tokio::sync::mpsc::Sender<UmbralPublicKeyResponse>
+    >,
+    request_fragments: HashMap<
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
     >,
@@ -82,13 +81,12 @@ struct PendingRequests {
 impl PendingRequests {
     fn new() -> Self {
         Self {
-            start_providing: Default::default(),
             get_providers: Default::default(),
-            request_file: Default::default(),
+            get_umbral_pks: Default::default(),
+            request_fragments: Default::default(),
         }
     }
 }
-
 
 impl EventLoop {
 
@@ -101,7 +99,7 @@ impl EventLoop {
         node_name: String,
         kfrags_receiver: mpsc::Receiver<KfragsBroadcastMessage>,
         umbral_key: UmbralKey,
-        heartbeat_receiver: tokio::sync::mpsc::Receiver<String>,
+        heartbeat_failure_receiver: tokio::sync::mpsc::Receiver<String>,
     ) -> Self {
         Self {
             peer_id,
@@ -114,12 +112,9 @@ impl EventLoop {
             cfrags: HashMap::new(),
             kfrags_receiver,
             umbral_key: umbral_key,
-            pending_get_umbral_pks: HashMap::new(),
             peer_manager: PeerManager::new(),
             pending: PendingRequests::new(),
-            pending_get_providers: Default::default(),
-            pending_request_file: Default::default(),
-            heartbeat_receiver,
+            heartbeat_failure_receiver,
         }
     }
 
@@ -131,19 +126,16 @@ impl EventLoop {
     }
 
     pub async fn listen_for_commands_and_events(mut self) {
-
         loop {
             tokio::select! {
-                event = self.swarm.select_next_some() => self.handle_event(event).await,
-                heartbeat = self.heartbeat_receiver.recv() => match heartbeat {
+                swarm_event = self.swarm.select_next_some() => self.handle_swarm_event(swarm_event).await,
+                heartbeat = self.heartbeat_failure_receiver.recv() => match heartbeat {
                     Some(hb) => self.handle_heartbeat_failure(hb).await,
-                    // Command channel closed, thus shutting down the network event loop.
-                    None => return,
+                    None => break // channel closed, shutting down the network event loop.
                 },
                 command = self.command_receiver.next() => match command {
                     Some(c) => self.handle_command(c).await,
-                    // Command channel closed, thus shutting down the network event loop.
-                    None => return,
+                    None => return
                 },
                 chat_message = self.chat_receiver.next() => match chat_message {
                     Some(cm) => self.broadcast_chat_message(cm).await,
@@ -151,11 +143,15 @@ impl EventLoop {
                 },
                 kfrags_message = self.kfrags_receiver.next() => match kfrags_message {
                     Some(cm) => match cm.topic {
-                        KfragsTopic::Kfrag(..) => self.broadcast_kfrag(cm).await,
-                        KfragsTopic::RequestCfrags(_) => {
-                            self.request_kfrags(cm).await.expect("request kfrags error");
+                        KfragsTopic::Kfrag(..) => {
+                            self.broadcast_kfrag(cm).await.expect("todo: handle expect");
                         },
-                        _ => {}
+                        KfragsTopic::RequestCfrags(..) => {
+                            self.request_kfrags(cm).await.expect("todo: handle expect");
+                        },
+                        KfragsTopic::Unknown(s) => {
+                            self.log(format!("Unknown KfragsTopic: {}", s));
+                        }
                     }
                     None => return
                 },
@@ -202,7 +198,7 @@ impl EventLoop {
                     .kademlia
                     .get_providers(agent_name.into_bytes().into());
 
-                self.pending_get_providers.insert(query_id, sender);
+                self.pending.get_providers.insert(query_id, sender);
             }
             NodeCommand::GetPeerUmbralPublicKeys { sender } => {
 
@@ -221,7 +217,7 @@ impl EventLoop {
                         .kademlia
                         .get_record(kad::RecordKey::new(&umbral_pk_peer_id_key));
 
-                    self.pending_get_umbral_pks.insert(umbral_pk_peer_id, sender.clone());
+                    self.pending.get_umbral_pks.insert(umbral_pk_peer_id, sender.clone());
                 };
 
             }
@@ -241,7 +237,7 @@ impl EventLoop {
                         .expect("Connection to peer to be still open.");
                 } else {
                     self.log(format!("No Cfrags found..."));
-                    //// withhold response, and handle futures Err
+                    //// withhold response, and handle futures Err? or send Err
                     // self.swarm
                     //     .behaviour_mut()
                     //     .request_response
@@ -261,15 +257,13 @@ impl EventLoop {
                 peer,
                 sender,
             } => {
-                self.log(format!("Command::RequestFile FileRequest({:?}, {:?})", agent_name, frag_num));
-
                 let request_id = self
                     .swarm
                     .behaviour_mut()
                     .request_response
                     .send_request(&peer, FileRequest(agent_name, frag_num));
 
-                self.pending_request_file.insert(request_id, sender);
+                self.pending.request_fragments.insert(request_id, sender);
             }
             NodeCommand::RespondFile { file, channel } => {
                 self.swarm

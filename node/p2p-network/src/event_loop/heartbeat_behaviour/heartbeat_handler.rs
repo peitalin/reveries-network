@@ -334,6 +334,7 @@ impl ConnectionHandler for HeartbeatHandler {
         let HeartbeatInEvent::LatestHeartbeat(heartbeat_payload) = event;
 
         match self.outbound.take() {
+            // Respond to Heartbeat Request
             Some(OutboundState::RequestingTeeHeartbeat {
                 requested: true,
                 stream,

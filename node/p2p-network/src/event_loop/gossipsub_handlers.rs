@@ -3,6 +3,7 @@ use std::collections::{HashMap};
 use color_eyre::{Result, eyre::anyhow};
 use libp2p::{
     gossipsub,
+    gossipsub::MessageId
 };
 use crate::behaviour::{
     CapsuleFragmentIndexed, KeyFragmentIndexed, KfragsBroadcastMessage, KfragsTopic
@@ -31,6 +32,7 @@ impl EventLoop {
     }
 
     pub async fn unsubscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
+
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
@@ -45,7 +47,10 @@ impl EventLoop {
             .collect()
     }
 
-    pub(super) async fn request_kfrags(&mut self, message: KfragsBroadcastMessage) -> Result<()> {
+    pub(super) async fn request_kfrags(
+        &mut self,
+        message: KfragsBroadcastMessage
+    ) -> Result<MessageId> {
 
         self.log(format!("Requesting KeyFrag {:?}\n", message.topic));
         let match_topic = message.topic.to_string();
@@ -60,33 +65,35 @@ impl EventLoop {
                     .publish(topic.clone(), vec![])
                     .map_err(|e| anyhow!(e.to_string()))?;
 
-                Ok(())
+                Ok(message_id)
             }
             None => Err(anyhow!("Err: topic does not exist: {}", match_topic))
         }
     }
 
-    pub(super) async fn broadcast_kfrag(&mut self, message: KfragsBroadcastMessage) {
+    pub(super) async fn broadcast_kfrag(
+        &mut self,
+        message: KfragsBroadcastMessage
+    ) -> Result<MessageId> {
 
         self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
         let match_topic = message.topic.to_string();
 
         let kfrag_indexed: KeyFragmentIndexed = message.into();
-        let kfrag_indexed_bytes = serde_json::to_vec(&kfrag_indexed)
-            .expect("serde_json::to_vec(kfrag_indexed) error");
+        let kfrag_indexed_bytes = serde_json::to_vec(&kfrag_indexed)?;
 
         match self.topics.get(&match_topic) {
             Some(topic) => {
-                let _ = self.swarm
+                self.swarm
                     .behaviour_mut()
                     .gossipsub
                     .publish(topic.clone(), kfrag_indexed_bytes)
-                    .map_err(|e| anyhow!(e.to_string()));
+                    .map_err(|e| anyhow!(e.to_string()))
             }
             None => {
-                self.log(format!("Err: invalid topic does not exist: {}", match_topic));
+                self.log(format!("Topic '{}' not found in subscribed topics", match_topic));
                 self.print_subscribed_topics();
-                // Err(anyhow!("Topic does not exist".to_string()))
+                Err(anyhow!("Topic does not exist: {}", match_topic))
             }
         }
 
@@ -107,7 +114,8 @@ impl EventLoop {
                     message.topic
                 ));
 
-                match message.topic.clone().into() {
+                match message.topic.into() {
+                    // When a node receives Kfrags in a broadcast/multicast
                     KfragsTopic::Kfrag(agent_name, frag_num)  => {
 
                         let k: KeyFragmentIndexed = serde_json::from_slice(&message.data)
@@ -143,7 +151,6 @@ impl EventLoop {
                         }
 
                     }
-                    // ignore other messages
                     KfragsTopic::RequestCfrags(_) => {}
                     KfragsTopic::Unknown(_) => {}
                 }

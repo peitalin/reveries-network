@@ -14,7 +14,7 @@ use super::EventLoop;
 
 impl EventLoop {
 
-    pub(super) async fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    pub(super) async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
 
             //// Kademlia Protocol tracks:
@@ -37,7 +37,7 @@ impl EventLoop {
                                 self.log(format!("{peer:?} provides key {:?}", kkey));
                             }
 
-                            if let Some(sender) = self.pending_get_providers.remove(&id) {
+                            if let Some(sender) = self.pending.get_providers.remove(&id) {
                                 sender.send(providers).expect("Receiver not to be dropped");
                                 // Finish the query. We are only interested in the first result.
                                 self.swarm
@@ -59,12 +59,11 @@ impl EventLoop {
                             ..
                         })
                     )) => {
+
                         let k = std::str::from_utf8(key.as_ref()).unwrap();
-                        // let v = std::str::from_utf8(&value).unwrap();
-                        // self.log(format!("Got record {:?} {:?}", k, v));
                         let umbral_pk_peer_id_key: UmbralPeerId = k.into();
 
-                        if let Some(sender) = self.pending_get_umbral_pks.remove(&umbral_pk_peer_id_key) {
+                        if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_peer_id_key) {
 
                             let umbral_pk_response = serde_json::from_slice::<UmbralPublicKeyResponse>(&value)
                                 .expect("err deserializing Umbral PRE Public Key");
@@ -152,8 +151,7 @@ impl EventLoop {
                         request_id,
                         response,
                     } => {
-                        let _ = self
-                            .pending_request_file
+                        let _ = self.pending.request_fragments
                             .remove(&request_id)
                             .expect("Request pending.")
                             .send(Ok(response.0));
@@ -171,8 +169,7 @@ impl EventLoop {
                 },
             )) => {
                 // self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
-                let _ = self
-                    .pending_request_file
+                let _ = self.pending.request_fragments
                     .remove(&request_id)
                     .expect("Request pending")
                     .send(Err(Box::new(error)));

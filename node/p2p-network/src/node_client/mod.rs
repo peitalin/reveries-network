@@ -13,7 +13,6 @@ use libp2p::{
     core::Multiaddr, request_response::ResponseChannel, PeerId
 };
 use crate::get_node_name;
-use crate::SendError;
 use crate::commands::NodeCommand;
 use crate::behaviour::{
     FileEvent,

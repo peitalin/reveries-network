@@ -12,7 +12,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use umbral_pre::KeyFrag;
-use crate::event_loop::heartbeat;
+use crate::event_loop::heartbeat_behaviour;
 use crate::{AgentName, FragmentNumber, AGENT_DELIMITER};
 
 
@@ -32,7 +32,7 @@ pub struct Behaviour {
     pub mdns: mdns::tokio::Behaviour,
 
     /// Handles regular heartbeats from peers
-    pub heartbeat: heartbeat::Behaviour,
+    pub heartbeat: heartbeat_behaviour::HeartbeatBehaviour,
 
     // /// The Behaviour to identify peers.
     // identify: identify::Behaviour,
@@ -65,64 +65,14 @@ pub struct FileResponse(pub Vec<u8>);
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
-    pub topic: ChatTopic,
+    pub topic: String,
     pub message: String
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ChatTopic {
-    Chat,
-    Unknown,
-}
-
-impl Display for ChatTopic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Chat => write!(f, "chat"),
-            Self::Unknown => write!(f, "unknown topic"),
-        }
-    }
-
-}
-
-impl From<String> for ChatTopic {
-    fn from(s: String) -> Self {
-        match s.as_str() {
-            "chat" => ChatTopic::Chat,
-            _ => Self::Unknown
-        }
-    }
-}
-
-impl From<TopicHash> for ChatTopic {
-    fn from(i: TopicHash) -> ChatTopic {
-        let s = i.to_string();
-        s.into()
-    }
-}
-
-impl Into<String> for ChatTopic {
-    fn into(self) -> String {
-        match self {
-            Self::Chat => format!("chat"),
-            Self::Unknown => format!("unknown topic"),
-        }
-    }
-}
-
-impl Into<IdentTopic> for ChatTopic {
-    fn into(self) -> IdentTopic {
-        gossipsub::IdentTopic::new(self.to_string())
-    }
-}
-
-impl Into<TopicHash> for ChatTopic {
-    fn into(self) -> TopicHash {
-        <ChatTopic as Into<IdentTopic>>::into(self).into()
-    }
-}
-
+// TODO: split data into private data for the node, vs public data for kademlia
+// private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
+// public: capsules and ciphertexts -> store on Kademlia
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KfragsBroadcastMessage {
     pub topic: KfragsTopic,

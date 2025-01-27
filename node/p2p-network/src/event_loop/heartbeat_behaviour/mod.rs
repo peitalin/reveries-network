@@ -39,25 +39,25 @@ pub const HEARTBEAT_PROTOCOL: &str = "/1up/heartbeat/0.0.1";
 
 
 #[derive(Debug)]
-pub struct Behaviour {
+pub struct HeartbeatBehaviour {
     /// Config timers and max failure counts for Heartbeat
     pub(crate) config: HeartbeatConfig,
     /// for Heartbeat Behaviour to communicate with upper level EventLoop
     /// and disconnect from Swarm, or shutdown the LLM runtime.
-    pub(crate) heartbeat_sender: mpsc::Sender<String>,
+    pub(crate) heartbeat_failure_sender: mpsc::Sender<String>,
     pending_events: VecDeque<HeartbeatAction>,
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
 }
 
-impl Behaviour {
+impl HeartbeatBehaviour {
     pub fn new(
         config: HeartbeatConfig,
-        heartbeat_sender: mpsc::Sender<String>,
+        heartbeat_failure_sender: mpsc::Sender<String>,
     ) -> Self {
         Self {
             config,
-            heartbeat_sender,
+            heartbeat_failure_sender,
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
         }
@@ -79,9 +79,9 @@ impl Behaviour {
     }
 
     fn surface_shutdown_signal(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<()>> {
-        // Surfaces shutdown signal to the EventLoop at the top-level
+        // Surfaces shutdown signal to the heartbeat_failure_receiver channel in EventLoop
         async {
-            self.heartbeat_sender
+            self.heartbeat_failure_sender
                 .send("HeartbeatFailure count too high! shutting down LLM runtime!".to_string())
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))
@@ -91,7 +91,7 @@ impl Behaviour {
     }
 }
 
-impl NetworkBehaviour for Behaviour {
+impl NetworkBehaviour for HeartbeatBehaviour {
     type ConnectionHandler = HeartbeatHandler;
     type ToSwarm = TeePayloadOutEvent;
 
@@ -163,10 +163,6 @@ impl NetworkBehaviour for Behaviour {
 
                 self.set_tee_attestation(tee_quote_bytes);
                 self.increment_block_height();
-
-                // push HeartbeatFailure to pending events for async processing
-                self.pending_events
-                    .push_back(HeartbeatAction::HeartbeatFailure)
             }
         }
     }
@@ -221,7 +217,6 @@ enum HeartbeatAction {
     },
     HeartbeatFailure
 }
-
 
 #[derive(Debug, Clone)]
 pub struct TeePayloadOutEvent {

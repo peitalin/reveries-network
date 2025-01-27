@@ -21,7 +21,10 @@ use crate::behaviour::{
     FileEvent,
     Behaviour,
 };
-use crate::event_loop::heartbeat;
+use crate::event_loop::heartbeat_behaviour::{
+    HeartbeatBehaviour,
+    HeartbeatConfig
+};
 use crate::event_loop::EventLoop;
 use crate::node_client::NodeClient;
 
@@ -42,7 +45,7 @@ pub async fn new(secret_key_seed: Option<u8>)
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
-    let (heartbeat_sender, heartbeat_receiver) = tokio::sync::mpsc::channel(100);
+    let (heartbeat_failure_sender, heartbeat_failure_receiver) = tokio::sync::mpsc::channel(100);
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
@@ -89,8 +92,8 @@ pub async fn new(secret_key_seed: Option<u8>)
                     peer_id,
                     kad::store::MemoryStore::new(key.public().to_peer_id())
                 ),
-                heartbeat: heartbeat::Behaviour::new(
-                    heartbeat::HeartbeatConfig::new(
+                heartbeat: HeartbeatBehaviour::new(
+                    HeartbeatConfig::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
                         Duration::from_millis(2_000),
                         // Idle time before sending next `TeeAttestationBytes`
@@ -98,7 +101,7 @@ pub async fn new(secret_key_seed: Option<u8>)
                         // Max failures allowed. Requests disconnection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
                     ),
-                    heartbeat_sender,
+                    heartbeat_failure_sender,
                 ),
                 mdns: mdns,
                 gossipsub: gossipsub,
@@ -148,7 +151,7 @@ pub async fn new(secret_key_seed: Option<u8>)
             node_name,
             kfrags_receiver,
             umbral_key,
-            heartbeat_receiver,
+            heartbeat_failure_receiver,
         ),
     ))
 }

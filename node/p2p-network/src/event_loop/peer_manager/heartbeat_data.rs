@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, SystemTime};
 use tokio::time::Instant;
 
-use crate::event_loop::heartbeat::heartbeat_handler::TeeAttestation;
+use crate::event_loop::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
 
 #[derive(Debug, Clone)]

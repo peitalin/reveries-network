@@ -10,7 +10,7 @@ use std::collections::{
 };
 use crate::{AgentName, FragmentNumber};
 
-use super::heartbeat::heartbeat_handler::TeeAttestation;
+use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
 
 #[derive(Clone, Debug)]
