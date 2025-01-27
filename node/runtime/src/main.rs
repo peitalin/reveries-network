@@ -2,6 +2,7 @@
 mod reencrypt;
 mod llm;
 mod tee_attestation;
+mod evm;
 
 use llm::{
     read_agent_secrets,
@@ -10,7 +11,14 @@ use llm::{
 };
 use reencrypt::run_reencrypt_example;
 use rig::completion::Prompt;
-
+use evm::{
+    AppState,
+    TransactionRequest,
+    StorageQuery,
+    deploy_contract,
+    get_storage,
+    get_1upnetwork_contract_bytecode,
+};
 
 
 #[tokio::main]
@@ -24,7 +32,6 @@ async fn main() -> color_eyre::Result<()> {
 
 
     // run_reencrypt_example();
-
 
     let (
         tee_attestation_quote,
@@ -48,6 +55,36 @@ async fn main() -> color_eyre::Result<()> {
 
     // let answer = agent.prompt(ask).await?;
     // println!("\nAnswer: {}", answer);
+
+    let app_state = AppState::new();
+
+    // Test running an EVM
+    let deployment = deploy_contract(
+        &app_state,
+        TransactionRequest {
+            // Contract bytecode (hex string)
+            bytecode: get_1upnetwork_contract_bytecode(),
+            // Transaction input (hex string)
+            calldata: "".to_string(),
+            // Sender address (hex string)
+            sender: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".to_string(),
+            // Ether value in wei
+            value: 0,
+        }
+    );
+
+    if let Ok((contract_addr, _contract_data)) = deployment {
+
+        let json_data = get_storage(
+            &app_state,
+            StorageQuery {
+                contract: contract_addr,
+                slot: "0x0".to_string()
+            }
+        );
+        println!("Data from contract: {:?}", json_data);
+    }
+
 
     Ok(())
 }

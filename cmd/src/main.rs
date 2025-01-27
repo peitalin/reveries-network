@@ -7,7 +7,6 @@ use jsonrpsee::{
     rpc_params,
     core::client::ClientT
 };
-use hex;
 use rpc::rpc_client::create_rpc_client;
 use p2p_network::{
     get_node_name,
