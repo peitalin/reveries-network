@@ -3,10 +3,10 @@ use serde::Deserialize;
 use hex;
 use color_eyre::{Result, eyre::anyhow};
 use revm::{
-    db::{InMemoryDB, CacheDB, EmptyDB},
-    Evm,
+    db::{CacheDB, EmptyDBTyped, InMemoryDB},
     Database,
     DatabaseCommit,
+    Evm,
 };
 use revm::primitives::{
     Account,
@@ -17,24 +17,41 @@ use revm::primitives::{
     U256,
     Bytes,
     Bytecode,
+    ResultAndState,
     TxEnv,
     Env,
 };
-use std::str::FromStr;
+use core::convert::Infallible;
 
 
 
 // Shared state with thread-safe EVM database
 #[derive(Clone)]
 pub struct AppState {
-    // pub db: Arc<Mutex<CacheDB<EmptyDB>>>,
-    pub db: Arc<Mutex<InMemoryDB>>,
+    pub cache_db: CacheDB<EmptyDBTyped<Infallible>>,
+
+    pub contract_addr: Option<Address>,
 }
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(caller_address: &[u8]) -> Self {
+
+        let caller = Address::from_slice(caller_address);
+        // Initialize base database and caller's account
+        let mut cache_db = InMemoryDB::default();
+        cache_db.insert_account_info(
+            caller,
+            revm::primitives::AccountInfo {
+                balance: U256::from(1e18),
+                nonce: 0,
+                code_hash: revm::primitives::KECCAK_EMPTY,
+                code: None,
+            },
+        );
+
         Self {
             // db: Arc::new(Mutex::new(CacheDB::new(EmptyDB::default()))),
-            db: Arc::new(Mutex::new(InMemoryDB::default())),
+            cache_db,
+            contract_addr: None,
         }
     }
 }
@@ -43,74 +60,89 @@ impl AppState {
 pub struct TransactionRequest {
     pub bytecode: &'static str,     // Contract bytecode (hex string)
     pub calldata: String,     // Transaction input (hex string)
-    pub sender: Address,      // Sender address (hex string)
+    pub caller: Address,      // Sender address (hex string)
     pub value: u128,          // Ether value in wei
 }
 
 #[derive(Deserialize)]
-pub struct StorageQuery {
-    pub contract: String,
-    pub slot: String,
+pub struct QueryNumber {
+    pub caller: Address,
+    pub contract: Address,
 }
 
-type Evm2 = Evm<'static, (), CacheDB<EmptyDB>>;
-
-pub fn create_evm(app_state: &AppState) -> Evm2 {
-
-    // // Initialize in-memory database
-    // let db = InMemoryDB::default();
-    let db = app_state.db.lock().unwrap();
-
-    let evm = Evm::builder()
-        .with_db(db.clone())
-        .build();
-
-    evm
+#[derive(Deserialize)]
+pub struct IncrementNumberQuery {
+    pub caller: Address,
+    pub contract: Address,
 }
 
+#[derive(Deserialize)]
+pub struct SetNumberQuery {
+    pub caller: Address,
+    pub contract: Address,
+    pub number: U256,
+}
 
-pub fn deploy_contract(mut evm: Evm2, req: TransactionRequest) -> Result<(String, String)> {
+pub fn deploy_contract(mut app_state: AppState, req: TransactionRequest) -> Result<AppState> {
 
-    // set balance (for gas)
-    let balance = U256::from(10u128.pow(18)); // 1 ETH for deployment
-    let account_info = AccountInfo::from_balance(balance);
-    evm.db_mut().insert_account_info(req.sender, account_info);
+    let bytecode_hex = get_1upnetwork_contract_bytecode();
+    // Contract bytecode (remove the 0x prefix)
+    let bytecode = Bytes::from(hex::decode(&bytecode_hex[2..]).unwrap());
 
-    println!("\nDeploying Counter.sol contract bytecode...");
+    // Isolate EVM borrowing in a separate scope
+    let (result, state, contract_address) = {
+        let mut evm = Evm::builder()
+            .with_db(&mut app_state.cache_db)
+            .modify_tx_env(|tx| {
+                tx.caller = req.caller;
+                tx.transact_to = TransactTo::Create;
+                tx.data = bytecode.clone();
+                tx.value = U256::ZERO;
+                tx.gas_price = U256::from(1);
+                tx.gas_limit = 1e18 as u64;
+            })
+            .build();
 
-    if let Some(account) = evm.db_mut().basic(req.sender).unwrap() {
-        println!("Sender's balance: {}", account.balance);
-    } else {
-        println!("Sender account not found!");
-    }
+        let ResultAndState {
+            result,
+            state
+        }= evm.transact().unwrap();
 
-    let bytecode = Bytes::from(hex::decode(&req.bytecode[2..]).unwrap());
-    // Setup execution environment
-    evm.tx_mut().caller = req.sender;
-    evm.tx_mut().transact_to = TransactTo::Create;
-    evm.tx_mut().data = Bytes::from(bytecode);
-    evm.tx_mut().value = U256::from(req.value);
-    evm.tx_mut().gas_limit = 1e18 as u64; // Set appropriate gas limit
-    evm.tx_mut().gas_price = U256::from(1);
-
-    let result = evm.transact_commit().unwrap();
-
-    match result {
-        ExecutionResult::Success { output, .. } => {
-            println!("\nEVM result: {:?}", output);
-            println!("Created a contract at address: {}", output.address().unwrap());
-            // hex::encode(output.into_data())
-            Ok((output.address().unwrap().to_string(), hex::encode(output.data())))
+        match result.clone() {
+            ExecutionResult::Success { output, .. } => {
+                println!("\nEVM result: {:?}", output);
+                let addr = *output.address().unwrap();
+                println!("\nCreated a contract at address: {:?}", addr);
+                (result, state, addr)
+            }
+            ExecutionResult::Revert { output, .. } => {
+                panic!("Deployment Failed: {:?}", output);
+            }
+            ExecutionResult::Halt { reason, .. } => {
+                panic!("Deployment Failed: {:?}", reason);
+            }
         }
-        ExecutionResult::Revert { .. } => {
-            println!("Execution: {:?}", result);
-            Err(anyhow!("{:?}", result))
-        }
-        ExecutionResult::Halt { .. } => {
-            println!("Execution: {:?}", result);
-            Err(anyhow!("{:?}", result))
-        }
-    }
+    };  // EVM instance drops here, releasing borrow
+
+    // Now we can safely commit
+    app_state.cache_db.commit(state);
+    app_state.contract_addr = Some(contract_address);
+
+    println!("Saving contract_addr: {:?}", app_state.contract_addr);
+    println!("Committing state transition to AppState.cache_db...");
+
+    // Verify contract exists in base database
+    let contract_account = app_state.cache_db.basic(contract_address)
+        .expect("Contract account missing after commit");
+
+    let contract_code = app_state.cache_db
+        .code_by_hash(contract_account.expect("contract==None").code_hash)
+        .expect("Contract code missing");
+
+    println!("Successfully deployed to: {:?}", contract_address);
+    println!("Code size: {} bytes", contract_code.len());
+
+    Ok(app_state)
 }
 
 
@@ -136,48 +168,132 @@ pub(crate) fn get_1upnetwork_contract_bytecode() -> &'static str {
 }
 
 
-pub(crate) fn get_storage(state: &AppState, query: StorageQuery) -> serde_json::Value {
 
-    let mut db = state.db.lock().unwrap();
+pub(crate) fn query_number(app_state: &mut AppState, query: QueryNumber) -> U256 {
 
-    let contract = hex::decode(query.contract.trim_start_matches("0x")).unwrap();
-    let contract_address = Address::from_slice(&contract);
+    // Call number() function
+    const NUMBER_SELECTOR: [u8; 4] = hex_literal::hex!("8381f58a");
+    let call_data = Bytes::from(NUMBER_SELECTOR);
 
-    println!("\nQuerying contract addr: {}", contract_address);
-
-    // Verify the contract code is stored
-    let contract_account = db.basic(contract_address).expect("AccountInfo");
-    println!("contract_account: {:?}", contract_account);
-
-    let contract_code = db.code_by_hash(contract_account.unwrap().code_hash).expect("code_by_hash err");
-    println!("Contract code length: {} bytes", contract_code.len());
-
-    let slot = U256::from_str_radix(query.slot.trim_start_matches("0x"), 16).unwrap();
-
-    match db.storage(contract_address, slot.into()) {
-        Ok(value) => {
-            let value_str = format!("{}", value.to_string());
-            serde_json::json!({ "value": value_str })
-        }
-        Err(_) => serde_json::json!({
-            "value": "Storage slot not found"
+    let mut evm = Evm::builder()
+        .with_db(&mut app_state.cache_db)
+        .modify_env(|env| {
+            env.tx.caller = query.caller;
+            env.tx.transact_to = TransactTo::Call(query.contract);
+            env.tx.data = call_data.clone();
+            env.tx.value = U256::ZERO;
+            env.tx.gas_limit = 9_000_000;
         })
-    }
+        .build();
+
+    let result = evm.transact().unwrap();
+    let number = U256::from_be_slice(&result.result.output().unwrap());
+    number
+}
+
+
+pub(crate) fn increment_number(
+    app_state: &mut AppState,
+    query: IncrementNumberQuery
+) -> ExecutionResult {
+
+    // Call increment()
+    const INCREMENT_SELECTOR: [u8; 4] = hex_literal::hex!("d09de08a");
+    let increment_data = Bytes::from(INCREMENT_SELECTOR);
+
+    // create a scope so when evm.with_db(..) drops, it releases the borrow
+    // on app_state.cache_db
+    let ResultAndState { result, state } = {
+
+        let mut evm = Evm::builder()
+            .with_db(&mut app_state.cache_db)
+            .modify_env(|env| {
+                env.tx.caller = query.caller;
+                env.tx.transact_to = TransactTo::Call(query.contract);
+                env.tx.data = increment_data.clone();
+                env.tx.value = U256::ZERO;
+                env.tx.gas_limit = 1_000_000;
+            })
+            .build();
+
+        let result = evm.transact().unwrap();
+
+        match &result.result {
+            ExecutionResult::Success { output, .. } => {
+                println!("\nEVM result: {:?}", output);
+                result
+            }
+            ExecutionResult::Revert { output, .. } => {
+                panic!("Deployment Failed: {:?}", output);
+            }
+            ExecutionResult::Halt { reason, .. } => {
+                panic!("Deployment Failed: {:?}", reason);
+            }
+        }
+    };
+
+    println!("Increment result: {:?}", result);
+    app_state.cache_db.commit(state);
+    result
+}
+
+
+pub(crate) fn set_number(
+    app_state: &mut AppState,
+    query: SetNumberQuery
+) -> ExecutionResult {
+
+    // Call setNumber(42)
+    const SET_NUMBER_SELECTOR: [u8; 4] = hex_literal::hex!("3fb5c1cb");
+    let data = Bytes::from(SET_NUMBER_SELECTOR);
+
+    let new_number = U256::from(query.number);
+    let mut call_data = data.to_vec();
+    call_data.extend_from_slice(&new_number.to_be_bytes::<32>());
+
+    let ResultAndState { result, state } = {
+
+        let mut evm = Evm::builder()
+            .with_db(&mut app_state.cache_db)
+            .modify_env(|env| {
+                env.tx.caller = query.caller;
+                env.tx.transact_to = TransactTo::Call(query.contract);
+                env.tx.data = Bytes::from(call_data);
+                env.tx.value = U256::ZERO;
+                env.tx.gas_limit = 1_000_000;
+            })
+            .build();
+
+        let result = evm.transact().unwrap();
+
+        match &result.result {
+            ExecutionResult::Success { output, .. } => {
+                println!("\nEVM result: {:?}", output);
+                result
+            }
+            ExecutionResult::Revert { output, .. } => {
+                panic!("Deployment Failed: {:?}", output);
+            }
+            ExecutionResult::Halt { reason, .. } => {
+                panic!("Deployment Failed: {:?}", reason);
+            }
+        }
+    };
+
+    println!("setNumber result: {:?}", result);
+    app_state.cache_db.commit(state);
+    result
 }
 
 
 pub fn revm_test2() {
 
-    let bytecode_hex = get_1upnetwork_contract_bytecode();
-    // Contract bytecode (remove the 0x prefix)
-    let bytecode = Bytes::from(hex::decode(&bytecode_hex[2..]).unwrap());
-
-    // Caller address (example)
     let caller = Address::from_slice(&[0x1; 20]);
-
     // Initialize base database and caller's account
-    let mut base_db = InMemoryDB::default();
-    base_db.insert_account_info(
+    // let mut base_db = InMemoryDB::default();
+    // Create CacheDB wrapper for atomic state changes
+    let mut cache_db = CacheDB::new(InMemoryDB::default());
+    cache_db.insert_account_info(
         caller,
         revm::primitives::AccountInfo {
             balance: U256::from(1e18),
@@ -187,8 +303,9 @@ pub fn revm_test2() {
         },
     );
 
-    // Create CacheDB wrapper for atomic state changes
-    let mut cache_db = CacheDB::new(&mut base_db);
+    let bytecode_hex = get_1upnetwork_contract_bytecode();
+    // Contract bytecode (remove the 0x prefix)
+    let bytecode = Bytes::from(hex::decode(&bytecode_hex[2..]).unwrap());
 
     // Isolate EVM borrowing in a separate scope
     let (result, contract_address) = {
@@ -235,6 +352,5 @@ pub fn revm_test2() {
 
     println!("Successfully deployed to: {:?}", contract_address);
     println!("Code size: {} bytes", contract_code.len());
-
 
 }

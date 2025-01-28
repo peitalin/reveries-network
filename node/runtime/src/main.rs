@@ -12,15 +12,17 @@ use llm::{
 use reencrypt::run_reencrypt_example;
 use rig::completion::Prompt;
 use evm::{
+    deploy_contract, get_1upnetwork_contract_bytecode,
+    query_number,
+    increment_number,
+    set_number,
     AppState,
-    TransactionRequest,
-    StorageQuery,
-    create_evm,
-    deploy_contract,
-    get_storage,
-    get_1upnetwork_contract_bytecode,
-    revm_test2,
+    QueryNumber,
+    IncrementNumberQuery,
+    SetNumberQuery,
+    TransactionRequest
 };
+use revm::primitives::{Address, U256};
 use std::str::FromStr;
 
 
@@ -61,37 +63,53 @@ async fn main() -> color_eyre::Result<()> {
 
 
 
-    // // Test running an EVM
-    // let app_state = AppState::new();
-    // let evm = create_evm(&app_state);
+    // Test running an EVM
+    let caller = Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap();
+    // AppState contains DB
+    let app_state = AppState::new(caller.as_slice());
 
-    // let deployment = deploy_contract(
-    //     evm,
-    //     TransactionRequest {
-    //         // Contract bytecode (hex string)
-    //         bytecode: get_1upnetwork_contract_bytecode(),
-    //         // Transaction input (hex string)
-    //         calldata: "".to_string(),
-    //         // Sender address (hex string)
-    //         sender: revm::primitives::Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap(),
-    //         // Ether value in wei
-    //         value: 0,
-    //     }
-    // );
+    let mut app_state = deploy_contract(
+        app_state, // DB
+        TransactionRequest {
+            // Contract bytecode (hex string)
+            bytecode: get_1upnetwork_contract_bytecode(),
+            // Transaction input (hex string)
+            calldata: "".to_string(),
+            // Sender address (hex string)
+            caller: caller,
+            // Ether value in wei
+            value: 0,
+        }
+    ).unwrap();
 
-    // if let Ok((contract_addr, _contract_data)) = deployment {
+    if let Some(contract) = app_state.contract_addr {
 
-    //     let json_data = get_storage(
-    //         &app_state,
-    //         StorageQuery {
-    //             contract: contract_addr,
-    //             slot: "0x0".to_string()
-    //         }
-    //     );
-    //     println!("Data from contract: {:?}", json_data);
-    // }
+        // increment twice
+        increment_number(&mut app_state, IncrementNumberQuery { caller, contract });
+        increment_number(&mut app_state, IncrementNumberQuery { caller, contract });
 
-    revm_test2();
+        let current_number = query_number(
+            &mut app_state,
+            QueryNumber { caller, contract }
+        );
+        println!("\nCurrent number: {}", current_number);
+
+        set_number(
+            &mut app_state,
+            SetNumberQuery {
+                caller,
+                contract,
+                number: U256::from(33)
+            }
+        );
+
+        let new_number = query_number(
+            &mut app_state,
+            QueryNumber { caller, contract }
+        );
+
+        println!("\nNew number: {}", new_number);
+    }
 
     Ok(())
 }
