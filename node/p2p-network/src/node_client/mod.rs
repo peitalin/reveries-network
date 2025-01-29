@@ -1,27 +1,30 @@
 mod stdin_handlers;
 
 use std::collections::{HashMap, HashSet};
-use color_eyre::{Result, eyre::anyhow};
+use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use futures::{
-    channel::{mpsc, oneshot},
+    // channel::{mpsc, oneshot},
     prelude::*,
     StreamExt,
 };
+use tokio::sync::{mpsc, oneshot};
 use hex;
 use libp2p::{
     core::Multiaddr, request_response::ResponseChannel, PeerId
 };
 use crate::get_node_name;
+use crate::types::{
+    ChatMessage,
+    UmbralPeerId
+};
 use crate::commands::NodeCommand;
 use crate::behaviour::{
     FileEvent,
-    FileResponse,
-    ChatMessage,
-    KfragsBroadcastMessage,
+    FragmentResponse,
+    KeyFragmentMessage,
     KfragsTopic,
     UmbralPublicKeyResponse,
-    UmbralPeerId,
     CapsuleFragmentIndexed,
 };
 use umbral_pre::VerifiedCapsuleFrag;
@@ -38,8 +41,11 @@ pub struct NodeClient {
     pub peer_id: PeerId,
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub node_name: String,
+    pub hosting_agent_name: Option<String>,
+
     pub chat_sender: mpsc::Sender<ChatMessage>,
-    pub kfrags_broadcast_sender: mpsc::Sender<KfragsBroadcastMessage>,
+    pub kfrags_broadcast_sender: mpsc::Sender<KeyFragmentMessage>,
+
     umbral_key: UmbralKey, // keep private
     umbral_capsule: Option<umbral_pre::Capsule>,
     umbral_ciphertext: Option<Box<[u8]>>,
@@ -52,7 +58,7 @@ impl NodeClient {
         command_sender: mpsc::Sender<NodeCommand>,
         node_name: String,
         chat_sender: mpsc::Sender<ChatMessage>,
-        kfrags_broadcast_sender: mpsc::Sender<KfragsBroadcastMessage>,
+        kfrags_broadcast_sender: mpsc::Sender<KeyFragmentMessage>,
         umbral_key: UmbralKey,
     ) -> Self {
 
@@ -62,24 +68,66 @@ impl NodeClient {
             node_name: node_name,
             chat_sender: chat_sender,
             kfrags_broadcast_sender: kfrags_broadcast_sender,
+            hosting_agent_name: None,
             umbral_key: umbral_key,
             umbral_capsule: None,
             umbral_ciphertext: None,
         }
     }
 
-    pub fn log(&self, message: String) {
+    pub async fn listen_to_network_events(
+        &mut self,
+        mut network_event_receiver: mpsc::Receiver<FileEvent>
+    ) -> Result<()> {
+        loop {
+            let next = network_event_receiver.recv();
+            match next.await {
+                // Reply with the content of the file on incoming requests.
+                Some(FileEvent::InboundRequest {
+                    request,
+                    frag_num,
+                    channel
+                }) => {
+
+                    if let Some(kfrag_num) = frag_num {
+
+                        let agent_name = request;
+                        self.command_sender
+                            .send(NodeCommand::RespondCfrags {
+                                agent_name,
+                                frag_num: kfrag_num,
+                                channel
+                            })
+                            .await
+                            .expect("Command receiver not to be dropped.");
+
+                    } else {
+                        self.log(format!("frag_num missing"));
+                    }
+                }
+                e => {
+                    panic!("Error <network_event_receiver>: {:?}", e);
+                }
+            }
+        }
+    }
+
+    pub fn log<S: std::fmt::Display>(&self, message: S) {
         println!("{} {}{} {}",
             "NodeClient".bright_blue(), self.node_name.yellow(), ">".blue(),
             message
         );
     }
 
-    pub fn encrypt_secret(&mut self, plaintext_bytes: &[u8]) {
+    pub fn encrypt_secret(&mut self, agent_secrets: AgentSecretsJson) -> Result<()> {
+
+        self.hosting_agent_name = Some(agent_secrets.agent_name.clone());
+
+        let agent_secrets_bytes = &serde_json::to_vec(&agent_secrets)?;
 
         let (capsule, ciphertext) = umbral_pre::encrypt(
             &self.umbral_key.public_key,
-            plaintext_bytes
+            &agent_secrets_bytes
         ).unwrap();
 
         let plaintext_alice = umbral_pre::decrypt_original(
@@ -95,6 +143,7 @@ impl NodeClient {
 
         self.umbral_capsule = Some(capsule);
         self.umbral_ciphertext = Some(ciphertext);
+        Ok(())
     }
 
     pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
@@ -115,21 +164,6 @@ impl NodeClient {
         match receiver.await {
             Err(e) => Err(anyhow!(e.to_string())),
             Ok(_) => Ok(())
-        }
-    }
-
-    pub async fn listen_to_network_events(
-        &mut self,
-        mut network_event_receiver: mpsc::Receiver<FileEvent>
-    ) -> Result<()> {
-        loop {
-            match network_event_receiver.next().await {
-                // Reply with the content of the file on incoming requests.
-                Some(FileEvent::InboundRequest { request, frag_num, channel }) => {
-                    self.serve_cfrags(request, frag_num, channel).await;
-                }
-                e => todo!("<network_event_receiver>: {:?}", e),
-            }
         }
     }
 
@@ -169,19 +203,6 @@ impl NodeClient {
         }
     }
 
-    async fn serve_cfrags(&mut self,
-        request: String,
-        frag_num: Option<u32>,
-        channel: ResponseChannel<FileResponse>
-    ) {
-        if let Some(kfrag_num) = frag_num {
-            let agent_name = request;
-            self.respond_cfrags(agent_name, kfrag_num, channel).await;
-        } else {
-            self.log(format!("frag_num missing"));
-        }
-    }
-
     pub async fn broadcast_kfrags(
         &mut self,
         agent_name: String,
@@ -192,21 +213,20 @@ impl NodeClient {
         let umbral_public_keys = self.get_peer_umbral_pks().await;
         self.log(format!("received Umbral PKs: {:?}\n", umbral_public_keys));
 
-        // choose a random node to become the next vessel
+        // choose the next node in the queue to become the next vessel
         match umbral_public_keys.iter().next() {
             None => Err(anyhow!("No Umbral PK Peers found")),
             Some(new_vessel_pk) => {
 
                 self.log(format!("Next Vessel: {}\n\t{:?}\n\t{}\n",
-                    get_node_name(&new_vessel_pk.peer_id),
-                    new_vessel_pk.peer_id,
+                    get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
+                    new_vessel_pk.umbral_peer_id,
                     new_vessel_pk.umbral_public_key,
                 ));
 
                 let bob_pk = new_vessel_pk.umbral_public_key;
-                // let bob_pk = self.umbral_key.public_key;
 
-                // Alice generates reencryption key fragments for Bob (MPC node)
+                // Alice generates reencryption key fragments for Ursulas (MPC nodes)
                 self.log(format!("Generating share fragments: ({shares},{threshold})"));
                 let kfrags = generate_pre_kfrags(
                     &self.umbral_key.secret_key, // alice_sk
@@ -216,19 +236,20 @@ impl NodeClient {
                     shares
                 );
 
-                for (i, kfrag) in kfrags.iter().enumerate() {
+                for (i, kfrag) in kfrags.into_iter().enumerate() {
 
-                    let topic = KfragsTopic::Kfrag(agent_name.clone(), i as u32);
+                    let topic = KfragsTopic::BroadcastKfrag(agent_name.clone(), i as u32);
 
                     self.kfrags_broadcast_sender
-                        .send(KfragsBroadcastMessage {
+                        .send(KeyFragmentMessage {
                             topic: topic,
                             frag_num: i,
                             threshold: threshold,
-                            kfrag: kfrag.clone(),
+                            kfrag: kfrag,
                             verifying_pk: self.umbral_key.verifying_pk,
                             alice_pk: self.umbral_key.public_key,
                             bob_pk, // bob_pk
+                            vessel_peer_id: self.peer_id,
                             capsule: self.umbral_capsule.clone(),
                             ciphertext: self.umbral_ciphertext.clone(),
                         }).await?;
@@ -272,11 +293,41 @@ impl NodeClient {
         receiver.await.expect("get kfrags peers not to drop")
     }
 
+
+    pub async fn request_cfrags(
+        &mut self,
+        agent_name: String
+    ) -> Vec<Result<Vec<u8>, Box<dyn std::error::Error + Send>>> {
+
+        let providers = self.get_kfrags_peers(agent_name.clone()).await;
+
+        let mut results = vec![];
+
+        for (frag_num, peers) in providers.iter() {
+
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            println!(">>>>Requesting frag num: {}", frag_num);
+
+            self.command_sender
+                .send(NodeCommand::RequestCfrags {
+                    agent_name: agent_name.clone(),
+                    frag_num: *frag_num as usize,
+                    sender
+                })
+                .await
+                .expect("Command receiver not to be dropped.");
+
+            results.push(receiver.await.unwrap());
+        };
+
+        results
+    }
+
     pub async fn get_cfrags(&mut self, agent_name: String) {
 
         let providers = self.get_kfrags_peers(agent_name.clone()).await;
 
-        self.log(format!("Located Cfrag wroadcast peers: {:?}\n", providers));
+        self.log(format!("Located Cfrag broadcast peers: {:?}\n", providers));
         if providers.is_empty() {
             self.log(format!("Could not find provider for agent_name {}", agent_name));
         }
@@ -301,7 +352,7 @@ impl NodeClient {
                 .map(|&peer_id| {
 
                     let agent_name2 = agent_name.clone();
-                    let mut nc = self.clone();
+                    let nc = self.clone();
 
                     async move {
                         let (sender, receiver) = oneshot::channel();
@@ -309,7 +360,7 @@ impl NodeClient {
                         nc.command_sender
                             .send(NodeCommand::RequestFile {
                                 agent_name: agent_name2,
-                                frag_num: Some(kfrag_num),
+                                frag_num: Some(kfrag_num as usize),
                                 peer: peer_id,
                                 sender
                             })
@@ -322,7 +373,7 @@ impl NodeClient {
 
             // Await the requests, ignore the remaining once a single one succeeds.
             if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
-                if let Ok(cfrag_indexed) = serde_json::from_slice::<CapsuleFragmentIndexed>(&cfrag_raw_bytes) {
+                if let Ok(Some(cfrag_indexed)) = serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_raw_bytes) {
 
                     let new_vessel_pk  = cfrag_indexed.bob_pk;
                     self.log(format!("Received Cfrag({}): \n{}\n", kfrag_num, cfrag_indexed));
@@ -339,14 +390,15 @@ impl NodeClient {
                     self.log(format!("Verified Cfrag({}): \n{}\n", kfrag_num, verified_cfrag));
 
                     new_vessel_pk_vec.push(cfrag_indexed);
-                    capsule_frags.insert(kfrag_num, verified_cfrag);
+                        capsule_frags.insert(kfrag_num, verified_cfrag);
                 }
             } else {
                 self.log(format!("Future error in Cfrag({})", kfrag_num));
             }
         }
 
-        let mut new_vessel_pk= new_vessel_pk_vec.pop().unwrap();
+        println!("vvvvvvvvvv: {:?}", new_vessel_pk_vec);
+        let mut new_vessel_pk = new_vessel_pk_vec.pop().unwrap();
         let threshold = new_vessel_pk.threshold as usize;
         let num_frags = capsule_frags.len();
         self.log(format!("Received {}/{} required CapsuleFrags", num_frags, threshold));
@@ -384,7 +436,7 @@ impl NodeClient {
 
             },
             Err(e) => {
-                let node_name = get_node_name(&UmbralPeerId::from(self.peer_id));
+                let node_name = get_node_name(&self.peer_id);
                 self.log(format!(">>> Err({})", e));
                 if (num_frags < threshold) {
                     self.log(format!(">>> Not enough fragments. Need {threshold}, received {num_frags}"));
@@ -396,20 +448,27 @@ impl NodeClient {
         };
     }
 
-    pub async fn respond_cfrags(
-        &mut self,
-        agent_name: String,
-        frag_num: u32,
-        channel: libp2p::request_response::ResponseChannel<FileResponse>,
-    ) {
-        self.command_sender
-            .send(NodeCommand::RespondCfrags {
-                agent_name,
-                frag_num,
-                channel
-            })
-            .await
-            .expect("Command receiver not to be dropped.");
+    fn parse_cfrags() {
+
+        // if let Ok(Some(cfrag_indexed)) = serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_raw_bytes) {
+
+        //     let new_vessel_pk  = cfrag_indexed.bob_pk;
+        //     self.log(format!("Received Cfrag({}): \n{}\n", kfrag_num, cfrag_indexed));
+
+        //     // Bob must check that cfrags are valid
+        //     // assemble kfrags, verify them as cfrags.
+        //     let verified_cfrag = cfrag_indexed.cfrag.clone().verify(
+        //         &cfrag_indexed.capsule.clone().unwrap(),
+        //         &cfrag_indexed.verifying_pk, // verifying pk
+        //         &cfrag_indexed.alice_pk, // alice pk
+        //         &new_vessel_pk // bob pk
+        //     ).expect("Error verifying Cfrag");
+
+        //     self.log(format!("Verified Cfrag({}): \n{}\n", kfrag_num, verified_cfrag));
+
+        //     new_vessel_pk_vec.push(cfrag_indexed);
+        //     capsule_frags.insert(kfrag_num, verified_cfrag);
+        // }
     }
 
 }
