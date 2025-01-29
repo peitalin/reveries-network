@@ -8,7 +8,7 @@ use crate::event_loop::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
 #[derive(Debug, Clone)]
 pub struct HeartBeatData {
-    pub heartbeat_payload: TeeAttestation,
+    pub payload: TeeAttestation,
     pub last_heartbeat: Instant,
     pub last_heartbeat_sys: SystemTime,
     pub size_moving_window: u32,
@@ -18,7 +18,7 @@ pub struct HeartBeatData {
 impl HeartBeatData {
     pub fn new(window: u32) -> Self {
         Self {
-            heartbeat_payload: TeeAttestation::default(),
+            payload: TeeAttestation::default(),
             last_heartbeat: Instant::now(),
             last_heartbeat_sys: SystemTime::now(),
             size_moving_window: window,
@@ -52,23 +52,14 @@ impl HeartBeatData {
         self.durations.push_front(new_duration);
     }
 
-    pub fn update(&mut self, heartbeat_payload: TeeAttestation) {
-        self.heartbeat_payload = heartbeat_payload;
+    pub fn update(&mut self, payload: TeeAttestation) {
+        self.payload = payload;
         let old_heartbeat = self.last_heartbeat;
         self.last_heartbeat = Instant::now();
         self.last_heartbeat_sys = SystemTime::now();
         let new_duration = self.last_heartbeat.saturating_duration_since(old_heartbeat);
         self.add_new_duration(new_duration);
     }
-
-    pub fn increment_block_height(&mut self) {
-        self.update(TeeAttestation {
-            tee_attestation: self.heartbeat_payload.tee_attestation.clone(),
-            tee_attestation_bytes: self.heartbeat_payload.tee_attestation_bytes.clone(),
-            block_height: self.heartbeat_payload.block_height + 1
-        });
-    }
-
 }
 
 

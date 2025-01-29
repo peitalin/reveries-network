@@ -18,6 +18,8 @@ pub(crate) struct PeerInfo {
     pub peer_addresses: HashSet<Multiaddr>,
     pub peer_umbral_public_keys: HashMap<PeerId, umbral_pre::PublicKey>,
     pub peer_heartbeat_data: heartbeat_data::HeartBeatData,
+    /// name of the Agent this peer is currently hosting (if any)
+    pub hosting_agent_name: Option<String>,
     pub client_version: Option<String>,
 }
 
@@ -27,6 +29,7 @@ impl PeerInfo {
             peer_addresses: HashSet::new(),
             peer_umbral_public_keys: HashMap::new(),
             peer_heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
+            hosting_agent_name: None,
             client_version: None,
         }
     }
@@ -37,7 +40,6 @@ struct AgentFragment {
     agent_name: String,
     frag_num: u32
 }
-
 
 /// Manages Peers and their events
 #[derive(Debug)]
@@ -55,7 +57,6 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-
     pub fn new(
     ) -> Self {
         Self {
@@ -65,7 +66,16 @@ impl PeerManager {
         }
     }
 
-    pub fn update_heartbeat(&mut self, peer_id: PeerId, heartbeat_payload: TeeAttestation) {
+    pub fn set_peer_is_hosting_agent(&mut self, peer_id: PeerId, agent_name: &str) {
+        match self.vessel_nodes.get_mut(&peer_id) {
+            None => {},
+            Some(peer_info) => {
+                peer_info.hosting_agent_name = Some(agent_name.to_string())
+            }
+        }
+    }
+
+    pub fn update_peer_heartbeat(&mut self, peer_id: PeerId, heartbeat_payload: TeeAttestation) {
         match self.vessel_nodes.get_mut(&peer_id) {
             Some(peer_info) => {
                 peer_info.peer_heartbeat_data.update(heartbeat_payload);

@@ -5,8 +5,11 @@ use libp2p::{
 use crate::behaviour::{
     BehaviourEvent,
     FileEvent,
-    UmbralPeerId,
     UmbralPublicKeyResponse,
+};
+use crate::types::{
+    ChatMessage,
+    UmbralPeerId,
 };
 use crate::short_peer_id;
 use super::EventLoop;
@@ -18,8 +21,8 @@ impl EventLoop {
         match event {
 
             //// Kademlia Protocol tracks:
-            //// - which peers hold which file_names
             //// - Umbral Public Keys (Proxy Reencryption) for each PeerId this node is connected to.
+            //// - Ciphertexts
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(e)) => match e {
 
                 // StartProviding event
@@ -103,7 +106,7 @@ impl EventLoop {
                         if peer == self.peer_id {
                             self.log(format!("BootstrapOk: Publishing Umbral PK for {:?} {}", peer, self.umbral_key.public_key));
                             let umbral_pk_response = UmbralPublicKeyResponse {
-                                peer_id: UmbralPeerId::from(peer),
+                                umbral_peer_id: UmbralPeerId::from(peer),
                                 umbral_public_key: self.umbral_key.public_key,
                             };
                             let umbral_public_key_bytes = serde_json::to_vec(&umbral_pk_response)
@@ -114,7 +117,7 @@ impl EventLoop {
                                 .kademlia
                                 .put_record(
                                     kad::Record {
-                                        key: kad::RecordKey::new(&umbral_pk_response.peer_id.to_string()),
+                                        key: kad::RecordKey::new(&umbral_pk_response.umbral_peer_id.to_string()),
                                         value: umbral_public_key_bytes,
                                         publisher: Some(peer),
                                         expires: None,
@@ -138,6 +141,9 @@ impl EventLoop {
                         channel,
                         ..
                     } => {
+
+                        self.log(format!("request_response:REQUESt"));
+
                         self.network_event_sender
                             .send(FileEvent::InboundRequest {
                                 request: request.0,
@@ -151,10 +157,14 @@ impl EventLoop {
                         request_id,
                         response,
                     } => {
-                        let _ = self.pending.request_fragments
+
+                        self.log(format!("request_response:RESPONSE"));
+
+                        let sender = self.pending.request_fragments
                             .remove(&request_id)
-                            .expect("Request pending.")
-                            .send(Ok(response.0));
+                            .expect("request_response: Request pending.");
+
+                        let _ = sender.send(Ok(response.0));
                     }
                 }
             },
@@ -168,7 +178,7 @@ impl EventLoop {
                     request_id, error, peer
                 },
             )) => {
-                // self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
+                self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
                 let _ = self.pending.request_fragments
                     .remove(&request_id)
                     .expect("Request pending")
@@ -223,7 +233,7 @@ impl EventLoop {
 
             SwarmEvent::Behaviour(BehaviourEvent::Heartbeat(tee_event)) => {
 
-                self.peer_manager.update_heartbeat(
+                self.peer_manager.update_peer_heartbeat(
                     tee_event.peer_id,
                     tee_event.latest_tee_attestation.clone()
                 );
@@ -235,21 +245,26 @@ impl EventLoop {
 
                 match p_info {
                     Some(peer_info) => {
-                        match &peer_info.peer_heartbeat_data.heartbeat_payload.tee_attestation {
+                        match &peer_info.peer_heartbeat_data.payload.tee_attestation {
                             Some(quote) => {
-                                self.log(format!(
-                                    "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
-                                    short_peer_id(peer_id),
-                                    peer_info.peer_heartbeat_data.heartbeat_payload.block_height,
-                                    hex::encode(quote.signature.ecdsa_attestation_key),
-                                ));
+                                // self.log(format!(
+                                //     "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
+                                //     short_peer_id(peer_id),
+                                //     peer_info.peer_heartbeat_data.payload.block_height,
+                                //     hex::encode(quote.signature.ecdsa_attestation_key),
+                                // ));
+                                // self.log(format!(
+                                //     "{} HeartbeatData: Block: {}",
+                                //     short_peer_id(peer_id),
+                                //     peer_info.peer_heartbeat_data.payload.block_height,
+                                // ));
                             },
                             None => {
                                 self.log(format!(
                                     "{} HeartbeatData: Block: {}\n\t{:?}",
                                     short_peer_id(peer_id),
-                                    peer_info.peer_heartbeat_data.heartbeat_payload.block_height,
-                                    peer_info.peer_heartbeat_data.heartbeat_payload
+                                    peer_info.peer_heartbeat_data.payload.block_height,
+                                    peer_info.peer_heartbeat_data.payload
                                 ));
                             }
                         };

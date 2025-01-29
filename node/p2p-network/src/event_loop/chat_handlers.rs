@@ -1,4 +1,4 @@
-use crate::behaviour::ChatMessage;
+use crate::types::ChatMessage;
 use super::EventLoop;
 
 impl EventLoop {

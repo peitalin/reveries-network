@@ -48,9 +48,10 @@ pub enum HeartbeatInEvent {
 pub enum HeartbeatOutEvent {
     HeartbeatPayload(TeeAttestation),
     RequestHeartbeat,
-    HeartbeatFailure,
-    IncreaseBlockHeight
+    FailedToSendHeartbeat,
+    GenerateTeeAttestation
 }
+
 
 #[derive(Debug, Clone)]
 pub struct HeartbeatConfig {
@@ -161,22 +162,6 @@ impl HeartbeatHandler {
             failure_count: 0,
         }
     }
-
-    // pub fn surface_hb_callback(
-    //     &mut self,
-    //     cx: &mut std::task::Context<'_>
-    // ) -> HeartbeatOutEvent {
-    //     let _ = async {
-    //         self.config.sender
-    //             .send("Poll::Ready Callback from HB timer".to_string()).await
-    //             .map_err(|e| anyhow!(e.to_string()))
-    //     }
-    //     .boxed()
-    //     .poll_unpin(cx);
-
-    //     HeartbeatOutEvent::IncreaseBlockHeight
-    // }
-
 }
 
 impl ConnectionHandler for HeartbeatHandler {
@@ -231,9 +216,11 @@ impl ConnectionHandler for HeartbeatHandler {
             // To close a connection, use ToSwarm::CloseConnection or Swarm::close_connection.
             // See https://github.com/libp2p/rust-libp2p/issues/3591
             if self.failure_count >= self.config.max_failures.into() {
-                // Dispatch message to on_connection_handler_event handler to shutdown
+                // Unable to send HB out to other peers.
+                // Dispatch message to on_connection_handler_event handler to reboot, and
+                // reset from Vessel mode to MPC mode.
                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HeartbeatOutEvent::HeartbeatFailure
+                    HeartbeatOutEvent::FailedToSendHeartbeat
                 ))
             }
 
@@ -289,7 +276,7 @@ impl ConnectionHandler for HeartbeatHandler {
                     }
                 }
 
-                // Poll timer to see when we can make the next TEE Heartbeat Request
+                // Poll timer to see if we can make the next TEE Heartbeat Request
                 Some(OutboundState::Idle(stream)) => match self.timer.poll_unpin(cx) {
                     Poll::Pending => {
                         self.outbound = Some(OutboundState::Idle(stream));
@@ -301,9 +288,9 @@ impl ConnectionHandler for HeartbeatHandler {
                             stream,
                             requested: false,
                         });
-                        // increment block height and generate new TEE attestation
+                        // generate new TEE attestation
                         return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HeartbeatOutEvent::IncreaseBlockHeight
+                            HeartbeatOutEvent::GenerateTeeAttestation
                         ));
                     }
                 },
@@ -429,7 +416,7 @@ async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, TeeAttestatio
     // trim payload to be msg_len and deserialize into a struct
     match serde_json::from_slice::<TeeAttestationBytes>(&payload) {
         Err(e) => {
-            let payload_str = &std::str::from_utf8(&payload)?;
+            let payload_str = std::str::from_utf8(&payload)?;
             panic!("\npayload_str: {}\n\n>>> {}\n\tpayload_str.len(): {}\n\tpayload.len(): {}\n\tmsg_len: {}\n\tnum_bytes read: {}\n",
                 payload_str,
                 e,

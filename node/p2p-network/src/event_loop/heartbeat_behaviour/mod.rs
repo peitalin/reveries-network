@@ -82,7 +82,7 @@ impl HeartbeatBehaviour {
         // Surfaces shutdown signal to the heartbeat_failure_receiver channel in EventLoop
         async {
             self.heartbeat_failure_sender
-                .send("HeartbeatFailure count too high! shutting down LLM runtime!".to_string())
+                .send("FailedToSendHeartbeat count too high! shutting down LLM runtime!".to_string())
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))
         }
@@ -147,13 +147,13 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                         ),
                     })
             }
-            HeartbeatOutEvent::HeartbeatFailure => {
+            HeartbeatOutEvent::FailedToSendHeartbeat => {
                 // bubble up some command to EventLoop to shut the LLM Runtime down
-                // push HeartbeatFailure to pending events for async processing
+                // push FailedToSendHeartbeat to pending events for async processing
                 self.pending_events
-                    .push_back(HeartbeatAction::HeartbeatFailure)
+                    .push_back(HeartbeatAction::FailedToSendHeartbeat)
             }
-            HeartbeatOutEvent::IncreaseBlockHeight => {
+            HeartbeatOutEvent::GenerateTeeAttestation => {
 
                 let (
                     _tee_quote ,
@@ -162,7 +162,6 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     .expect("tee attestation generation err");
 
                 self.set_tee_attestation(tee_quote_bytes);
-                self.increment_block_height();
             }
         }
     }
@@ -191,8 +190,10 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     })
                 }
 
-                HeartbeatAction::HeartbeatFailure => {
-                    // Send shutdown signal to EventLoop instead of ToSwarm
+                HeartbeatAction::FailedToSendHeartbeat => {
+                    // Send shutdown signal to EventLoop. Only this node knows
+                    // it's run into an error. Peers will have to wait until hearbeats
+                    // start to timeout before intiating reincarnation process
                     let _ = self.surface_shutdown_signal(cx);
 
                     // // return pending to async runtime and continue
@@ -215,7 +216,7 @@ enum HeartbeatAction {
         connection_id: ConnectionId,
         in_event: HeartbeatInEvent,
     },
-    HeartbeatFailure
+    FailedToSendHeartbeat
 }
 
 #[derive(Debug, Clone)]

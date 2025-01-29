@@ -6,7 +6,7 @@ use libp2p::{
     gossipsub::MessageId
 };
 use crate::behaviour::{
-    CapsuleFragmentIndexed, KeyFragmentIndexed, KfragsBroadcastMessage, KfragsTopic
+    CapsuleFragmentIndexed, KeyFragmentMessage, KfragsTopic
 };
 use super::EventLoop;
 
@@ -32,7 +32,6 @@ impl EventLoop {
     }
 
     pub async fn unsubscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
-
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
@@ -47,39 +46,15 @@ impl EventLoop {
             .collect()
     }
 
-    pub(super) async fn request_kfrags(
-        &mut self,
-        message: KfragsBroadcastMessage
-    ) -> Result<MessageId> {
-
-        self.log(format!("Requesting KeyFrag {:?}\n", message.topic));
-        let match_topic = message.topic.to_string();
-        println!("match_topic: {}", match_topic);
-
-        match self.topics.get(&message.topic.to_string()) {
-            Some(topic) => {
-
-                let message_id = self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(topic.clone(), vec![])
-                    .map_err(|e| anyhow!(e.to_string()))?;
-
-                Ok(message_id)
-            }
-            None => Err(anyhow!("Err: topic does not exist: {}", match_topic))
-        }
-    }
-
     pub(super) async fn broadcast_kfrag(
         &mut self,
-        message: KfragsBroadcastMessage
+        message: KeyFragmentMessage
     ) -> Result<MessageId> {
 
         self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
         let match_topic = message.topic.to_string();
 
-        let kfrag_indexed: KeyFragmentIndexed = message.into();
+        let kfrag_indexed: KeyFragmentMessage = message.into();
         let kfrag_indexed_bytes = serde_json::to_vec(&kfrag_indexed)?;
 
         match self.topics.get(&match_topic) {
@@ -116,10 +91,10 @@ impl EventLoop {
 
                 match message.topic.into() {
                     // When a node receives Kfrags in a broadcast/multicast
-                    KfragsTopic::Kfrag(agent_name, frag_num)  => {
+                    KfragsTopic::BroadcastKfrag(agent_name, frag_num)  => {
 
-                        let k: KeyFragmentIndexed = serde_json::from_slice(&message.data)
-                            .expect("Error deserializing KeyFragmentIndexed");
+                        let k: KeyFragmentMessage = serde_json::from_slice(&message.data)
+                            .expect("Error deserializing KeyFragmentMessage");
 
                         if let Some(capsule) = k.capsule {
 
@@ -134,6 +109,8 @@ impl EventLoop {
                                 verified_kfrag
                             ).unverify();
 
+                            self.peer_manager.set_peer_is_hosting_agent(peer_id, &agent_name);
+
                             self.cfrags.insert(
                                 agent_name,
                                 CapsuleFragmentIndexed {
@@ -143,6 +120,7 @@ impl EventLoop {
                                     verifying_pk: k.verifying_pk,
                                     alice_pk: k.alice_pk,
                                     bob_pk: k.bob_pk,
+                                    vessel_peer_id: peer_id,
                                     capsule: Some(capsule),
                                     ciphertext: k.ciphertext
                                 }
@@ -151,13 +129,13 @@ impl EventLoop {
                         }
 
                     }
-                    KfragsTopic::RequestCfrags(_) => {}
-                    KfragsTopic::Unknown(_) => {}
+                    KfragsTopic::RequestCfrags(_) => panic!("Should not reach"),
+                    KfragsTopic::Unknown(_) => panic!("Should not reach"),
                 }
             }
             gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 match topic.clone().into() {
-                    KfragsTopic::Kfrag(_, _) => self.peer_manager.remove_umbral_kfrag_peer(peer_id),
+                    KfragsTopic::BroadcastKfrag(_, _) => self.peer_manager.remove_umbral_kfrag_peer(peer_id),
                     _ => {}
                 }
             }
@@ -170,7 +148,7 @@ impl EventLoop {
 
                 // self.log(format!("Gossipsub Peer Subscribed {:?} {:?}", peer_id, topic));
                 match topic.clone().into() {
-                    KfragsTopic::Kfrag(agent_name, frag_num) => {
+                    KfragsTopic::BroadcastKfrag(agent_name, frag_num) => {
                         self.log(format!("Adding Peer to kfrags_peers({}, {}, {})", agent_name, frag_num, peer_id));
                         self.peer_manager.insert_umbral_kfrag_peer(peer_id, agent_name, frag_num);
                     },

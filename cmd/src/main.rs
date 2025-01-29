@@ -11,7 +11,7 @@ use rpc::rpc_client::create_rpc_client;
 use p2p_network::{
     get_node_name,
     short_peer_id,
-    behaviour::{UmbralPeerId, UmbralPublicKeyResponse}
+    behaviour::UmbralPublicKeyResponse
 };
 
 
@@ -47,8 +47,8 @@ async fn main() -> Result<()> {
 
     println!(
         "\nNext Vessel:\n{}\n{}\nUmbral Public Key: {}",
-        get_node_name(&response.peer_id),
-        short_peer_id(&response.peer_id.into()),
+        get_node_name(&response.umbral_peer_id.clone().into()),
+        short_peer_id(&response.umbral_peer_id.into()),
         &response.umbral_public_key
     );
     Ok(())
