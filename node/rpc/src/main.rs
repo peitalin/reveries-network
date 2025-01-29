@@ -44,8 +44,7 @@ async fn main() -> Result<()> {
     let agent_secrets = runtime::llm::read_agent_secrets(
         opt.secret_key_seed.or(Some(0)).unwrap() as i32
     );
-    let agent_secrets_bytes = &serde_json::to_vec(&agent_secrets)?;
-    node_client.encrypt_secret(agent_secrets_bytes);
+    node_client.encrypt_secret(agent_secrets);
 
 
     let mut nc = node_client.clone();

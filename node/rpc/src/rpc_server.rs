@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use p2p_network::behaviour::{UmbralPeerId, UmbralPublicKeyResponse};
 use serde::{Deserialize, Serialize};
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server};
