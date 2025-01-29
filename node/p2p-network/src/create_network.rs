@@ -4,7 +4,8 @@ use std::{
     time::Duration,
 };
 use color_eyre::Result;
-use futures::channel::mpsc;
+// use futures::channel::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use libp2p::{
     identity,
     kad,
@@ -16,7 +17,7 @@ use libp2p::{
     StreamProtocol,
 };
 use crate::SendError;
-pub use crate::behaviour::UmbralPeerId;
+pub use crate::types::UmbralPeerId;
 use crate::behaviour::{
     FileEvent,
     Behaviour,
@@ -127,10 +128,10 @@ pub async fn new(secret_key_seed: Option<u8>)
     // swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
     // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-    let (command_sender, command_receiver) = mpsc::channel(0);
-    let (network_events_sender, network_events_receiver) = mpsc::channel(0);
-    let (chat_sender, chat_receiver) = mpsc::channel(0);
-    let (kfrags_sender, kfrags_receiver) = mpsc::channel(0);
+    let (command_sender, command_receiver) = mpsc::channel(100);
+    let (network_events_sender, network_events_receiver) = mpsc::channel(100);
+    let (chat_sender, chat_receiver) = mpsc::channel(100);
+    let (kfrags_sender, kfrags_receiver) = mpsc::channel(100);
 
     Ok((
         NodeClient::new(

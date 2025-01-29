@@ -3,7 +3,9 @@ pub mod commands;
 pub mod create_network;
 mod event_loop;
 pub mod node_client;
-use crate::create_network::UmbralPeerId;
+pub mod types;
+use libp2p::PeerId;
+
 
 pub const AGENT_DELIMITER: &'static str = ".";
 
@@ -39,8 +41,8 @@ pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
         .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
 }
 
-pub fn get_node_name<'a>(umbral_peer_id: &'a UmbralPeerId) -> String {
-    match umbral_peer_id.0.as_str() {
+pub fn get_node_name(peer_id: &PeerId) -> String {
+    match peer_id.to_base58().as_str() {
         "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ALICE".to_string(),
         "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BELLA".to_string(),
         "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo" => "CARL".to_string(),

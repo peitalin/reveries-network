@@ -1,20 +1,19 @@
-use std::{
-    collections::{HashMap, HashSet}, fmt::Display, str::FromStr
-};
+use std::fmt::Display;
 use regex::Regex;
 use color_eyre::Result;
 use libp2p::{
     gossipsub::{self, IdentTopic, TopicHash},
     kad,
     mdns,
+    PeerId,
     request_response::{self, ResponseChannel},
-    swarm::NetworkBehaviour, PeerId
+    swarm::NetworkBehaviour
 };
 use serde::{Deserialize, Serialize};
 use umbral_pre::KeyFrag;
+use crate::types::UmbralPeerId;
 use crate::event_loop::heartbeat_behaviour;
 use crate::{AgentName, FragmentNumber, AGENT_DELIMITER};
-
 
 /// Handles all p2p protocols
 #[derive(NetworkBehaviour)]
@@ -23,7 +22,7 @@ pub struct Behaviour {
     // /// The Behaviour to manage connections to blocked peers.
     // blocked_peer: allow_block_list::Behaviour<allow_block_list::BlockedPeers>,
 
-    pub request_response: request_response::cbor::Behaviour<FragmentRequest, FileResponse>,
+    pub request_response: request_response::cbor::Behaviour<FragmentRequest, FragmentResponse>,
 
     /// Stores Umbra public keys for peers, and storing agent secret ciphertexts
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
@@ -52,67 +51,34 @@ pub struct Behaviour {
 pub enum FileEvent {
     InboundRequest {
         request: String,
-        frag_num: Option<u32>,
-        channel: ResponseChannel<FileResponse>
+        frag_num: Option<usize>,
+        channel: ResponseChannel<FragmentResponse>
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FragmentRequest(pub String, pub Option<u32>);
+pub struct FragmentRequest(pub String, pub Option<usize>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileResponse(pub Vec<u8>);
-
-#[derive(Debug, Clone)]
-pub struct ChatMessage {
-    pub topic: String,
-    pub message: String
-}
+pub struct FragmentResponse(pub Vec<u8>);
 
 
-// TODO: split data into private data for the node, vs public data for kademlia
-// private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
-// public: capsules and ciphertexts -> store on Kademlia
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KfragsBroadcastMessage {
+pub struct KeyFragmentMessage {
     pub topic: KfragsTopic,
     pub frag_num: usize,
     pub threshold: usize,
-    pub kfrag: KeyFrag,
-    pub verifying_pk: umbral_pre::PublicKey,
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
+    pub verifying_pk: umbral_pre::PublicKey,
+    // TODO: split data into private data for the MPC node, vs public data for kademlia
+    // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
+    // public: capsules and ciphertexts -> store on Kademlia
+    pub vessel_peer_id: PeerId,
+    pub kfrag: KeyFrag,
     pub capsule: Option<umbral_pre::Capsule>,
     pub ciphertext: Option<Box<[u8]>>
 }
-
-impl Into<KeyFragmentIndexed> for KfragsBroadcastMessage {
-    fn into(self) -> KeyFragmentIndexed {
-        KeyFragmentIndexed {
-            frag_num: self.frag_num,
-            threshold: self.threshold,
-            kfrag: self.kfrag,
-            verifying_pk: self.verifying_pk,
-            alice_pk: self.alice_pk,
-            bob_pk: self.bob_pk,
-            capsule: self.capsule,
-            ciphertext: self.ciphertext
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyFragmentIndexed {
-    pub frag_num: usize,
-    pub threshold: usize,
-    pub kfrag: KeyFrag,
-    pub verifying_pk: umbral_pre::PublicKey,
-    pub alice_pk: umbral_pre::PublicKey,
-    pub bob_pk: umbral_pre::PublicKey,
-    pub capsule: Option<umbral_pre::Capsule>,
-    pub ciphertext: Option<Box<[u8]>>
-}
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapsuleFragmentIndexed {
@@ -121,6 +87,8 @@ pub struct CapsuleFragmentIndexed {
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,
+
+    pub vessel_peer_id: PeerId,
     pub cfrag: umbral_pre::CapsuleFrag,
     pub capsule: Option<umbral_pre::Capsule>,
     pub ciphertext: Option<Box<[u8]>>,
@@ -137,78 +105,22 @@ impl Display for CapsuleFragmentIndexed {
     }
 }
 
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct UmbralPeerId(pub String);
-
-const UMBRAL_KEY_PREFIX: &'static str = "umbral_pubkey_";
-
-impl From<String> for UmbralPeerId {
-    fn from(s: String) -> Self {
-        if s.starts_with(UMBRAL_KEY_PREFIX) {
-            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
-        } else {
-            panic!("Does not begin with {}: {}", UMBRAL_KEY_PREFIX, s)
-        }
-    }
-}
-
-impl From<&str> for UmbralPeerId {
-    fn from<'a>(s: &'a str) -> Self {
-        if s.starts_with(UMBRAL_KEY_PREFIX) {
-            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
-        } else {
-            panic!("Does not begin with {}: {}", UMBRAL_KEY_PREFIX, s)
-        }
-    }
-}
-
-impl Into<String> for UmbralPeerId {
-    fn into(self) -> String {
-        format!("{}{}", UMBRAL_KEY_PREFIX, self.0)
-    }
-}
-
-impl Display for UmbralPeerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", UMBRAL_KEY_PREFIX, self.0)
-    }
-}
-
-impl From<PeerId> for UmbralPeerId {
-    fn from(p: PeerId) -> Self {
-        UmbralPeerId(p.to_string())
-    }
-}
-
-impl Into<PeerId> for UmbralPeerId {
-    fn into(self) -> PeerId {
-        // slice off the UMBRAL_KEY_PREFIX first
-        let umbral_peer_id_str = self.to_string();
-        let peer_id_str = &umbral_peer_id_str.as_str()[UMBRAL_KEY_PREFIX.len()..];
-        PeerId::from_str(peer_id_str)
-            .expect("Error unwrapping UmbralPeerId to PeerId")
-    }
-}
-
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct UmbralPublicKeyResponse {
-    pub peer_id: UmbralPeerId,
+    pub umbral_peer_id: UmbralPeerId,
     pub umbral_public_key: umbral_pre::PublicKey,
 }
 
 impl Display for UmbralPublicKeyResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UmbralPublicKeyResponse({}, {})", self.peer_id, self.umbral_public_key)
+        write!(f, "UmbralPublicKeyResponse({}, {})", self.umbral_peer_id, self.umbral_public_key)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KfragsTopic {
-    Kfrag(AgentName, FragmentNumber),
-    RequestCfrags(String),
+    BroadcastKfrag(AgentName, FragmentNumber),
+    RequestCfrags(AgentName),
     Unknown(String),
 }
 
@@ -216,17 +128,10 @@ impl Display for KfragsTopic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let d = AGENT_DELIMITER;
         match self {
-            Self::Kfrag(agent_name, frag_num) => write!(f, "kfrag{}{}{}", frag_num, d, agent_name),
+            Self::BroadcastKfrag(agent_name, frag_num) => write!(f, "kfrag{}{}{}", frag_num, d, agent_name),
             Self::RequestCfrags(agent_name) => write!(f, "request{}{}", d, agent_name),
             Self::Unknown(s) => write!(f, "{}", s),
         }
-    }
-}
-
-impl Into<Vec<u8>> for KfragsTopic {
-    fn into(self) -> Vec<u8> {
-        let topic_str = self.to_string();
-        topic_str.as_bytes().to_vec()
     }
 }
 
@@ -234,13 +139,15 @@ impl Into<String> for KfragsTopic {
     fn into(self) -> String {
         let d = AGENT_DELIMITER;
         match self {
-            Self::Kfrag(agent_name, frag_num) => format!("kfrag{}{}{}", frag_num, d, agent_name),
+            Self::BroadcastKfrag(agent_name, frag_num) => format!("kfrag{}{}{}", frag_num, d, agent_name),
             Self::RequestCfrags(agent_name) => format!("request{}{}", d, agent_name),
             Self::Unknown(s) => format!("{}", s),
         }
     }
 }
 
+// Temporary way to issue chat commands to the node and test features in development
+// which will later be replaced with automated heartbeats, protocols, etc;
 pub(crate) fn split_topic_by_delimiter(topic_str: &str) -> (&str, &str, Option<(usize, usize)>) {
     match topic_str {
         "chat" => ("chat", "", None),
@@ -265,7 +172,6 @@ pub(crate) fn split_topic_by_delimiter(topic_str: &str) -> (&str, &str, Option<(
             (topic, agent_name, nshare_threshold)
         }
     }
-
 }
 
 impl From<String> for KfragsTopic {
@@ -279,7 +185,7 @@ impl From<String> for KfragsTopic {
                 None => panic!("kfrag topic should have a frag number: {}", topic),
                 Some(n) => n
             };
-            KfragsTopic::Kfrag(agent_name, frag_num)
+            KfragsTopic::BroadcastKfrag(agent_name, frag_num)
         } else if topic.starts_with("request") {
             KfragsTopic::RequestCfrags(agent_name)
         } else {
