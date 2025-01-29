@@ -1,0 +1,60 @@
+use std::fmt::Display;
+use std::str::FromStr;
+use serde::{Deserialize, Serialize};
+use libp2p::PeerId;
+
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
+pub struct UmbralPeerId(pub String);
+
+const UMBRAL_KEY_PREFIX: &'static str = "umbral_pubkey_";
+
+impl From<String> for UmbralPeerId {
+    fn from(s: String) -> Self {
+        if s.starts_with(UMBRAL_KEY_PREFIX) {
+            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
+            UmbralPeerId(ssplit[1].to_string())
+        } else {
+            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
+        }
+    }
+}
+
+impl From<&str> for UmbralPeerId {
+    fn from<'a>(s: &'a str) -> Self {
+        if s.starts_with(UMBRAL_KEY_PREFIX) {
+            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
+            UmbralPeerId(ssplit[1].to_string())
+        } else {
+            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
+        }
+    }
+}
+
+impl Into<String> for UmbralPeerId {
+    fn into(self) -> String {
+        format!("{}{}", UMBRAL_KEY_PREFIX, self.0)
+    }
+}
+
+impl Display for UmbralPeerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", UMBRAL_KEY_PREFIX, self.0)
+    }
+}
+
+impl From<PeerId> for UmbralPeerId {
+    fn from(p: PeerId) -> Self {
+        UmbralPeerId(p.to_string())
+    }
+}
+
+impl Into<PeerId> for UmbralPeerId {
+    fn into(self) -> PeerId {
+        // slice off the UMBRAL_KEY_PREFIX first
+        let umbral_peer_id_str = self.to_string();
+        let peer_id_str = &umbral_peer_id_str.as_str()[UMBRAL_KEY_PREFIX.len()..];
+        PeerId::from_str(peer_id_str)
+            .expect("Error unwrapping UmbralPeerId to PeerId")
+    }
+}
