@@ -144,8 +144,22 @@ impl PeerManager {
         };
     }
 
-    pub fn get_umbral_kfrag_providers(&self, agent_name: &str) -> Option<&HashMap<FragmentNumber, HashSet<PeerId>>> {
+    pub fn get_all_umbral_kfrag_providers(&self, agent_name: &str) -> Option<&HashMap<u32, HashSet<PeerId>>> {
         self.kfrags_peers.get(agent_name)
+    }
+
+    pub fn get_umbral_kfrag_providers(&self, agent_name: &str, frag_num: u32) -> Vec<PeerId> {
+        match self.kfrags_peers.get(agent_name) {
+            None => vec![],
+            Some(peers_hmap) => {
+                match peers_hmap.get(&frag_num) {
+                    None => vec![],
+                    Some(peers) => {
+                        peers.into_iter().map(|p| *p).collect::<Vec<PeerId>>()
+                    }
+                }
+            }
+        }
     }
 
 }

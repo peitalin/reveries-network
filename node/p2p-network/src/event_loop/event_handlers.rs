@@ -260,20 +260,20 @@ impl EventLoop {
                                 // ));
                             },
                             None => {
-                                self.log(format!(
-                                    "{} HeartbeatData: Block: {}\n\t{:?}",
-                                    short_peer_id(peer_id),
-                                    peer_info.peer_heartbeat_data.payload.block_height,
-                                    peer_info.peer_heartbeat_data.payload
-                                ));
+                                // self.log(format!(
+                                //     "{} HeartbeatData: Block: {}\n\t{:?}",
+                                //     short_peer_id(peer_id),
+                                //     peer_info.peer_heartbeat_data.payload.block_height,
+                                //     peer_info.peer_heartbeat_data.payload
+                                // ));
                             }
                         };
                     }
                     None => {
-                        self.log(format!(
-                            "HeartbeatData for: {} not found",
-                            short_peer_id(peer_id),
-                        ));
+                        // self.log(format!(
+                        //     "HeartbeatData for: {} not found",
+                        //     short_peer_id(peer_id),
+                        // ));
                     }
                 }
 
