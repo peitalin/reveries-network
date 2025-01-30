@@ -157,17 +157,16 @@ impl EventLoop {
                     // iterate and check which peers have stopped sending heartbeats
                     for (peer_id, peer_info) in self.peer_manager.vessel_nodes.iter() {
 
-                        let last_hb = peer_info.peer_heartbeat_data.last_heartbeat;
+                        // let last_hb = peer_info.peer_heartbeat_data.last_heartbeat;
                         let duration = peer_info.peer_heartbeat_data.duration_since_last_heartbeat();
                         let node_name = get_node_name(&peer_id).magenta();
-                        // println!(">>>>last heartbeat: {:?}", last_hb);
                         println!("{} last seen {:?} seconds ago", node_name, duration);
 
                         if duration > Duration::from_millis(5_000) {
                             if let Some(agent_name) = &peer_info.hosting_agent_name {
 
                                 self.log(format!(
-                                    "{} died. Voting to reincarnate agent {}",
+                                    "{} died. Consensus: Voting to reincarnate agent '{}'",
                                     node_name,
                                     agent_name
                                 ).magenta());
@@ -175,17 +174,16 @@ impl EventLoop {
                                 // TODO: consensus mechanism to vote for reincarnation
                                 failed_agents.push(agent_name);
                             } else {
-                                self.log(format!("{} died but wasn't hosting agent.", node_name).purple());
+                                self.log(format!("{} died but wasn't hosting an agent.", node_name).yellow());
                             }
                         }
                     };
 
-                    if let Some(agent_name) = failed_agents.iter().next() {
+                    if let Some(_agent_name) = failed_agents.iter().next() {
                         // let topic = KfragsTopic::RequestCfrags(agent_name.to_string());
                         // self.request_cfrags(topic).await;
                         // self.get_cfrags2(agent_name.to_string()).await;
                     }
-
                 }
                 swarm_event = self.swarm.select_next_some() => self.handle_swarm_event(swarm_event).await,
                 heartbeat = self.heartbeat_failure_receiver.recv() => match heartbeat {
@@ -278,7 +276,7 @@ impl EventLoop {
                             })
                             .collect::<Vec<PeerId>>();
 
-                        self.log(format!("Located Cfrag broadcast peers: {:?}\n", providers));
+                        self.log(format!("Located Cfrag broadcast peers: {:?}", providers));
                         if providers.is_empty() {
                             self.log(format!("Could not find provider for agent_name {}", agent_name));
                         } else {

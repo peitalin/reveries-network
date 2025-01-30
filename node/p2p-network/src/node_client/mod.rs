@@ -27,7 +27,7 @@ use crate::behaviour::{
     UmbralPublicKeyResponse,
     CapsuleFragmentIndexed,
 };
-use umbral_pre::VerifiedCapsuleFrag;
+use umbral_pre::{VerifiedCapsuleFrag};
 use runtime::reencrypt::{
     UmbralKey,
     generate_pre_kfrags,
@@ -88,9 +88,7 @@ impl NodeClient {
                     frag_num,
                     channel
                 }) => {
-
                     if let Some(kfrag_num) = frag_num {
-
                         let agent_name = request;
                         self.command_sender
                             .send(NodeCommand::RespondCfrag {
@@ -100,7 +98,6 @@ impl NodeClient {
                             })
                             .await
                             .expect("Command receiver not to be dropped.");
-
                     } else {
                         self.log(format!("frag_num missing"));
                     }
@@ -168,7 +165,6 @@ impl NodeClient {
     }
 
     pub async fn subscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
-
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
@@ -186,7 +182,6 @@ impl NodeClient {
     }
 
     pub async fn unsubscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
-
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
@@ -291,34 +286,163 @@ impl NodeClient {
         receiver.await.expect("get kfrags peers not to drop")
     }
 
-
     pub async fn request_cfrags(
         &mut self,
         agent_name: String
-    ) -> Vec<Result<Vec<u8>, Box<dyn std::error::Error + Send>>> {
+    ) -> Vec<Result<Vec<u8>>> {
 
-        let providers = self.get_kfrags_peers(agent_name.clone()).await;
-
+        let providers_hmap = self.get_kfrags_peers(agent_name.clone()).await;
         let mut results = vec![];
 
-        for (frag_num, peers) in providers.iter() {
-            let (sender, receiver) = oneshot::channel();
+        for (frag_num, peers) in providers_hmap.into_iter() {
 
-            self.command_sender
-                .send(NodeCommand::RequestCfrags {
-                    agent_name: agent_name.clone(),
-                    frag_num: *frag_num as usize,
-                    sender
-                })
-                .await
-                .expect("Command receiver not to be dropped.");
+            // Request key_fragment(n) from each node that holds that fragment.
+            let requests = peers.iter().map(|&peer_id| {
 
-            if let Ok(result) = receiver.await {
-                results.push(result);
+                let agent_name2 = agent_name.clone();
+                let nc = self.clone();
+
+                async move {
+                    let (sender, receiver) = oneshot::channel();
+
+                    nc.command_sender
+                        .send(NodeCommand::RequestFile {
+                            agent_name: agent_name2,
+                            frag_num: Some(frag_num as usize),
+                            peer: peer_id,
+                            sender
+                        })
+                        .await
+                        .expect("Command receiver not to be dropped.");
+
+                    receiver.await.expect("Sender not be dropped.")
+                }.boxed()
+            });
+
+            // Await the requests, ignore the remaining once a single one succeeds.
+            // let result = futures::future::select_ok(requests).await;
+            if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
+                results.push(Ok(cfrag_raw_bytes));
             }
         };
 
         results
+    }
+
+
+    fn parse_cfrags(&self, cfrags_raw: Vec<Result<Vec<u8>, Error>>) -> (
+        Vec<VerifiedCapsuleFrag>,
+        Vec<CapsuleFragmentIndexed>,
+        u32
+    ) {
+        let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
+        let mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed> = Vec::new();
+        let mut total_frags = 0;
+
+        for cfrag_result in cfrags_raw.iter() {
+            if let Ok(cfrag_bytes) = cfrag_result {
+                // println!("CFRG BYTEs: {:?}", cfrag_bytes);
+                match serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_bytes) {
+                    Err(e) => panic!("{}", e.to_string()),
+                    Ok(opt_cfrag) => match opt_cfrag {
+                        None => {
+                            println!("No cfrags found.");
+                        }
+                        Some(cfrag) => {
+                            total_frags += 1;
+                            self.log(format!("Success!: frag_num({}), total frags: {}", cfrag.frag_num, total_frags));
+
+                            let new_vessel_pk  = cfrag.bob_pk;
+                            let kfrag_num = cfrag.frag_num;
+                            self.log(format!("Received Cfrag({}): {}", kfrag_num, cfrag));
+
+                            // Bob must check that cfrags are valid
+                            // assemble kfrags, verify them as cfrags.
+                            let verified_cfrag = cfrag.cfrag.clone().verify(
+                                &cfrag.capsule.clone().unwrap(),
+                                &cfrag.verifying_pk, // verifying pk
+                                &cfrag.alice_pk, // alice pk
+                                &new_vessel_pk // bob pk
+                            ).expect("Error verifying Cfrag");
+
+                            self.log(format!("Verified Cfrag({}): {}", kfrag_num, verified_cfrag));
+
+                            new_vessel_cfrags.push(cfrag);
+                            capsule_frags.insert(kfrag_num as u32, verified_cfrag);
+                        }
+                    }
+                }
+            }
+        }
+
+        let verified_cfrags = capsule_frags.into_iter()
+            .map(|(index, verified_cfrags)| verified_cfrags)
+            .collect::<Vec<VerifiedCapsuleFrag>>();
+
+        (verified_cfrags, new_vessel_cfrags, total_frags)
+    }
+
+    fn decrypt_cfrags(
+        &self,
+        verified_cfrags: Vec<VerifiedCapsuleFrag>,
+        mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed>,
+        total_frags_received: u32
+    ) -> Result<AgentSecretsJson, Error> {
+
+        // get next vessel (can randomise as well)
+        let mut new_vessel_pk = new_vessel_cfrags.pop().unwrap();
+        let threshold = new_vessel_pk.threshold as usize;
+        self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));
+
+        // Bob opens the capsule by using at least `threshold` cfrags,
+        // and then decrypts the re-encrypted ciphertext.
+        match umbral_pre::decrypt_reencrypted(
+            &self.umbral_key.secret_key, // bob
+            &new_vessel_pk.alice_pk, // alice
+            &new_vessel_pk.capsule.as_mut().unwrap(),
+            verified_cfrags,
+            new_vessel_pk.ciphertext.as_mut().unwrap()
+        ) {
+            Ok(plaintext_bob) => {
+
+                let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
+                let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)?;
+                self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str));
+
+                let agent_secrets_json: AgentSecretsJson = serde_json::from_slice(&plaintext_bob)?;
+
+                // if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key {
+                //     self.log(format!("Decrypted Anthropic key, querying Claude:"));
+                //     let _ = test_claude_query(anthropic_api_key).await;
+                // }
+                Ok(agent_secrets_json)
+            },
+            Err(e) => {
+                let node_name = get_node_name(&self.peer_id);
+                self.log(format!(">>> Err({})", e));
+                if total_frags_received < threshold as u32 {
+                    self.log(format!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}"));
+                } else {
+                    self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
+                    self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
+                }
+                Err(anyhow!(e.to_string()))
+            }
+        }
+    }
+
+    pub async fn request_respawn(&mut self, agent_name: String) -> Result<AgentSecretsJson> {
+
+        let cfrags_raw = self.request_cfrags(agent_name)
+            .await;
+
+        let (
+            verified_cfrags,
+            new_vessel_cfrags,
+            total_frags_received
+        ) = self.parse_cfrags(cfrags_raw);
+
+        self.decrypt_cfrags(verified_cfrags, new_vessel_cfrags, total_frags_received)
     }
 
     // pub async fn get_cfrags(&mut self, agent_name: String) {
@@ -445,59 +569,4 @@ impl NodeClient {
     //         }
     //     };
     // }
-
-    fn parse_cfrags(&self, cfrags_raw: Vec<Result<Vec<u8>, Error>>) -> (
-        Vec<VerifiedCapsuleFrag>,
-        Vec<CapsuleFragmentIndexed>,
-        u32
-    ) {
-
-        let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
-        let mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed> = Vec::new();
-        let mut total_frags = 0;
-
-        for cfrag_result in cfrags_raw.iter() {
-            if let Ok(cfrag_bytes) = cfrag_result {
-                // println!("CFRG BYTEs: {:?}", cfrag_bytes);
-                match serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_bytes) {
-                    Err(e) => panic!("{}", e.to_string()),
-                    Ok(opt_cfrag) => match opt_cfrag {
-                        None => {
-                            println!("No cfrags found.");
-                        }
-                        Some(cfrag) => {
-                            total_frags += 1;
-                            println!("\nSuccess!: frag_num({}), total frags: {}", cfrag.frag_num, total_frags);
-
-                            let new_vessel_pk  = cfrag.bob_pk;
-                            let kfrag_num = cfrag.frag_num;
-                            self.log(format!("Received Cfrag({}): \n{}\n", kfrag_num, cfrag));
-
-                            // Bob must check that cfrags are valid
-                            // assemble kfrags, verify them as cfrags.
-                            let verified_cfrag = cfrag.cfrag.clone().verify(
-                                &cfrag.capsule.clone().unwrap(),
-                                &cfrag.verifying_pk, // verifying pk
-                                &cfrag.alice_pk, // alice pk
-                                &new_vessel_pk // bob pk
-                            ).expect("Error verifying Cfrag");
-
-                            self.log(format!("Verified Cfrag({}): \n{}\n", kfrag_num, verified_cfrag));
-
-                            new_vessel_cfrags.push(cfrag);
-                            capsule_frags.insert(kfrag_num as u32, verified_cfrag);
-
-                        }
-                    }
-                };
-            }
-        }
-
-        let verified_cfrags = capsule_frags.into_iter()
-            .map(|(index, verified_cfrags)| verified_cfrags)
-            .collect::<Vec<VerifiedCapsuleFrag>>();
-
-        (verified_cfrags, new_vessel_cfrags, total_frags)
-    }
-
 }

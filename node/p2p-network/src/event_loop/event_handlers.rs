@@ -142,8 +142,6 @@ impl EventLoop {
                         ..
                     } => {
 
-                        self.log(format!("request_response:REQUESt"));
-
                         self.network_event_sender
                             .send(FileEvent::InboundRequest {
                                 request: request.0,
@@ -157,8 +155,6 @@ impl EventLoop {
                         request_id,
                         response,
                     } => {
-
-                        self.log(format!("request_response:RESPONSE"));
 
                         let sender = self.pending.request_fragments
                             .remove(&request_id)
@@ -241,45 +237,35 @@ impl EventLoop {
                 let peer_id = &tee_event.peer_id;
 
                 // need to save heartbeat data to the node locally for quicker retrieval;
-                let p_info = self.peer_manager.vessel_nodes.get(peer_id);
+                if let Some(peer_info) = self.peer_manager.vessel_nodes.get(peer_id) {
 
-                match p_info {
-                    Some(peer_info) => {
-                        match &peer_info.peer_heartbeat_data.payload.tee_attestation {
-                            Some(quote) => {
-                                // self.log(format!(
-                                //     "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
-                                //     short_peer_id(peer_id),
-                                //     peer_info.peer_heartbeat_data.payload.block_height,
-                                //     hex::encode(quote.signature.ecdsa_attestation_key),
-                                // ));
-                                // self.log(format!(
-                                //     "{} HeartbeatData: Block: {}",
-                                //     short_peer_id(peer_id),
-                                //     peer_info.peer_heartbeat_data.payload.block_height,
-                                // ));
-                            },
-                            None => {
-                                // self.log(format!(
-                                //     "{} HeartbeatData: Block: {}\n\t{:?}",
-                                //     short_peer_id(peer_id),
-                                //     peer_info.peer_heartbeat_data.payload.block_height,
-                                //     peer_info.peer_heartbeat_data.payload
-                                // ));
-                            }
-                        };
-                    }
-                    None => {
-                        // self.log(format!(
-                        //     "HeartbeatData for: {} not found",
-                        //     short_peer_id(peer_id),
-                        // ));
+                    match &peer_info.peer_heartbeat_data.payload.tee_attestation {
+                        Some(quote) => {
+                            self.log(format!(
+                                "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
+                                short_peer_id(peer_id),
+                                peer_info.peer_heartbeat_data.payload.block_height,
+                                hex::encode(quote.signature.ecdsa_attestation_key),
+                            ));
+                            // self.log(format!(
+                            //     "{} HeartbeatData: Block: {}",
+                            //     short_peer_id(peer_id),
+                            //     peer_info.peer_heartbeat_data.payload.block_height,
+                            // ));
+                        },
+                        None => {
+                            // self.log(format!(
+                            //     "{} HeartbeatData: Block: {}\n\t{:?}",
+                            //     short_peer_id(peer_id),
+                            //     peer_info.peer_heartbeat_data.payload.block_height,
+                            //     peer_info.peer_heartbeat_data.payload
+                            // ));
+                        }
                     }
                 }
-
             }
 
-            e => println!("??? Some SwarmEvent: {e:?}"),
+            swarm_event => println!("Unhandled SwarmEvent: {swarm_event:?}"),
         }
     }
 

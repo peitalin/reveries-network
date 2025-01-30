@@ -7,6 +7,7 @@ edition = "2021"
 
 p2p-network = { path = "../node/p2p-network" }
 rpc = { path = "../node/rpc" }
+runtime = { path = "../node/runtime" }
 
 color-eyre = { workspace = true }
 clap = { workspace = true }

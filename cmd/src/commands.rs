@@ -4,16 +4,32 @@ use std::net::SocketAddr;
 
 
 #[derive(Parser, Serialize, Deserialize, Clone, Debug)]
+#[clap(name = "libp2p-client")]
 pub(crate) struct Cmd {
+
     #[clap(long)]
     pub rpc_server_address:  SocketAddr,
 
-    #[clap(long)]
-    pub agent_name: String,
+    #[clap(subcommand)]
+    pub argument: CliArgument,
+}
 
-    #[clap(long)]
-    pub shares: usize,
+#[derive(Debug, Parser, Clone, Deserialize, Serialize)]
+pub enum CliArgument {
+    Broadcast {
 
-    #[clap(long)]
-    pub threshold: usize,
+        #[clap(long)]
+        agent_name: String,
+
+        #[clap(long)]
+        shares: usize,
+
+        #[clap(long)]
+        threshold: usize,
+    },
+    Respawn {
+
+        #[clap(long)]
+        agent_name: String,
+    },
 }

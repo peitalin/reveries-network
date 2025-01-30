@@ -1777,6 +1777,7 @@ dependencies = [
  "libp2p",
  "p2p-network",
  "rpc",
+ "runtime",
  "serde",
  "tokio",
  "tracing",

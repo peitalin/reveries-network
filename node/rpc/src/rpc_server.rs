@@ -33,6 +33,8 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
 	let mut module = RpcModule::new(());
 
     // register RPC endpoints
+    let nc1 = network_client.clone();
+    // Broadcast
 	module.register_async_method("broadcast", move |params, _, _| {
 
         let (
@@ -41,15 +43,28 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
             threshold
         ) = params.parse::<(String, usize, usize)>().expect("error parsing param");
 
-        let nc = network_client.clone();
-
+        let nc1 = nc1.clone();
         async move {
-            nc.clone()
+            nc1.clone()
                 .broadcast_kfrags(agent_name, shares, threshold)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
     })?;
+
+    let nc2 = network_client.clone();
+	module.register_async_method("request", move |params, _, _| {
+
+        let agent_name = params.one::<String>().expect("error parsing param");
+        let nc2 = nc2.clone();
+        async move {
+            nc2.clone()
+                .request_respawn(agent_name)
+                .await
+                .map_err(|e| RpcError(e.to_string()))
+        }
+    })?;
+
 
 	let addr = server.local_addr()?;
 

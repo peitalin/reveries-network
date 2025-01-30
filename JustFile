@@ -48,14 +48,21 @@ run-node5:
         --topics chat,request.bob,broadcast.bob,kfrag3.bob \
         --rpc-port 8005
 
-
-run-cmd:
+broadcast:
+    @echo 'Broadcasting on Node 1';
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
+        broadcast \
         --agent-name bob \
         --shares 3 \
         --threshold 2
 
+respawn:
+    @echo 'Respawning on Node 2 (new vessel)';
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8002 \
+        respawn \
+        --agent-name bob
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000

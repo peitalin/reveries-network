@@ -29,6 +29,8 @@ impl NodeClient {
         }
     }
 
+    /// Temporary feature for development purposes only.
+    /// Will be replaced with an automated protocol
     async fn handle_stdin_commands(&mut self, line: String) {
         if line.trim().len() == 0 {
             self.log(format!("Message needs to begin with: <topic>"));
@@ -60,70 +62,8 @@ impl NodeClient {
                 StdInputCommand::BroadcastKfragsCmd(agent_name, n, t) => {
                     self.broadcast_kfrags(agent_name, n, t).await;
                 }
-                StdInputCommand::RequestCfragsCmd(agent_name) => {
-
-                    let cfrags_raw = self.request_cfrags(agent_name)
-                        .await
-                        .into_iter()
-                        .map(|r| {
-                            r.map_err(|e| anyhow!(e.to_string()))
-                        })
-                        .collect::<Vec<Result<Vec<u8>, Error>>>();
-
-                    let (
-                        verified_cfrags,
-                        mut new_vessel_cfrags,
-                        total_frags_received
-                    ) = self.parse_cfrags(cfrags_raw);
-
-
-                    println!("vvvvvvvvvv: {:?}", new_vessel_cfrags);
-                    // get next vessel (can randomise as well)
-                    let mut new_vessel_pk = new_vessel_cfrags.pop().unwrap();
-                    let threshold = new_vessel_pk.threshold as usize;
-                    self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));
-
-
-                    // Bob opens the capsule by using at least `threshold` cfrags,
-                    // and then decrypts the re-encrypted ciphertext.
-                    match umbral_pre::decrypt_reencrypted(
-                        &self.umbral_key.secret_key, // bob
-                        &new_vessel_pk.alice_pk, // alice
-                        &new_vessel_pk.capsule.as_mut().unwrap(),
-                        verified_cfrags,
-                        new_vessel_pk.ciphertext.as_mut().unwrap()
-                    ) {
-                        Ok(plaintext_bob) => {
-
-                            let decrypted_data = serde_json::from_slice::<serde_json::Value>(&plaintext_bob)
-                                .expect("error marshalling decrypted plaintext to JSON data");
-
-                            let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)
-                                .expect("to_string_pretty error");
-
-                            self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str));
-
-                            let agent_secrets_json = serde_json::from_slice::<AgentSecretsJson>(&plaintext_bob)
-                                .expect("parse AgentSecretJson error");
-
-                            // if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key {
-                            //     self.log(format!("Decrypted Anthropic key, querying Claude:"));
-                            //     let _ = test_claude_query(anthropic_api_key).await;
-                            // }
-
-                        },
-                        Err(e) => {
-                            let node_name = get_node_name(&self.peer_id);
-                            self.log(format!(">>> Err({})", e));
-                            if (total_frags_received < threshold as u32) {
-                                self.log(format!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}"));
-                            } else {
-                                self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
-                                self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
-                            }
-                        }
-                    };
-
+                StdInputCommand::RequestRespawn(agent_name) => {
+                    self.request_respawn(agent_name).await;
                 }
             }
         }
@@ -140,7 +80,7 @@ pub enum StdInputCommand {
         usize,  // shares: number of Umbral MPC fragments
         usize   // threshold: number of required Umbral fragments
     ),
-    RequestCfragsCmd(String),
+    RequestRespawn(String),
 }
 
 impl Display for StdInputCommand {
@@ -152,7 +92,7 @@ impl Display for StdInputCommand {
             Self::BroadcastKfragsCmd(agent_name, n, t) => {
                 write!(f, "broadcast{d}{}{d}({n},{t})", agent_name)
             }
-            Self::RequestCfragsCmd(agent_name) => write!(f, "request{}{}", d, agent_name),
+            Self::RequestRespawn(agent_name) => write!(f, "request{}{}", d, agent_name),
         }
     }
 }
@@ -166,7 +106,7 @@ impl Into<String> for StdInputCommand {
             Self::BroadcastKfragsCmd(a, n, t) => {
                 format!("broadcast{d}{}{d}({n},{t})", a)
             }
-            Self::RequestCfragsCmd(a) => format!("request{}{}", d, a),
+            Self::RequestRespawn(a) => format!("request{}{}", d, a),
         }
     }
 }
@@ -183,7 +123,7 @@ impl From<String> for StdInputCommand {
         let agent_name = agent_name.to_string();
         match topic {
             "chat" => Self::ChatCmd,
-            "request" => Self::RequestCfragsCmd(agent_name),
+            "request" => Self::RequestRespawn(agent_name),
             "broadcast" => match nshare_threshold {
                 Some((n, t)) => Self::BroadcastKfragsCmd(agent_name, n, t),
                 None => {
