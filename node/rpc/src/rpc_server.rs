@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server};
 use p2p_network::node_client::NodeClient;
+use libp2p::PeerId;
 
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -43,9 +45,9 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
             threshold
         ) = params.parse::<(String, usize, usize)>().expect("error parsing param");
 
-        let nc1 = nc1.clone();
+        let mut nc1 = nc1.clone();
         async move {
-            nc1.clone()
+            nc1
                 .broadcast_kfrags(agent_name, shares, threshold)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
@@ -56,15 +58,29 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
 	module.register_async_method("request", move |params, _, _| {
 
         let agent_name = params.one::<String>().expect("error parsing param");
-        let nc2 = nc2.clone();
+        let mut nc2 = nc2.clone();
         async move {
-            nc2.clone()
-                .request_respawn(agent_name)
+            nc2
+                .request_respawn(agent_name, None)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
     })?;
 
+
+    let nc3 = network_client.clone();
+	module.register_async_method("get_agent_kfrag_peers", move |params, _, _| {
+
+        let agent_name = params.one::<String>().expect("error parsing param");
+        let mut nc3 = nc3.clone();
+        async move {
+
+            let peers = nc3
+                .get_agent_kfrag_peers(agent_name).await;
+
+            Ok::<HashMap<u32, HashSet<PeerId>>, RpcError>(peers)
+        }
+    })?;
 
 	let addr = server.local_addr()?;
 

@@ -10,6 +10,7 @@ rpc = { path = "../node/rpc" }
 runtime = { path = "../node/runtime" }
 
 color-eyre = { workspace = true }
+colored = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }

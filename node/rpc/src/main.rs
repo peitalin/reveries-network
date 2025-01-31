@@ -5,7 +5,7 @@ mod commands;
 use color_eyre::Result;
 use clap::Parser;
 
-use p2p_network::create_network;
+use p2p_network::{types::GossipTopic, create_network};
 use commands::Opt;
 use rpc_server::run_server;
 
@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     let (
         mut node_client,
         network_events_receiver,
-        mut network_event_loop,
+        network_event_loop,
     ) = create_network::new(opt.secret_key_seed).await?;
 
     // Spawn the network task to listen to incoming commands, run in the background.
@@ -44,13 +44,23 @@ async fn main() -> Result<()> {
     let agent_secrets = runtime::llm::read_agent_secrets(
         opt.secret_key_seed.or(Some(0)).unwrap() as i32
     );
-    node_client.encrypt_secret(agent_secrets);
 
+    let _ = match opt.generate_agent_secret {
+        Some(true) => node_client.encrypt_secret(agent_secrets.clone()),
+        _ => Ok(()),
+    };
 
     let mut nc = node_client.clone();
     tokio::spawn(async move {
         let _ = nc.listen_to_network_events(network_events_receiver).await;
     });
+
+    // let _ = node_client.subscribe_topics(vec![
+    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 0).to_string(),
+    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 1).to_string(),
+    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 2).to_string(),
+    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 4).to_string(),
+    // ]).await;
 
     // Run RPC server if provided an RPC port,
     // so clients can make requests without running a node themselves.

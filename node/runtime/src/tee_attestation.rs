@@ -45,14 +45,14 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
 fn log_quote_v4_attestation(attestation: &QuoteV4) {
 
     println!("TEE QuoteV4 Attestation:\n{:?}\n", attestation);
-    println!("TEE type: {:?}", attestation.header.tee_type);
+    // println!("TEE type: {:?}", attestation.header.tee_type);
 
     // qe_cert_data: CertData,
     // [variable bytes]
-    println!(
-        "signature.eq_cert_data:\n{:?}\n",
-        attestation.signature.qe_cert_data
-    );
+    // println!(
+    //     "signature.eq_cert_data:\n{:?}\n",
+    //     attestation.signature.qe_cert_data
+    // );
 
     // quote_signature: [u8; 64],
     // ECDSA signature, the r component followed by the s component, 2 x 32 bytes.

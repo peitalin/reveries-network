@@ -1,6 +1,5 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use libp2p::core::Multiaddr;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
@@ -12,6 +11,9 @@ pub struct Opt {
 
     #[clap(long)]
     pub listen_address: Option<Multiaddr>,
+
+    #[clap(long)]
+    pub generate_agent_secret: Option<bool>,
 
     #[clap(long, value_parser, num_args = 1.., value_delimiter = ',')]
     pub topics: Option<Vec<String>>,

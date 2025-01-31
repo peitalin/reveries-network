@@ -17,19 +17,19 @@ pub(crate) struct Cmd {
 #[derive(Debug, Parser, Clone, Deserialize, Serialize)]
 pub enum CliArgument {
     Broadcast {
-
         #[clap(long)]
         agent_name: String,
-
         #[clap(long)]
         shares: usize,
-
         #[clap(long)]
         threshold: usize,
     },
     Respawn {
-
         #[clap(long)]
         agent_name: String,
     },
+    GetAgentKfragPeers {
+        #[clap(long)]
+        agent_name: String,
+    }
 }
