@@ -13,7 +13,8 @@ run-node1:
     echo 'Running Node 1';
     cargo run --bin rpc -- \
         --secret-key-seed 1 \
-        --topics chat,kfrag0.bob,kfrag1.bob,kfrag2.bob,kfrag3.bob \
+        --generate-agent-secret true \
+        --topics chat,kfrag0.Beatrix,kfrag1.Beatrix,kfrag2.Beatrix,kfrag3.Beatrix \
         --rpc-port 8001
 
 # Runs node 2
@@ -21,7 +22,7 @@ run-node2:
     @echo 'Running Node 2';
     cargo run --bin rpc -- \
         --secret-key-seed 2 \
-        --topics chat,request.bob,broadcast.bob,kfrag0.bob \
+        --topics chat,request.Beatrix,kfrag0.Beatrix \
         --rpc-port 8002
 
 # Runs node 3
@@ -29,7 +30,7 @@ run-node3:
     @echo 'Running Node 3';
     cargo run --bin rpc -- \
         --secret-key-seed 3 \
-        --topics chat,request.bob,broadcast.bob,kfrag1.bob \
+        --topics chat,request.Beatrix,kfrag1.Beatrix \
         --rpc-port 8003
 
 # Runs node 4
@@ -37,7 +38,7 @@ run-node4:
     @echo 'Running Node 4';
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --topics chat,request.bob,broadcast.bob,kfrag2.bob \
+        --topics chat,request.Beatrix,kfrag2.Beatrix \
         --rpc-port 8004
 
 # Runs node 5
@@ -45,7 +46,7 @@ run-node5:
     @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --topics chat,request.bob,broadcast.bob,kfrag3.bob \
+        --topics chat,request.Beatrix,kfrag0.Beatrix \
         --rpc-port 8005
 
 broadcast:
@@ -53,7 +54,7 @@ broadcast:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
         broadcast \
-        --agent-name bob \
+        --agent-name Beatrix \
         --shares 3 \
         --threshold 2
 
@@ -62,7 +63,14 @@ respawn:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8002 \
         respawn \
-        --agent-name bob
+        --agent-name Beatrix
+
+get-agent-kfrag-peers:
+    @echo 'Respawning on Node 2 (new vessel)';
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8002 \
+        get-agent-kfrag-peers \
+        --agent-name Beatrix
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
