@@ -49,6 +49,12 @@ impl From<PeerId> for UmbralPeerId {
     }
 }
 
+impl From<&PeerId> for UmbralPeerId {
+    fn from(p: &PeerId) -> Self {
+        UmbralPeerId(p.to_string())
+    }
+}
+
 impl Into<PeerId> for UmbralPeerId {
     fn into(self) -> PeerId {
         // slice off the UMBRAL_KEY_PREFIX first
@@ -56,5 +62,43 @@ impl Into<PeerId> for UmbralPeerId {
         let peer_id_str = &umbral_peer_id_str.as_str()[UMBRAL_KEY_PREFIX.len()..];
         PeerId::from_str(peer_id_str)
             .expect("Error unwrapping UmbralPeerId to PeerId")
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapsuleFragmentIndexed {
+    pub frag_num: usize,
+    pub threshold: usize,
+    pub alice_pk: umbral_pre::PublicKey,
+    pub bob_pk: umbral_pre::PublicKey,
+    pub verifying_pk: umbral_pre::PublicKey,
+
+    pub vessel_peer_id: PeerId,
+    pub cfrag: umbral_pre::CapsuleFrag,
+    pub capsule: Option<umbral_pre::Capsule>,
+    pub ciphertext: Option<Box<[u8]>>,
+}
+
+impl Display for CapsuleFragmentIndexed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "CapsuleFragmentIndexed(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, capsule, ciphertext)",
+            self.frag_num,
+            self.alice_pk,
+            self.bob_pk,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct UmbralPublicKeyResponse {
+    pub umbral_peer_id: UmbralPeerId,
+    pub umbral_public_key: umbral_pre::PublicKey,
+}
+
+impl Display for UmbralPublicKeyResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UmbralPublicKeyResponse({}, {})", self.umbral_peer_id, self.umbral_public_key)
     }
 }

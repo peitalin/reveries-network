@@ -1,6 +1,7 @@
 pub(crate) mod heartbeat_handler;
+mod config;
 
-pub use heartbeat_handler::HeartbeatConfig;
+pub use config::HeartbeatConfig;
 use heartbeat_handler::TeeAttestation;
 
 use std::{
@@ -44,7 +45,7 @@ pub struct HeartbeatBehaviour {
     pub(crate) config: HeartbeatConfig,
     /// for Heartbeat Behaviour to communicate with upper level EventLoop
     /// and disconnect from Swarm, or shutdown the LLM runtime.
-    pub(crate) heartbeat_failure_sender: mpsc::Sender<String>,
+    pub(crate) internal_heartbeat_fail_sender: mpsc::Sender<String>,
     pending_events: VecDeque<HeartbeatAction>,
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
@@ -53,11 +54,11 @@ pub struct HeartbeatBehaviour {
 impl HeartbeatBehaviour {
     pub fn new(
         config: HeartbeatConfig,
-        heartbeat_failure_sender: mpsc::Sender<String>,
+        internal_heartbeat_fail_sender: mpsc::Sender<String>,
     ) -> Self {
         Self {
             config,
-            heartbeat_failure_sender,
+            internal_heartbeat_fail_sender,
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
         }
@@ -79,9 +80,9 @@ impl HeartbeatBehaviour {
     }
 
     fn surface_shutdown_signal(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<()>> {
-        // Surfaces shutdown signal to the heartbeat_failure_receiver channel in EventLoop
+        // Surfaces shutdown signal to the heartbeat_fail_receiver channel in EventLoop
         async {
-            self.heartbeat_failure_sender
+            self.internal_heartbeat_fail_sender
                 .send("FailedToSendHeartbeat count too high! shutting down LLM runtime!".to_string())
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))

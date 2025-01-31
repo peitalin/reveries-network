@@ -1,32 +1,34 @@
-use std::{
-    collections::{HashMap, HashSet}, error::Error,
-};
-// use futures::channel::oneshot;
-use tokio::sync::oneshot;
-
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use libp2p::{
     request_response::ResponseChannel,
     PeerId,
     Multiaddr
 };
+use tokio::sync::{mpsc, oneshot};
 use crate::behaviour::{
-    CapsuleFragmentIndexed, FragmentResponse, KeyFragmentMessage, UmbralPublicKeyResponse
+    KeyFragmentMessage
+};
+use crate::types::{
+    FragmentResponse,
+    UmbralPublicKeyResponse
 };
 
 
 pub enum NodeCommand {
     /// Gets Umbral PKs from connected Peers
-    GetPeerUmbralPublicKeys {
-        sender: tokio::sync::mpsc::Sender<UmbralPublicKeyResponse>,
+    GetPeerUmbralPublicKey {
+        agent_name: String,
+        sender: mpsc::Sender<UmbralPublicKeyResponse>,
     },
-    /// Gets Peers that hold the Kfrags for an agent so we can RequestCfrags
-    GetKfragPeers {
+    /// Gets Peers that are subscribed to the Kfrag Broadcast for an agent
+    GetKfragBroadcastPeers {
         agent_name: String,
         sender: oneshot::Sender<HashMap<u32, HashSet<PeerId>>>,
     },
     /// Broadcasts Kfrags to peers (multicasts to specific fragment channels)
     BroadcastKfrags(KeyFragmentMessage),
-    ///
+    /// Request Capsule Fragments for threshold decryption
     RequestCfrags {
         agent_name: String,
         frag_num: usize,

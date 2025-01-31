@@ -4,8 +4,6 @@ use std::{
     time::Duration,
 };
 use color_eyre::Result;
-// use futures::channel::mpsc;
-use tokio::sync::{mpsc, oneshot};
 use libp2p::{
     identity,
     kad,
@@ -16,17 +14,19 @@ use libp2p::{
     gossipsub,
     StreamProtocol,
 };
-use crate::SendError;
+use tokio::sync::mpsc;
+
 pub use crate::types::UmbralPeerId;
+use crate::SendError;
+use crate::types::NetworkLoopEvent;
 use crate::behaviour::{
-    FileEvent,
     Behaviour,
 };
+use crate::event_loop::EventLoop;
 use crate::event_loop::heartbeat_behaviour::{
     HeartbeatBehaviour,
     HeartbeatConfig
 };
-use crate::event_loop::EventLoop;
 use crate::node_client::NodeClient;
 
 
@@ -36,7 +36,7 @@ use crate::node_client::NodeClient;
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
 pub async fn new(secret_key_seed: Option<u8>)
-    -> Result<(NodeClient, mpsc::Receiver<FileEvent>, EventLoop)> {
+    -> Result<(NodeClient, mpsc::Receiver<NetworkLoopEvent>, EventLoop)> {
 
     // Create a public/private key pair, either random or based on a seed.
     let (
@@ -72,7 +72,7 @@ pub async fn new(secret_key_seed: Option<u8>)
             )?;
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(5))
+                .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
                 // This sets the kind of message validation. The default is Strict (enforce message signing)
                 // disables duplicate messages from being propagated
@@ -94,11 +94,12 @@ pub async fn new(secret_key_seed: Option<u8>)
                     kad::store::MemoryStore::new(key.public().to_peer_id())
                 ),
                 heartbeat: HeartbeatBehaviour::new(
+                    // send_timeout should be larger than idle_timeout
                     HeartbeatConfig::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        Duration::from_millis(2_000),
+                        Duration::from_millis(12_000),
                         // Idle time before sending next `TeeAttestationBytes`
-                        Duration::from_millis(2_000),
+                        Duration::from_millis(10_000),
                         // Max failures allowed. Requests disconnection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
                     ),
@@ -130,16 +131,14 @@ pub async fn new(secret_key_seed: Option<u8>)
 
     let (command_sender, command_receiver) = mpsc::channel(100);
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
-    let (chat_sender, chat_receiver) = mpsc::channel(100);
-    let (kfrags_sender, kfrags_receiver) = mpsc::channel(100);
+    let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
     Ok((
         NodeClient::new(
             peer_id,
             command_sender,
             node_name.clone(),
-            chat_sender,
-            kfrags_sender,
+            chat_cmd_sender,
             umbral_key.clone()
         ),
         network_events_receiver,
@@ -148,9 +147,8 @@ pub async fn new(secret_key_seed: Option<u8>)
             swarm,
             command_receiver,
             network_events_sender,
-            chat_receiver,
+            chat_cmd_receiver,
             node_name,
-            kfrags_receiver,
             umbral_key,
             heartbeat_failure_receiver,
         ),

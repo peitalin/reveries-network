@@ -1,21 +1,18 @@
-mod chat_handlers;
+mod chat;
 mod event_handlers;
+mod command_handlers;
 mod gossipsub_handlers;
 pub(crate) mod heartbeat_behaviour;
-mod peer_manager;
+pub(crate) mod peer_manager;
 
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
 };
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
-use futures::{
-    // channel::{mpsc, oneshot},
-    Stream,
-    StreamExt,
-    FutureExt,
-};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use libp2p::{
     gossipsub::IdentTopic,
@@ -25,48 +22,39 @@ use libp2p::{
     PeerId
 };
 use runtime::reencrypt::UmbralKey;
-use crate::{commands::NodeCommand, get_node_name, AgentName};
+use crate::{node_client::NodeCommand, get_node_name, short_peer_id, AgentName};
 use crate::types::{
     ChatMessage,
+    GossipTopic,
     UmbralPeerId,
-};
-use crate::behaviour::{
-    Behaviour,
+    NetworkLoopEvent,
     CapsuleFragmentIndexed,
-    FileEvent,
-    FragmentRequest,
-    FragmentResponse,
-    KeyFragmentMessage,
-    KfragsTopic,
     UmbralPublicKeyResponse
 };
+use crate::behaviour::Behaviour;
+use crate::event_loop::peer_manager::AgentVessel;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
-use umbral_pre::VerifiedCapsuleFrag;
 use runtime::llm::{AgentSecretsJson, test_claude_query};
-
 
 pub struct EventLoop {
 
     swarm: Swarm<Behaviour>,
     command_receiver: mpsc::Receiver<NodeCommand>,
-    network_event_sender: mpsc::Sender<FileEvent>,
+    network_event_sender: mpsc::Sender<NetworkLoopEvent>,
 
     // My node's PeerInfo
     peer_id: PeerId,
     node_name: String,
 
     // chat
-    chat_receiver: mpsc::Receiver<ChatMessage>,
+    chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
     topics: HashMap<String, IdentTopic>,
 
     // Umbral fragments
     umbral_key: UmbralKey,
     cfrags: HashMap<AgentName, CapsuleFragmentIndexed>,
-
-    // Uses a different channel than command_receiver
-    kfrags_receiver: mpsc::Receiver<KeyFragmentMessage>,
 
     // tracks peer heartbeats status
     peer_manager: PeerManager,
@@ -75,7 +63,7 @@ pub struct EventLoop {
     pending: PendingRequests,
 
     interval: time::Interval,
-    heartbeat_failure_receiver: tokio::sync::mpsc::Receiver<String>,
+    internal_heartbeat_fail_receiver: tokio::sync::mpsc::Receiver<String>,
 }
 
 struct PendingRequests {
@@ -91,6 +79,7 @@ struct PendingRequests {
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
     >,
+    respawns: HashSet<(AgentName, PeerId)>
 }
 
 impl PendingRequests {
@@ -99,6 +88,7 @@ impl PendingRequests {
             get_providers: Default::default(),
             get_umbral_pks: Default::default(),
             request_fragments: Default::default(),
+            respawns: Default::default(),
         }
     }
 }
@@ -109,12 +99,11 @@ impl EventLoop {
         peer_id: PeerId,
         swarm: Swarm<Behaviour>,
         command_receiver: mpsc::Receiver<NodeCommand>,
-        network_event_sender: mpsc::Sender<FileEvent>,
-        chat_receiver: mpsc::Receiver<ChatMessage>,
+        network_event_sender: mpsc::Sender<NetworkLoopEvent>,
+        chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
         node_name: String,
-        kfrags_receiver: mpsc::Receiver<KeyFragmentMessage>,
         umbral_key: UmbralKey,
-        heartbeat_failure_receiver: tokio::sync::mpsc::Receiver<String>,
+        internal_heartbeat_fail_receiver: tokio::sync::mpsc::Receiver<String>,
     ) -> Self {
 
         Self {
@@ -122,16 +111,15 @@ impl EventLoop {
             swarm,
             command_receiver,
             network_event_sender,
-            chat_receiver,
+            chat_cmd_receiver,
             node_name,
             topics: HashMap::new(),
             cfrags: HashMap::new(),
-            kfrags_receiver,
             umbral_key: umbral_key,
             peer_manager: PeerManager::new(),
             pending: PendingRequests::new(),
-            interval: tokio::time::interval(Duration::from_secs(4)),
-            heartbeat_failure_receiver,
+            interval: tokio::time::interval(Duration::from_secs(1)),
+            internal_heartbeat_fail_receiver,
         }
     }
 
@@ -144,6 +132,10 @@ impl EventLoop {
 
     pub async fn listen_for_commands_and_events(mut self) {
 
+        let max_time_before_respawn = self.swarm.behaviour()
+            .heartbeat.config
+            .max_time_before_rotation();
+
         loop {
             tokio::select! {
                 _instant = self.interval.tick() => {
@@ -152,239 +144,181 @@ impl EventLoop {
                     // in the REVM
                     self.swarm.behaviour_mut().heartbeat.increment_block_height();
 
-                    let mut failed_agents = vec![];
+                    let peer_ids = self.peer_manager.get_connected_peers()
+                        .iter().map(|p| format!("{}", get_node_name(p.0)))
+                        .collect::<Vec<String>>();
 
+                    // self.log(format!("Connected peers: {:?}", peer_ids));
+                    println!("Connected peers: {:?}", peer_ids);
+
+                    let mut failed_agents = vec![];
+                    let mut topic_switch = None;
+
+                    // clone peer_info immutably then
                     // iterate and check which peers have stopped sending heartbeats
-                    for (peer_id, peer_info) in self.peer_manager.vessel_nodes.iter() {
+                    for (peer_id, peer_info) in self.peer_manager.peer_info.clone().iter() {
 
                         // let last_hb = peer_info.peer_heartbeat_data.last_heartbeat;
                         let duration = peer_info.peer_heartbeat_data.duration_since_last_heartbeat();
                         let node_name = get_node_name(&peer_id).magenta();
-                        println!("{} last seen {:?} seconds ago", node_name, duration);
+                        println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
 
-                        if duration > Duration::from_millis(5_000) {
-                            if let Some(agent_name) = &peer_info.hosting_agent_name {
+                        if duration > max_time_before_respawn {
+                            if let Some(AgentVessel { agent_name, next_vessel_peer_id, prev_vessel_peer_id }) = &peer_info.agent_vessel {
 
-                                self.log(format!(
-                                    "{} died. Consensus: Voting to reincarnate agent '{}'",
-                                    node_name,
-                                    agent_name
-                                ).magenta());
+                                let respawn_pending = self.pending.respawns.contains(&(agent_name.clone(), *next_vessel_peer_id));
 
-                                // TODO: consensus mechanism to vote for reincarnation
-                                failed_agents.push(agent_name);
+                                if respawn_pending {
+                                    self.log(format!("Respawn pending: {} -> {}", agent_name, self.node_name));
+
+                                } else {
+                                    self.log(format!(
+                                        "{} failed. Consensus: voting to reincarnate agent '{}'",
+                                        node_name,
+                                        agent_name
+                                    ).magenta());
+
+                                    // TODO: consensus mechanism to vote for reincarnation
+                                    let failed_agent = agent_name;
+                                    failed_agents.push(failed_agent);
+
+                                    if self.peer_id == *next_vessel_peer_id {
+
+                                        // Tell dispatch a Respawn(agent_name) request to eventloop
+                                        let _ = self.network_event_sender
+                                            .send(NetworkLoopEvent::Respawn(agent_name.to_owned(), prev_vessel_peer_id.clone())).await;
+
+                                        self.log(format!("{} '{}' {} {}", "Respawning agent".blue(), agent_name.red(), "in new vessel:".blue(), self.node_name.yellow()));
+
+                                        self.pending.respawns.insert((agent_name.to_owned(), *next_vessel_peer_id));
+                                        // TODO: once respawn is pending,
+                                        // 1) unsubscribe from Topic
+                                        // 2) remove Vessel from PeerManagers
+                                        // 3) broadcast peers to tell them to do the same
+
+
+                                        topic_switch = Some(TopicSwitch {
+                                            prev_topic: agent_name.to_string(), //
+                                            next_topic: agent_name.to_string(), // +1 increment AgentName nonce
+                                            prev_vessel_peer_id: prev_vessel_peer_id.clone()
+                                        });
+
+                                        // let _ = self.network_event_sender
+                                        //     .send(NetworkLoopEvent::ReBroadcastKfrags(agent_name.to_owned())).await;
+                                        // TODO: once broadcast happens, tell peers to update their PeerManager fields
+                                        // - kfrags_peers
+                                        // - peers_to_agent_frags
+                                        // - peer_info
+
+                                    }
+
+                                    self.remove_peer(prev_vessel_peer_id);
+                                    // self.peer_manager.remove_kfrags_peers_by_agent_name(agent_name);
+                                }
+
                             } else {
-                                self.log(format!("{} died but wasn't hosting an agent.", node_name).yellow());
+                                println!("{} failed but wasn't hosting an agent.", node_name);
                             }
                         }
                     };
 
-                    if let Some(_agent_name) = failed_agents.iter().next() {
-                        // let topic = KfragsTopic::RequestCfrags(agent_name.to_string());
-                        // self.request_cfrags(topic).await;
-                        // self.get_cfrags2(agent_name.to_string()).await;
+                    if let Some(topic_switch2) = topic_switch {
+                        println!("Todo: broadcast topic switch");
+                        // self.broadcast_topic_switch(topic_switch2).await;
                     }
+
                 }
                 swarm_event = self.swarm.select_next_some() => self.handle_swarm_event(swarm_event).await,
-                heartbeat = self.heartbeat_failure_receiver.recv() => match heartbeat {
-                    Some(hb) => self.handle_heartbeat_failure(hb).await,
+                heartbeat = self.internal_heartbeat_fail_receiver.recv() => match heartbeat {
+                    Some(hb) => self.handle_internal_heartbeat_failure(hb).await,
                     None => break // channel closed, shutting down the network event loop.
                 },
                 command = self.command_receiver.recv() => match command {
                     Some(c) => self.handle_command(c).await,
                     None => return
                 },
-                chat_message = self.chat_receiver.recv() => match chat_message {
+                chat_message = self.chat_cmd_receiver.recv() => match chat_message {
                     Some(cm) => self.broadcast_chat_message(cm).await,
-                    None => return
-                },
-                // remove this and use command channel later
-                kfrags_message = self.kfrags_receiver.recv() => match kfrags_message {
-                    Some(cm) => match cm.topic {
-                        KfragsTopic::BroadcastKfrag(..) => {
-                            self.broadcast_kfrag(cm).await;
-                        },
-                        _ => {} // only for broadcasting kfrags
-                    }
                     None => return
                 },
             }
         }
     }
 
-    async fn handle_heartbeat_failure(&mut self, heartbeat: String) {
+    async fn handle_internal_heartbeat_failure(&mut self, heartbeat: String) {
+        // Internal heartbeat failure is when this node fails to send heartbeats to external
+        // nodes. It realizes it is no longer connected to the network.
         self.log(format!("{}", heartbeat));
         println!("\tTodo: initiating LLM runtime shutdown...");
         println!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...");
+        println!("\tTodo: Delete agent secrets, to prevent duplicate agents.");
         // Shutdown the LLM runtime (if in Vessel Mode), but
         // continue attempting to broadcast the agent_secrets reencryption fragments and ciphertexts.
         //
         // If the node never reconnects to the network, then 1up-network nodes will form consensus that
         // the Vessel is dead, and begin reincarnating the Agent from it's last public agent_secret ciphertexts
         // on the Kademlia network.
+        //
+        // In this case, the node should also delete it's Agent secrets to ensure that only
+        // one agent is alive at a time.
     }
 
-    async fn handle_command(&mut self, command: NodeCommand) {
-        match command {
-            NodeCommand::SubscribeTopics { topics, sender } => {
-                let subscribed_topics = self.subscribe_topics(&topics).await;
-                let _ = sender.send(subscribed_topics);
-            }
-            NodeCommand::UnsubscribeTopics { topics, sender } => {
-                let unsubscribed_topics = self.unsubscribe_topics(&topics).await;
-                let _ = sender.send(unsubscribed_topics);
-            }
-            NodeCommand::BroadcastKfrags(KeyFragmentMessage {
-                topic,
-                frag_num,
-                threshold,
-                alice_pk,
-                bob_pk,
-                verifying_pk,
-                // TODO: split data into private data for the MPC node, vs public data for kademlia
-                // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
-                // public: capsules and ciphertexts -> store on Kademlia
-                vessel_peer_id,
-                kfrag,
-                capsule,
-                ciphertext
-            }) => {
+    fn remove_peer(&mut self, peer_id: &PeerId) {
+        // Remove from PeerManager locally
+        self.peer_manager.remove_kfrags_peer(peer_id);
+        self.peer_manager.remove_peer_info(peer_id);
 
-            }
-            NodeCommand::GetKfragPeers { agent_name, sender } => {
-                let peers = self.peer_manager
-                    .get_all_umbral_kfrag_providers(&agent_name)
-                    .expect("kfrag peers missing")
-                    .clone();
+        // Remove UmbralPeerId of the Peer on Kademlia
+        self.swarm
+            .behaviour_mut()
+            .kademlia
+            .remove_record(&kad::RecordKey::new(&UmbralPeerId::from(peer_id).to_string()));
+    }
 
-                let _ = sender.send(peers);
-            }
-            NodeCommand::RequestCfrags { agent_name, frag_num, sender } => {
+    async fn broadcast_topic_switch(&mut self, topic_switch: TopicSwitch) {
 
-                match self.cfrags.get(&agent_name) {
-                    None => {},
-                    Some(cfrag) => {
+        let match_topic = topic_switch.next_topic.clone();
+        let gossip_topic = GossipTopic::TopicSwitch(topic_switch);
+        let gossip_topic_bytes = serde_json::to_vec(&gossip_topic)
+            .expect("serde err");
 
-                        // providers for the kth-frag
-                        let providers = self.peer_manager
-                            .get_umbral_kfrag_providers(&agent_name, frag_num as u32)
-                            // filter out peers that are the vessel node, they created the kfrags
-                            .iter()
-                            .filter_map(|&peer_id| match peer_id != cfrag.vessel_peer_id {
-                                true => Some(peer_id),
-                                false => None
-                            })
-                            .collect::<Vec<PeerId>>();
 
-                        self.log(format!("Located Cfrag broadcast peers: {:?}", providers));
-                        if providers.is_empty() {
-                            self.log(format!("Could not find provider for agent_name {}", agent_name));
-                        } else {
-
-                            if let Some(peer_id) = providers.iter().next() {
-                                println!("Requesting Cfrag from peer: {:?}", peer_id);
-
-                                let request_id = self
-                                    .swarm
-                                    .behaviour_mut()
-                                    .request_response
-                                    .send_request(
-                                        &peer_id,
-                                        FragmentRequest(agent_name.clone(), Some(frag_num as usize))
-                                    );
-
-                                self.pending.request_fragments.insert(request_id, sender);
-                            }
-                        }
-
-                    }
-                };
-            }
-            NodeCommand::GetProviders { agent_name, sender } => {
-                let query_id = self
-                    .swarm
+        match self.topics.get(&match_topic.to_string()) {
+            Some(topic) => {
+                let _ = self.swarm
                     .behaviour_mut()
-                    .kademlia
-                    .get_providers(agent_name.into_bytes().into());
-
-                self.pending.get_providers.insert(query_id, sender);
+                    .gossipsub
+                    .publish(topic.clone(), gossip_topic_bytes)
+                    .map_err(|e| anyhow!(e.to_string()));
             }
-            NodeCommand::GetPeerUmbralPublicKeys { sender } => {
-
-                // get connected peers, and request their Umbral PKs
-                let peer_ids = self.swarm
-                    .connected_peers()
-                    .map(|&peer_id| peer_id.clone())
-                    .collect::<Vec<PeerId>>();
-
-                for peer_id in peer_ids {
-
-                    let umbral_pk_peer_id: UmbralPeerId = peer_id.into();
-                    let umbral_pk_peer_id_key: String = umbral_pk_peer_id.clone().into();
-
-                    let _query_id = self.swarm.behaviour_mut()
-                        .kademlia
-                        .get_record(kad::RecordKey::new(&umbral_pk_peer_id_key));
-
-                    self.pending.get_umbral_pks.insert(umbral_pk_peer_id, sender.clone());
-                };
-
-            }
-            NodeCommand::RespondCfrag { agent_name, frag_num, channel } => {
-
-                self.log(format!("RespondCfrags: Finding topic: {}", agent_name));
-
-                let cfrag_indexed = match self.cfrags.get(&agent_name) {
-                    None => None,
-                    Some(cfrag) => {
-                        self.log(format!("RespondCfrags: Found Cfrag: {:?}", cfrag));
-
-                        let cfrag_indexed_bytes = serde_json::to_vec::<Option<CapsuleFragmentIndexed>>(&Some(cfrag.clone()))
-                            .expect("serde_json frag fail");
-
-                        // Return None if peer does not have the cfrag
-                        self.swarm
-                            .behaviour_mut()
-                            .request_response
-                            .send_response(channel, FragmentResponse(cfrag_indexed_bytes))
-                            .expect("Connection to peer to be still open.");
-
-                        Some(cfrag)
-                    }
-                };
-                //// TODO: handle error properly
-                // Do not send if cfrag not found. Handle futures error
-
-            }
-            NodeCommand::StartListening { addr, sender } => {
-                let _ = match self.swarm.listen_on(addr) {
-                    Ok(_) => sender.send(Ok(())),
-                    Err(e) => sender.send(Err(Box::new(e))),
-                };
-            }
-            NodeCommand::RequestFile {
-                agent_name,
-                frag_num,
-                peer,
-                sender,
-            } => {
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer, FragmentRequest(agent_name, frag_num));
-
-                self.pending.request_fragments.insert(request_id, sender);
-            }
-            NodeCommand::RespondFile { file, channel } => {
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, FragmentResponse(file))
-                    .expect("Connection to peer to be still open.");
+            None => {
+                self.log(format!("Topic '{}' not found in subscribed topics", match_topic));
+                self.print_subscribed_topics();
             }
         }
 
-    }
+        // pub struct PeerManager {
+        //     // Tracks which Peers hold which AgentFragments
+        //     // { agent_name: { frag_num: [PeerId] }}
+        //     kfrags_peers: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
+        //     // Tracks which AgentFragments a specific Peer holds
+        //     peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
+        //     // Tracks Vessel Nodes
+        //     pub peer_info: HashMap<PeerId, PeerInfo>,
+        // }
 
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicSwitch {
+    // unsubscribe from prev_topic
+    pub prev_topic: String,
+    // subscribe to next_topic
+    pub next_topic: String,
+    // remove kfrags_peers for old agent
+
+    // remove peer from peer_info and peers_to_agent_frags
+    pub prev_vessel_peer_id: PeerId
 }

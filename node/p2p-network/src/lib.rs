@@ -1,5 +1,4 @@
 pub mod behaviour;
-pub mod commands;
 pub mod create_network;
 mod event_loop;
 pub mod node_client;
@@ -23,7 +22,6 @@ impl std::fmt::Display for SendError {
         write!(f, "SendError: {}", self.0)
     }
 }
-
 
 pub fn short_peer_id(peer_id: &libp2p::PeerId) -> String {
     let peer_id_str = peer_id.to_string();

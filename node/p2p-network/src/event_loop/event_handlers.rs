@@ -1,17 +1,13 @@
-use futures::prelude::*;
 use libp2p::{
     kad, mdns, request_response, swarm::SwarmEvent
 };
-use crate::behaviour::{
-    BehaviourEvent,
-    FileEvent,
+use crate::behaviour::BehaviourEvent;
+use crate::short_peer_id;
+use crate::types::{
+    NetworkLoopEvent,
+    UmbralPeerId,
     UmbralPublicKeyResponse,
 };
-use crate::types::{
-    ChatMessage,
-    UmbralPeerId,
-};
-use crate::short_peer_id;
 use super::EventLoop;
 
 
@@ -27,7 +23,7 @@ impl EventLoop {
 
                 // StartProviding event
                 kad::Event::OutboundQueryProgressed {
-                    id, result: kad::QueryResult::StartProviding(_), ..
+                    result: kad::QueryResult::StartProviding(_), ..
                 } => {}
 
                 // GetProviders event
@@ -68,11 +64,13 @@ impl EventLoop {
 
                         if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_peer_id_key) {
 
-                            let umbral_pk_response = serde_json::from_slice::<UmbralPublicKeyResponse>(&value)
-                                .expect("err deserializing Umbral PRE Public Key");
+                            match serde_json::from_slice::<UmbralPublicKeyResponse>(&value) {
+                                Ok(umbral_pk_response) => {
+                                    let _ = sender.send(umbral_pk_response).await;
+                                }
+                                Err(_e) => println!("Err deserializing UmbralPublicKeyResponse"),
+                            }
 
-                            let _ = sender.send(umbral_pk_response).await;
-                            // Finish the query. We are only interested in the first result.
                             self.swarm
                                 .behaviour_mut()
                                 .kademlia
@@ -81,24 +79,25 @@ impl EventLoop {
                                 .finish();
                         }
                     }
-                    kad::QueryResult::GetRecord(Ok(r)) => {
+                    kad::QueryResult::GetRecord(Ok(_r)) => {
                         // self.log(format!("GetRecord: {:?}", r));
                     }
-                    kad::QueryResult::GetRecord(Err(err)) => {
+                    kad::QueryResult::GetRecord(Err(_err)) => {
                         // self.log(format!("Failed to get record {err:?}"));
                     }
                     kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
                         let r = std::str::from_utf8(key.as_ref()).unwrap();
-                        // self.log(format!("PutRecordOk {:?}", r));
+                        self.log(format!("PutRecordOk {:?}", r));
+                        // self.peer_manager.insert_peer_info(peer_id);
                     }
-                    kad::QueryResult::PutRecord(Err(err)) => {
-                        self.log(format!("Failed to PutRecord: {err:?}"));
+                    kad::QueryResult::PutRecord(Err(_err)) => {
+                        // self.log(format!("Failed to PutRecord: {err:?}"));
                     }
-                    kad::QueryResult::StartProviding(Ok(kad::AddProviderOk { key })) => {
-                        let r = std::str::from_utf8(key.as_ref()).unwrap();
-                        self.log(format!("StartProviding: {:?}", r));
+                    kad::QueryResult::StartProviding(Ok(kad::AddProviderOk { .. })) => {
+                        // let r = std::str::from_utf8(key.as_ref()).unwrap();
+                        // self.log(format!("StartProviding: {:?}", r));
                     }
-                    kad::QueryResult::StartProviding(Err(err)) => {
+                    kad::QueryResult::StartProviding(Err(_err)) => {
                         // self.log(format!("Failed to StartProviding: {err:?}"));
                     }
                     kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
@@ -131,21 +130,39 @@ impl EventLoop {
                 _ => {} // ignore other Kademlia events
             }
 
+            //// mDNS Protocol
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                for (peer_id, multiaddr) in list {
+                    self.log(format!("mDNS adding peer {:?}", peer_id));
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+                    self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                    self.peer_manager.insert_peer_info(peer_id);
+                }
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                for (peer_id, multiaddr) in list {
+                    self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
+                    self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
+                    self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                    self.peer_manager.remove_peer_info(&peer_id);
+                }
+            },
+
             //// Request Response Protocol
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                 request_response::Event::Message { message, .. }
             )) => {
                 match message {
                     request_response::Message::Request {
-                        request,
+                        request: fragment_request,
                         channel,
                         ..
                     } => {
 
                         self.network_event_sender
-                            .send(FileEvent::InboundRequest {
-                                request: request.0,
-                                frag_num: request.1,
+                            .send(NetworkLoopEvent::InboundCfragRequest {
+                                agent_name: fragment_request.0,
+                                frag_num: fragment_request.1,
                                 channel,
                             })
                             .await
@@ -174,7 +191,7 @@ impl EventLoop {
                     request_id, error, peer
                 },
             )) => {
-                self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
+                // self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
                 let _ = self.pending.request_fragments
                     .remove(&request_id)
                     .expect("Request pending")
@@ -187,33 +204,20 @@ impl EventLoop {
                 self.log(format!("ResponseSent to {:?}", peer));
             }
 
-            //// mDNS Protocol
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                for (peer_id, multiaddr) in list {
-                    // self.log(format!("mDNS adding peer {:?}", peer_id));
-                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                    self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                }
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                for (peer_id, multiaddr) in list {
-                    // self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
-                    self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
-                    self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-                }
-            },
-
             //// Connections
             SwarmEvent::NewListenAddr { .. } => {}
             SwarmEvent::IncomingConnection { .. } => {},
             SwarmEvent::ConnectionEstablished { .. } => {}
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                println!(">>> ConnectionClosed with peer: {:?}", peer_id);
                 self.swarm
                     .behaviour_mut()
                     .kademlia
                     .remove_record(
                         &kad::RecordKey::new(&UmbralPeerId::from(peer_id).to_string()),
                     );
+
+                self.peer_manager.remove_kfrags_peer(&peer_id);
             }
             SwarmEvent::OutgoingConnectionError { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {}
@@ -237,12 +241,12 @@ impl EventLoop {
                 let peer_id = &tee_event.peer_id;
 
                 // need to save heartbeat data to the node locally for quicker retrieval;
-                if let Some(peer_info) = self.peer_manager.vessel_nodes.get(peer_id) {
+                if let Some(peer_info) = self.peer_manager.peer_info.get(peer_id) {
 
                     match &peer_info.peer_heartbeat_data.payload.tee_attestation {
                         Some(quote) => {
                             self.log(format!(
-                                "{} HeartbeatData: Block: {}\n\tECDSA attestation key: 0x{}",
+                                "{} HeartbeatData: Block: {}\n\tTEE ECDSA attestation pubkey: 0x{}",
                                 short_peer_id(peer_id),
                                 peer_info.peer_heartbeat_data.payload.block_height,
                                 hex::encode(quote.signature.ecdsa_attestation_key),

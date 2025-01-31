@@ -1,12 +1,11 @@
 use super::HEARTBEAT_PROTOCOL;
 
 use std::{
-    num::NonZeroU32,
     pin::Pin,
     task::Poll,
     time::Duration,
 };
-use color_eyre::{Result, eyre::Error, eyre::anyhow};
+use color_eyre::{Result, eyre::Error};
 use futures::{
     future::BoxFuture,
     AsyncRead,
@@ -35,8 +34,8 @@ use tokio::time::{
     Sleep,
 };
 use tracing::debug;
-
 use runtime::tee_attestation::QuoteV4;
+use super::HeartbeatConfig;
 
 
 #[derive(Debug, Clone)]
@@ -52,41 +51,6 @@ pub enum HeartbeatOutEvent {
     GenerateTeeAttestation
 }
 
-
-#[derive(Debug, Clone)]
-pub struct HeartbeatConfig {
-    /// Sending of `TeeAttestation` should not take longer than this
-    send_timeout: Duration,
-    /// Idle time before sending next `TeeAttestation`
-    idle_timeout: Duration,
-    /// Max failures allowed.
-    /// If reached `HeartbeatHandler` will request closing of the connection.
-    max_failures: NonZeroU32,
-}
-
-impl HeartbeatConfig {
-    pub fn new(
-        send_timeout: Duration,
-        idle_timeout: Duration,
-        max_failures: NonZeroU32,
-    ) -> Self {
-        Self {
-            send_timeout,
-            idle_timeout,
-            max_failures,
-        }
-    }
-}
-
-impl Default for HeartbeatConfig {
-    fn default() -> Self {
-        Self {
-            send_timeout: Duration::from_secs(60),
-            idle_timeout: Duration::from_secs(1),
-            max_failures: NonZeroU32::new(5).expect("5 != 0"),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct TeeAttestation {
@@ -149,7 +113,10 @@ pub struct HeartbeatHandler {
     inbound: Option<InboundData>,
     outbound: Option<OutboundState>,
     timer: Pin<Box<Sleep>>,
-    failure_count: u32,
+    // Internal failure count for the node to keep track of when it should shutdown it's LLM runtime.
+    // It is not related to the PRE re-incarnation protocol--that is determined by external nodes
+    // after they don't hear from this node for a while.
+    internal_fail_count: u32,
 }
 
 impl HeartbeatHandler {
@@ -159,7 +126,7 @@ impl HeartbeatHandler {
             inbound: None,
             outbound: None,
             timer: Box::pin(sleep(Duration::new(0, 0))),
-            failure_count: 0,
+            internal_fail_count: 0,
         }
     }
 }
@@ -215,7 +182,8 @@ impl ConnectionHandler for HeartbeatHandler {
             // `ConnectionHandlerEvent::Close` was removed.
             // To close a connection, use ToSwarm::CloseConnection or Swarm::close_connection.
             // See https://github.com/libp2p/rust-libp2p/issues/3591
-            if self.failure_count >= self.config.max_failures.into() {
+
+            if self.internal_fail_count >= self.config.max_failures.into() {
                 // Unable to send HB out to other peers.
                 // Dispatch message to on_connection_handler_event handler to reboot, and
                 // reset from Vessel mode to MPC mode.
@@ -248,8 +216,8 @@ impl ConnectionHandler for HeartbeatHandler {
                         Poll::Pending => {
                             if self.timer.poll_unpin(cx).is_ready() {
                                 // Time for successful send expired!
-                                self.failure_count = self.failure_count.saturating_add(1);
-                                debug!(target: "1up", "Sending Heartbeat timed out, this is {} time it failed with this connection", self.failure_count);
+                                self.internal_fail_count = self.internal_fail_count.saturating_add(1);
+                                debug!(target: "1up", "Sending Heartbeat timed out, this is {} time it failed with this connection", self.internal_fail_count);
                             } else {
                                 self.outbound = Some(OutboundState::SendingTeeAttestation(
                                     outbound_block_height,
@@ -259,17 +227,17 @@ impl ConnectionHandler for HeartbeatHandler {
                         }
                         Poll::Ready(Ok(stream)) => {
                             // reset failure count
-                            self.failure_count = 0;
+                            self.internal_fail_count = 0;
 
                             // start new idle timeout until next request & send
                             self.timer = Box::pin(sleep(self.config.idle_timeout));
                             self.outbound = Some(OutboundState::Idle(stream));
                         }
                         Poll::Ready(Err(_)) => {
-                            self.failure_count = self.failure_count.saturating_add(1);
+                            self.internal_fail_count = self.internal_fail_count.saturating_add(1);
                             debug!(
                                 target: "1up", "Sending Heartbeat failed, {}/{} failures for this connection",
-                                self.failure_count,
+                                self.internal_fail_count,
                                 self.config.max_failures
                             );
                         }
@@ -364,7 +332,7 @@ impl ConnectionHandler for HeartbeatHandler {
             }
             ConnectionEvent::DialUpgradeError(_) => {
                 self.outbound = None;
-                self.failure_count = self.failure_count.saturating_add(1);
+                self.internal_fail_count = self.internal_fail_count.saturating_add(1);
             }
             _ => {}
         }

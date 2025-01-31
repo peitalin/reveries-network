@@ -1,27 +1,32 @@
 
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use color_eyre::{Result, eyre::anyhow};
 use libp2p::{
     gossipsub,
     gossipsub::MessageId
 };
-use crate::behaviour::{
-    CapsuleFragmentIndexed, KeyFragmentMessage, KfragsTopic
+use crate::{get_node_name, short_peer_id};
+use crate::types::{
+    CapsuleFragmentIndexed,
+    GossipTopic,
 };
+use crate::behaviour::KeyFragmentMessage;
 use super::EventLoop;
 
 
 
 impl EventLoop {
 
-    pub async fn subscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
+    pub async fn subscribe_topics(&mut self, topic_strs: Vec<String>) -> Vec<String> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
                 if let Some(_) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic).ok() {
+
                     let entry = self.topics
                             .entry(topic_str.to_string())
                             .insert_entry(topic);
+
                     Some(entry.key().to_string())
                 } else {
                     None
@@ -84,14 +89,16 @@ impl EventLoop {
             } => {
 
                 self.log(format!(
-                    "\n\tReceived message: '{}'\n\tid: {message_id}\n\tpeer: {peer_id}\n\ttopic: '{}'\n",
+                    "\n\tReceived message: '{}'\n\t|from peer: {} {}\n\t|topic: '{}'\n",
                     String::from_utf8_lossy(&message.data),
+                    get_node_name(&peer_id),
+                    short_peer_id(&peer_id),
                     message.topic
                 ));
 
                 match message.topic.into() {
                     // When a node receives Kfrags in a broadcast/multicast
-                    KfragsTopic::BroadcastKfrag(agent_name, frag_num)  => {
+                    GossipTopic::BroadcastKfrag(agent_name, frag_num)  => {
 
                         let k: KeyFragmentMessage = serde_json::from_slice(&message.data)
                             .expect("Error deserializing KeyFragmentMessage");
@@ -109,7 +116,12 @@ impl EventLoop {
                                 verified_kfrag
                             ).unverify();
 
-                            self.peer_manager.set_peer_is_hosting_agent(peer_id, &agent_name);
+                            self.peer_manager.set_peer_info_agent_vessel(
+                                &agent_name,
+                                k.vessel_peer_id,
+                                k.next_vessel_peer_id,
+                            );
+                            self.peer_manager.insert_peer_agent_fragments(&peer_id, &agent_name, frag_num);
 
                             self.cfrags.insert(
                                 agent_name,
@@ -126,16 +138,22 @@ impl EventLoop {
                                 }
                             );
                             self.print_stored_cfrags(&self.cfrags);
+
                         }
 
                     }
-                    KfragsTopic::RequestCfrags(_) => panic!("Should not reach"),
-                    KfragsTopic::Unknown(_) => panic!("Should not reach"),
+                    GossipTopic::TopicSwitch(t) => {
+                        println!("TOPIC SWITCH: {:?}", t);
+                    }
+                    // Nothing else to do for GossipTopic::Chat
+                    GossipTopic::Chat(_) => {}
                 }
             }
             gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 match topic.clone().into() {
-                    KfragsTopic::BroadcastKfrag(_, _) => self.peer_manager.remove_umbral_kfrag_peer(peer_id),
+                    GossipTopic::BroadcastKfrag(_, _) => {
+                        self.peer_manager.remove_kfrags_peer(&peer_id)
+                    }
                     _ => {}
                 }
             }
@@ -148,9 +166,9 @@ impl EventLoop {
 
                 // self.log(format!("Gossipsub Peer Subscribed {:?} {:?}", peer_id, topic));
                 match topic.clone().into() {
-                    KfragsTopic::BroadcastKfrag(agent_name, frag_num) => {
+                    GossipTopic::BroadcastKfrag(agent_name, frag_num) => {
                         self.log(format!("Adding Peer to kfrags_peers({}, {}, {})", agent_name, frag_num, peer_id));
-                        self.peer_manager.insert_umbral_kfrag_peer(peer_id, agent_name, frag_num);
+                        self.peer_manager.insert_kfrags_peer(peer_id, agent_name, frag_num);
                     },
                     _ => {}
                 }

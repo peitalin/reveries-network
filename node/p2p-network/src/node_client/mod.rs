@@ -1,33 +1,30 @@
+
+mod commands;
 mod stdin_handlers;
+
+pub use commands::NodeCommand;
 
 use std::collections::{HashMap, HashSet};
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
-use futures::{
-    // channel::{mpsc, oneshot},
-    prelude::*,
-    StreamExt,
-};
+use futures::FutureExt;
 use tokio::sync::{mpsc, oneshot};
 use hex;
-use libp2p::{
-    core::Multiaddr, request_response::ResponseChannel, PeerId
-};
+use libp2p::{core::Multiaddr, PeerId};
+
+use crate::event_loop::TopicSwitch;
 use crate::get_node_name;
 use crate::types::{
     ChatMessage,
-    UmbralPeerId
-};
-use crate::commands::NodeCommand;
-use crate::behaviour::{
-    FileEvent,
-    FragmentResponse,
-    KeyFragmentMessage,
-    KfragsTopic,
+    GossipTopic,
+    NetworkLoopEvent,
     UmbralPublicKeyResponse,
     CapsuleFragmentIndexed,
 };
-use umbral_pre::{VerifiedCapsuleFrag};
+use crate::behaviour::{
+    KeyFragmentMessage
+};
+use umbral_pre::VerifiedCapsuleFrag;
 use runtime::reencrypt::{
     UmbralKey,
     generate_pre_kfrags,
@@ -43,8 +40,7 @@ pub struct NodeClient {
     pub node_name: String,
     pub hosting_agent_name: Option<String>,
 
-    pub chat_sender: mpsc::Sender<ChatMessage>,
-    pub kfrags_broadcast_sender: mpsc::Sender<KeyFragmentMessage>,
+    pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
 
     umbral_key: UmbralKey, // keep private
     umbral_capsule: Option<umbral_pre::Capsule>,
@@ -57,8 +53,7 @@ impl NodeClient {
         peer_id: PeerId,
         command_sender: mpsc::Sender<NodeCommand>,
         node_name: String,
-        chat_sender: mpsc::Sender<ChatMessage>,
-        kfrags_broadcast_sender: mpsc::Sender<KeyFragmentMessage>,
+        chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
     ) -> Self {
 
@@ -66,8 +61,7 @@ impl NodeClient {
             command_sender: command_sender,
             peer_id: peer_id,
             node_name: node_name,
-            chat_sender: chat_sender,
-            kfrags_broadcast_sender: kfrags_broadcast_sender,
+            chat_cmd_sender: chat_cmd_sender,
             hosting_agent_name: None,
             umbral_key: umbral_key,
             umbral_capsule: None,
@@ -77,19 +71,19 @@ impl NodeClient {
 
     pub async fn listen_to_network_events(
         &mut self,
-        mut network_event_receiver: mpsc::Receiver<FileEvent>
+        mut network_event_receiver: mpsc::Receiver<NetworkLoopEvent>
     ) -> Result<()> {
         loop {
-            let next = network_event_receiver.recv();
-            match next.await {
+            match network_event_receiver.recv().await {
                 // Reply with the content of the file on incoming requests.
-                Some(FileEvent::InboundRequest {
-                    request,
+                Some(NetworkLoopEvent::InboundCfragRequest {
+                    agent_name,
                     frag_num,
                     channel
                 }) => {
+                    // check if vessel node for the agent_name is still alive.
+                    // if so, then reject request.
                     if let Some(kfrag_num) = frag_num {
-                        let agent_name = request;
                         self.command_sender
                             .send(NodeCommand::RespondCfrag {
                                 agent_name,
@@ -102,6 +96,43 @@ impl NodeClient {
                         self.log(format!("frag_num missing"));
                     }
                 }
+
+                Some(NetworkLoopEvent::Respawn(agent_name, prev_vessel_peer_id)) => {
+
+                    match self.request_respawn(
+                        agent_name.clone(),
+                        Some(prev_vessel_peer_id)
+                    ).await {
+                        Err(e) => {
+                            println!("Error respawning agent in new vessel")
+                        },
+                        Ok(agent_secrets_json) => {
+
+                            let topics = self.subscribe_topics(vec![
+                                GossipTopic::BroadcastKfrag(agent_name.clone(), 0).to_string(),
+                                GossipTopic::BroadcastKfrag(agent_name.clone(), 1).to_string(),
+                                GossipTopic::BroadcastKfrag(agent_name.clone(), 2).to_string(),
+                                GossipTopic::BroadcastKfrag(agent_name.clone(), 3).to_string(),
+                            ]).await;
+
+                            let _ = self.encrypt_secret(agent_secrets_json);
+
+                            // // broadcast topic switch to new Agent with new ID
+                            // let topic_switch = Some(TopicSwitch {
+                            //     prev_topic: agent_name.to_string(), //
+                            //     next_topic: agent_name.to_string(), // +1
+                            //     prev_vessel_peer_id: prev_vessel_peer_id.clone()
+                            // });
+
+                            self.broadcast_kfrags(agent_name, 3, 2).await.expect("respawn err");
+                        }
+                    };
+                }
+
+                Some(NetworkLoopEvent::ReBroadcastKfrags(agent_name)) => {
+                    self.broadcast_kfrags(agent_name, 3, 2).await.expect("respawn err");
+                }
+
                 e => {
                     panic!("Error <network_event_receiver>: {:?}", e);
                 }
@@ -167,6 +198,7 @@ impl NodeClient {
     pub async fn subscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
         let (sender, receiver) = oneshot::channel();
 
+        println!("subscribing to: {:?}", topics);
         self.command_sender
             .send(NodeCommand::SubscribeTopics { topics, sender })
             .await
@@ -205,19 +237,19 @@ impl NodeClient {
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
 
-        let umbral_public_keys = self.get_peer_umbral_pks().await;
-        self.log(format!("received Umbral PKs: {:?}\n", umbral_public_keys));
+        let umbral_public_keys = self.get_peer_umbral_pks(agent_name.clone()).await;
+        // self.log(format!("received Umbral PKs: {:?}\n", umbral_public_keys));
 
         // choose the next node in the queue to become the next vessel
         match umbral_public_keys.iter().next() {
             None => Err(anyhow!("No Umbral PK Peers found")),
             Some(new_vessel_pk) => {
 
-                self.log(format!("Next Vessel: {}\n\t{:?}\n\t{}\n",
+                self.log(format!("\n\nNext Vessel: {}\n\t{:?}\n\t{}\n",
                     get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
                     new_vessel_pk.umbral_peer_id,
                     new_vessel_pk.umbral_public_key,
-                ));
+                ).yellow());
 
                 let bob_pk = new_vessel_pk.umbral_public_key;
 
@@ -233,21 +265,24 @@ impl NodeClient {
 
                 for (i, kfrag) in kfrags.into_iter().enumerate() {
 
-                    let topic = KfragsTopic::BroadcastKfrag(agent_name.clone(), i as u32);
+                    let topic = GossipTopic::BroadcastKfrag(agent_name.clone(), i as u32);
 
-                    self.kfrags_broadcast_sender
-                        .send(KeyFragmentMessage {
-                            topic: topic,
-                            frag_num: i,
-                            threshold: threshold,
-                            kfrag: kfrag,
-                            verifying_pk: self.umbral_key.verifying_pk,
-                            alice_pk: self.umbral_key.public_key,
-                            bob_pk, // bob_pk
-                            vessel_peer_id: self.peer_id,
-                            capsule: self.umbral_capsule.clone(),
-                            ciphertext: self.umbral_ciphertext.clone(),
-                        }).await?;
+                    self.command_sender
+                        .send(NodeCommand::BroadcastKfrags(
+                            KeyFragmentMessage {
+                                topic: topic,
+                                frag_num: i,
+                                threshold: threshold,
+                                kfrag: kfrag,
+                                verifying_pk: self.umbral_key.verifying_pk,
+                                alice_pk: self.umbral_key.public_key,
+                                bob_pk, // bob_pk
+                                vessel_peer_id: self.peer_id,
+                                next_vessel_peer_id: new_vessel_pk.umbral_peer_id.clone().into(),
+                                capsule: self.umbral_capsule.clone(),
+                                ciphertext: self.umbral_ciphertext.clone(),
+                            }
+                        )).await?;
                 }
 
                 Ok(new_vessel_pk.to_owned())
@@ -256,11 +291,11 @@ impl NodeClient {
     }
 
 
-    pub async fn get_peer_umbral_pks(&mut self) -> Vec<UmbralPublicKeyResponse> {
-        let (sender, mut receiver) = tokio::sync::mpsc::channel(100);
+    pub async fn get_peer_umbral_pks(&mut self, agent_name: String) -> Vec<UmbralPublicKeyResponse> {
+        let (sender, mut receiver) = mpsc::channel(100);
 
         self.command_sender
-            .send(NodeCommand::GetPeerUmbralPublicKeys { sender: sender })
+            .send(NodeCommand::GetPeerUmbralPublicKey { sender, agent_name })
             .await
             .expect("Command receiver not to be dropped.");
 
@@ -272,11 +307,11 @@ impl NodeClient {
         pks
     }
 
-    pub async fn get_kfrags_peers(&mut self, agent_name: String) -> HashMap<u32, HashSet<PeerId>> {
+    pub async fn get_agent_kfrag_peers(&mut self, agent_name: String) -> HashMap<u32, HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
-            .send(NodeCommand::GetKfragPeers {
+            .send(NodeCommand::GetKfragBroadcastPeers {
                 agent_name: agent_name,
                 sender: sender
             })
@@ -288,19 +323,36 @@ impl NodeClient {
 
     pub async fn request_cfrags(
         &mut self,
-        agent_name: String
+        agent_name: String,
+        opt_prev_vessel_peer_id: Option<PeerId>
     ) -> Vec<Result<Vec<u8>>> {
 
-        let providers_hmap = self.get_kfrags_peers(agent_name.clone()).await;
+        let providers_hmap = self.get_agent_kfrag_peers(agent_name.clone()).await;
         let mut results = vec![];
 
         for (frag_num, peers) in providers_hmap.into_iter() {
+
+            let peers = match opt_prev_vessel_peer_id {
+                None => peers,
+                Some(prev_vessel_peer_id) => {
+                    peers.iter()
+                        .filter_map(|&peer_id| {
+                            if peer_id != prev_vessel_peer_id {
+                                Some(peer_id)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<HashSet<PeerId>>()
+                }
+            };
 
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
 
                 let agent_name2 = agent_name.clone();
                 let nc = self.clone();
+                self.log(format!("Requesting cfrag({}) from: {:?}", frag_num, get_node_name(&peer_id)));
 
                 async move {
                     let (sender, receiver) = oneshot::channel();
@@ -319,10 +371,11 @@ impl NodeClient {
                 }.boxed()
             });
 
-            // Await the requests, ignore the remaining once a single one succeeds.
-            // let result = futures::future::select_ok(requests).await;
-            if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
-                results.push(Ok(cfrag_raw_bytes));
+            if requests.len() > 0 {
+                // Await the requests, ignore the remaining once a single one succeeds.
+                if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
+                    results.push(Ok(cfrag_raw_bytes));
+                }
             }
         };
 
@@ -431,10 +484,16 @@ impl NodeClient {
         }
     }
 
-    pub async fn request_respawn(&mut self, agent_name: String) -> Result<AgentSecretsJson> {
+    pub async fn request_respawn(
+        &mut self,
+        agent_name: String,
+        prev_vessel_peer_id: Option<PeerId>
+    ) -> Result<AgentSecretsJson> {
 
-        let cfrags_raw = self.request_cfrags(agent_name)
-            .await;
+        let cfrags_raw = self.request_cfrags(
+            agent_name,
+            prev_vessel_peer_id
+        ).await;
 
         let (
             verified_cfrags,
@@ -445,128 +504,4 @@ impl NodeClient {
         self.decrypt_cfrags(verified_cfrags, new_vessel_cfrags, total_frags_received)
     }
 
-    // pub async fn get_cfrags(&mut self, agent_name: String) {
-
-    //     let providers = self.get_kfrags_peers(agent_name.clone()).await;
-
-    //     self.log(format!("Located Cfrag broadcast peers: {:?}\n", providers));
-    //     if providers.is_empty() {
-    //         self.log(format!("Could not find provider for agent_name {}", agent_name));
-    //     }
-
-    //     let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
-    //     let mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed> = Vec::new();
-
-    //     // For each key_fragment(n)
-    //     for &kfrag_num in providers.keys() {
-
-    //         let providers = providers.iter()
-    //             .filter(|(&frag_num, _hset)| frag_num == kfrag_num)
-    //             .map(|v| {
-    //                 v.1
-    //             })
-    //             .next()
-    //             .expect("error filtering providers...");
-
-    //         // Request key_fragment(n) from each node that holds that fragment.
-    //         let requests = providers
-    //             .iter()
-    //             .map(|&peer_id| {
-
-    //                 let agent_name2 = agent_name.clone();
-    //                 let nc = self.clone();
-
-    //                 async move {
-    //                     let (sender, receiver) = oneshot::channel();
-
-    //                     nc.command_sender
-    //                         .send(NodeCommand::RequestFile {
-    //                             agent_name: agent_name2,
-    //                             frag_num: Some(kfrag_num as usize),
-    //                             peer: peer_id,
-    //                             sender
-    //                         })
-    //                         .await
-    //                         .expect("Command receiver not to be dropped.");
-
-    //                     receiver.await.expect("Sender not be dropped.")
-    //                 }.boxed()
-    //             });
-
-    //         // Await the requests, ignore the remaining once a single one succeeds.
-    //         if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
-    //             if let Ok(Some(cfrag_indexed)) = serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_raw_bytes) {
-
-    //                 let new_vessel_pk  = cfrag_indexed.bob_pk;
-    //                 self.log(format!("Received Cfrag({}): \n{}\n", kfrag_num, cfrag_indexed));
-
-    //                 // Bob must check that cfrags are valid
-    //                 // assemble kfrags, verify them as cfrags.
-    //                 let verified_cfrag = cfrag_indexed.cfrag.clone().verify(
-    //                     &cfrag_indexed.capsule.clone().unwrap(),
-    //                     &cfrag_indexed.verifying_pk, // verifying pk
-    //                     &cfrag_indexed.alice_pk, // alice pk
-    //                     &new_vessel_pk // bob pk
-    //                 ).expect("Error verifying Cfrag");
-
-    //                 self.log(format!("Verified Cfrag({}): \n{}\n", kfrag_num, verified_cfrag));
-
-    //                 new_vessel_cfrags.push(cfrag_indexed);
-    //                     capsule_frags.insert(kfrag_num, verified_cfrag);
-    //             }
-    //         } else {
-    //             self.log(format!("Future error in Cfrag({})", kfrag_num));
-    //         }
-    //     }
-
-    //     println!("vvvvvvvvvv: {:?}", new_vessel_cfrags);
-    //     let mut new_vessel_pk = new_vessel_cfrags.pop().unwrap();
-    //     let threshold = new_vessel_pk.threshold as usize;
-    //     let num_frags = capsule_frags.len();
-    //     self.log(format!("Received {}/{} required CapsuleFrags", num_frags, threshold));
-
-    //     let verified_cfrags = capsule_frags.into_iter()
-    //         .map(|(index, verified_cfrags)| verified_cfrags)
-    //         .collect::<Vec<VerifiedCapsuleFrag>>();
-
-    //     // Bob opens the capsule by using at least `threshold` cfrags,
-    //     // and then decrypts the re-encrypted ciphertext.
-    //     match umbral_pre::decrypt_reencrypted(
-    //         &self.umbral_key.secret_key, // bob
-    //         &new_vessel_pk.alice_pk, // alice
-    //         &new_vessel_pk.capsule.as_mut().unwrap(),
-    //         verified_cfrags,
-    //         new_vessel_pk.ciphertext.as_mut().unwrap()
-    //     ) {
-    //         Ok(plaintext_bob) => {
-
-    //             let decrypted_data = serde_json::from_slice::<serde_json::Value>(&plaintext_bob)
-    //                 .expect("error marshalling decrypted plaintext to JSON data");
-
-    //             let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)
-    //                 .expect("to_string_pretty error");
-
-    //             self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str));
-
-    //             let agent_secrets_json = serde_json::from_slice::<AgentSecretsJson>(&plaintext_bob)
-    //                 .expect("parse AgentSecretJson error");
-
-    //             // if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key {
-    //             //     self.log(format!("Decrypted Anthropic key, querying Claude:"));
-    //             //     let _ = test_claude_query(anthropic_api_key).await;
-    //             // }
-
-    //         },
-    //         Err(e) => {
-    //             let node_name = get_node_name(&self.peer_id);
-    //             self.log(format!(">>> Err({})", e));
-    //             if (num_frags < threshold) {
-    //                 self.log(format!(">>> Not enough fragments. Need {threshold}, received {num_frags}"));
-    //             } else {
-    //                 self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
-    //                 self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
-    //             }
-    //         }
-    //     };
-    // }
 }

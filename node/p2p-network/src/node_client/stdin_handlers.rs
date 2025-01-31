@@ -1,25 +1,19 @@
-use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use color_eyre::{Result, eyre::Error, eyre::anyhow};
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
-use umbral_pre::VerifiedCapsuleFrag;
 
-use runtime::llm::{AgentSecretsJson, test_claude_query};
-use crate::{SendError, get_node_name, AGENT_DELIMITER};
-use crate::behaviour::{split_topic_by_delimiter, CapsuleFragmentIndexed};
-use crate::types::ChatMessage;
+use crate::AGENT_DELIMITER;
+use crate::types::{ChatMessage, split_topic_by_delimiter};
 use super::NodeClient;
 
 
 impl NodeClient {
 
     pub async fn listen_and_handle_stdin(&mut self) {
-
         self.log(format!("Enter messages in the terminal and they will be sent to connected peers."));
         // Read full lines from stdin
         let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-
         loop {
             tokio::select! {
                 Ok(Some(line)) = stdin.next_line() => {
@@ -51,7 +45,7 @@ impl NodeClient {
 
                         let message = line_split[1..].join(" ");
 
-                        self.chat_sender
+                        self.chat_cmd_sender
                             .send(ChatMessage {
                                 topic: topic.to_string().into(),
                                 message: message.to_string(),
@@ -60,10 +54,10 @@ impl NodeClient {
                     }
                 }
                 StdInputCommand::BroadcastKfragsCmd(agent_name, n, t) => {
-                    self.broadcast_kfrags(agent_name, n, t).await;
+                    let _ = self.broadcast_kfrags(agent_name, n, t).await;
                 }
-                StdInputCommand::RequestRespawn(agent_name) => {
-                    self.request_respawn(agent_name).await;
+                StdInputCommand::RespawnCmd(agent_name, prev_vessel_peer_id) => {
+                    let _ = self.request_respawn(agent_name, prev_vessel_peer_id).await;
                 }
             }
         }
@@ -80,7 +74,7 @@ pub enum StdInputCommand {
         usize,  // shares: number of Umbral MPC fragments
         usize   // threshold: number of required Umbral fragments
     ),
-    RequestRespawn(String),
+    RespawnCmd(String, Option<PeerId>),
 }
 
 impl Display for StdInputCommand {
@@ -92,7 +86,7 @@ impl Display for StdInputCommand {
             Self::BroadcastKfragsCmd(agent_name, n, t) => {
                 write!(f, "broadcast{d}{}{d}({n},{t})", agent_name)
             }
-            Self::RequestRespawn(agent_name) => write!(f, "request{}{}", d, agent_name),
+            Self::RespawnCmd(agent_name, ..) => write!(f, "request{}{}", d, agent_name),
         }
     }
 }
@@ -102,11 +96,13 @@ impl Into<String> for StdInputCommand {
         let d = AGENT_DELIMITER;
         match self {
             Self::ChatCmd => "chat".to_string(),
-            Self::UnknownCmd(a) => a.to_string(),
-            Self::BroadcastKfragsCmd(a, n, t) => {
-                format!("broadcast{d}{}{d}({n},{t})", a)
+            Self::UnknownCmd(s) => s.to_string(),
+            Self::BroadcastKfragsCmd(agent_name, n, t) => {
+                format!("broadcast{d}{}{d}({n},{t})", agent_name)
             }
-            Self::RequestRespawn(a) => format!("request{}{}", d, a),
+            Self::RespawnCmd(agent_name, prev_vessel_peer_id) => {
+                format!("request{}{}", d, agent_name)
+            }
         }
     }
 }
@@ -123,7 +119,7 @@ impl From<String> for StdInputCommand {
         let agent_name = agent_name.to_string();
         match topic {
             "chat" => Self::ChatCmd,
-            "request" => Self::RequestRespawn(agent_name),
+            "request" => Self::RespawnCmd(agent_name, None),
             "broadcast" => match nshare_threshold {
                 Some((n, t)) => Self::BroadcastKfragsCmd(agent_name, n, t),
                 None => {
