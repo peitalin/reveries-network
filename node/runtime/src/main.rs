@@ -49,10 +49,16 @@ async fn main() -> color_eyre::Result<()> {
     let (
         claude,
         agent
-    ) = connect_to_anthropic(&agent_secrets.anthropic_api_key.unwrap());
+    ) = connect_to_anthropic(
+        &agent_secrets.anthropic_api_key.unwrap(),
+        "you are a helpful assistant"
+    );
 
     //// DeepSeek
-    let agent = connect_to_deepseek(agent_secrets.deepseek_api_key.unwrap()).await;
+    let agent = connect_to_deepseek(
+        agent_secrets.deepseek_api_key.unwrap(),
+        "You are a helpful assistant"
+    ).await;
     // let ask = &format!("Is the following data a valid TDX QuoteV4 trusted execution environment attestation?\n{:?}", tee_attestation_quote);
 
     // let ask = "does an LLM have a soul?";

@@ -31,26 +31,34 @@ impl NodeClient {
         } else {
 
             let line_split = line.split(" ").collect::<Vec<&str>>();
-            let topic = line_split[0];
+            let cmd = line_split[0];
 
-            match topic.to_string().into() {
+            match cmd.to_string().into() {
                 StdInputCommand::UnknownCmd(s) => {
-                    self.log(format!("Unknown topic: '{}'", s));
-                    println!("Topic must be 'chat', 'broadcast.<agent>', 'request.<agent>'...");
+                    self.log(format!("Unknown command: '{}'", s));
+                    println!("Command must be 'chat', 'broadcast.<agent>', 'request.<agent>'...");
                 }
                 StdInputCommand::ChatCmd => {
                     if line_split.len() < 2 {
-                        self.log(format!("Message needs 2 or more words: '<topic> <message>'"));
+                        self.log(format!("Message needs 2 or more words: 'chat <message>'"));
                     } else {
 
                         let message = line_split[1..].join(" ");
 
                         self.chat_cmd_sender
                             .send(ChatMessage {
-                                topic: topic.to_string().into(),
+                                topic: cmd.to_string().into(),
                                 message: message.to_string(),
                             }).await
                             .expect("ChatMessage receiver not to be dropped");
+                    }
+                }
+                StdInputCommand::LLM(question) => {
+                    if line_split.len() < 2 {
+                        self.log(format!("Message needs 2 or more words: 'llm <message>'"));
+                    } else {
+                        let message = line_split[1..].join(" ");
+                        self.ask_llm(&message).await;
                     }
                 }
                 StdInputCommand::BroadcastKfragsCmd(agent_name, n, t) => {
@@ -68,6 +76,7 @@ impl NodeClient {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StdInputCommand {
     ChatCmd,
+    LLM(String),
     UnknownCmd(String),
     BroadcastKfragsCmd(
         String, // Topic: agent_name
@@ -82,6 +91,7 @@ impl Display for StdInputCommand {
         let d = AGENT_DELIMITER;
         match self {
             Self::ChatCmd => write!(f, "chat"),
+            Self::LLM(s) => write!(f, "llm {}", s),
             Self::UnknownCmd(s) => write!(f, "{}", s),
             Self::BroadcastKfragsCmd(agent_name, n, t) => {
                 write!(f, "broadcast{d}{}{d}({n},{t})", agent_name)
@@ -96,6 +106,7 @@ impl Into<String> for StdInputCommand {
         let d = AGENT_DELIMITER;
         match self {
             Self::ChatCmd => "chat".to_string(),
+            Self::LLM(s) => s,
             Self::UnknownCmd(s) => s.to_string(),
             Self::BroadcastKfragsCmd(agent_name, n, t) => {
                 format!("broadcast{d}{}{d}({n},{t})", agent_name)
@@ -119,6 +130,7 @@ impl From<String> for StdInputCommand {
         let agent_name = agent_name.to_string();
         match topic {
             "chat" => Self::ChatCmd,
+            "llm" => Self::LLM(s),
             "request" => Self::RespawnCmd(agent_name, None),
             "broadcast" => match nshare_threshold {
                 Some((n, t)) => Self::BroadcastKfragsCmd(agent_name, n, t),

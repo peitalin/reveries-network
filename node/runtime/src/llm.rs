@@ -61,6 +61,7 @@ pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
         openai_api_key: openai_api_key,
         deepseek_api_key: deepseek_api_key,
         social_accounts: social_accounts,
+        context: "Your name is Larry, your profession is a pizza chef".to_string(),
     }
 }
 
@@ -91,10 +92,12 @@ pub struct AgentSecretsJson {
     pub deepseek_api_key: Option<String>,
 
     pub social_accounts: serde_json::Value,
+
+    pub context: String,
 }
 
 
-pub fn connect_to_anthropic(anthropic_api_key: &str) -> (CompletionModel, Agent<CompletionModel>) {
+pub fn connect_to_anthropic(anthropic_api_key: &str, context: &str) -> (CompletionModel, Agent<CompletionModel>) {
     // Create client with specific version and beta features
     let client = ClientBuilder::new(anthropic_api_key)
         .anthropic_version("2023-06-01")
@@ -107,38 +110,48 @@ pub fn connect_to_anthropic(anthropic_api_key: &str) -> (CompletionModel, Agent<
     // Or create an agent directly
     let agent = client
         .agent(CLAUDE_3_SONNET)
-        .preamble("You are a helpful assistant")
+        .context(context)
         .build();
 
     return (claude, agent)
 }
 
-pub async fn test_claude_query(anthropic_api_key: String) -> Result<()> {
-    let (claude, agent) = connect_to_anthropic(&anthropic_api_key);
-    let response = agent.prompt("does an LLM have a soul?").await?;
-    println!("Anthropic Claude response: {:?}", response);
-    Ok(())
+pub async fn test_claude_query(
+    anthropic_api_key: String,
+    question: &str,
+    context: &str
+) -> Result<String> {
+    let (claude, agent) = connect_to_anthropic(&anthropic_api_key, context);
+    let response = agent.prompt(question).await?;
+    // println!("Anthropic Claude response: {:?}", response);
+    Ok(response)
 }
 
-pub async fn connect_to_deepseek(deepseek_api_key: String) -> Agent<DeepSeekCompletionModel> {
+pub async fn connect_to_deepseek(
+    deepseek_api_key: String,
+    context: &str
+) -> Agent<DeepSeekCompletionModel> {
     let deepseek_client = deepseek::Client::new(&deepseek_api_key);
     let agent = deepseek_client
         .agent("deepseek-chat")
-        .preamble("You are a helpful assistant, knowledgable about computers")
+        .context(context)
         .build();
 
     agent
 }
 
-pub async fn test_deepseek_query(deepseek_api_key: String) -> Result<()> {
+pub async fn test_deepseek_query(
+    deepseek_api_key: String,
+    question: &str,
+    context: &str
+) -> Result<String> {
 
     let deepseek_client = deepseek::Client::new(&deepseek_api_key);
     let agent = deepseek_client
         .agent("deepseek-chat")
-        .preamble("You are a helpful assistant, well versed in computer technology")
+        .context(context)
         .build();
 
-    let answer = agent.prompt("Tell me a joke").await?;
-    println!("Answer: {}", answer);
-    Ok(())
+    let answer = agent.prompt(question).await?;
+    Ok(answer)
 }

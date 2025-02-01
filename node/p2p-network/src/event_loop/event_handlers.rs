@@ -1,8 +1,10 @@
+use color_eyre::owo_colors::OwoColorize;
 use libp2p::{
     kad, mdns, request_response, swarm::SwarmEvent
 };
 use crate::behaviour::BehaviourEvent;
-use crate::short_peer_id;
+use colored::Colorize;
+use crate::{short_peer_id, get_node_name};
 use crate::types::{
     NetworkLoopEvent,
     UmbralPeerId,
@@ -87,8 +89,7 @@ impl EventLoop {
                     }
                     kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
                         let r = std::str::from_utf8(key.as_ref()).unwrap();
-                        self.log(format!("PutRecordOk {:?}", r));
-                        // self.peer_manager.insert_peer_info(peer_id);
+                        // self.log(format!("PutRecordOk {:?}", r));
                     }
                     kad::QueryResult::PutRecord(Err(_err)) => {
                         // self.log(format!("Failed to PutRecord: {err:?}"));
@@ -103,7 +104,13 @@ impl EventLoop {
                     kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
 
                         if peer == self.peer_id {
-                            self.log(format!("BootstrapOk: Publishing Umbral PK for {:?} {}", peer, self.umbral_key.public_key));
+
+                            self.log(format!(
+                                "Kademlia BootstrapOk: Publishing Umbral PK for {:?} {}\n",
+                                get_node_name(&peer),
+                                self.umbral_key.public_key
+                            ));
+
                             let umbral_pk_response = UmbralPublicKeyResponse {
                                 umbral_peer_id: UmbralPeerId::from(peer),
                                 umbral_public_key: self.umbral_key.public_key,
@@ -133,7 +140,7 @@ impl EventLoop {
             //// mDNS Protocol
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
-                    self.log(format!("mDNS adding peer {:?}", peer_id));
+                    // self.log(format!("mDNS adding peer {:?}", peer_id));
                     self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                     self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     self.peer_manager.insert_peer_info(peer_id);
@@ -141,7 +148,7 @@ impl EventLoop {
             }
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                 for (peer_id, multiaddr) in list {
-                    self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
+                    // self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
                     self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
                     self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     self.peer_manager.remove_peer_info(&peer_id);
@@ -201,7 +208,7 @@ impl EventLoop {
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                 request_response::Event::ResponseSent { peer, .. },
             )) => {
-                self.log(format!("ResponseSent to {:?}", peer));
+                // self.log(format!("ResponseSent to {:?}", peer));
             }
 
             //// Connections
@@ -209,7 +216,7 @@ impl EventLoop {
             SwarmEvent::IncomingConnection { .. } => {},
             SwarmEvent::ConnectionEstablished { .. } => {}
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                println!(">>> ConnectionClosed with peer: {:?}", peer_id);
+                // println!(">>> ConnectionClosed with peer: {:?}", peer_id);
                 self.swarm
                     .behaviour_mut()
                     .kademlia
@@ -246,10 +253,12 @@ impl EventLoop {
                     match &peer_info.peer_heartbeat_data.payload.tee_attestation {
                         Some(quote) => {
                             self.log(format!(
-                                "{} HeartbeatData: Block: {}\n\tTEE ECDSA attestation pubkey: 0x{}",
-                                short_peer_id(peer_id),
-                                peer_info.peer_heartbeat_data.payload.block_height,
-                                hex::encode(quote.signature.ecdsa_attestation_key),
+                                "{} {} {} {} {}",
+                                short_peer_id(peer_id).black(),
+                                "HeartBeat Block".black(),
+                                peer_info.peer_heartbeat_data.payload.block_height.black(),
+                                "TEE ESCDA attestation pubkey:".bright_black(),
+                                format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
                             ));
                             // self.log(format!(
                             //     "{} HeartbeatData: Block: {}",

@@ -97,9 +97,9 @@ pub async fn new(secret_key_seed: Option<u8>)
                     // send_timeout should be larger than idle_timeout
                     HeartbeatConfig::new(
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        Duration::from_millis(12_000),
-                        // Idle time before sending next `TeeAttestationBytes`
                         Duration::from_millis(10_000),
+                        // Idle time before sending next `TeeAttestationBytes`
+                        Duration::from_millis(8_000),
                         // Max failures allowed. Requests disconnection if reached
                         std::num::NonZeroU32::new(1).unwrap(),
                     ),

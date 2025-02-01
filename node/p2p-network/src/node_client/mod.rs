@@ -29,7 +29,7 @@ use runtime::reencrypt::{
     UmbralKey,
     generate_pre_kfrags,
 };
-use runtime::llm::{AgentSecretsJson, test_claude_query};
+use runtime::llm::{test_claude_query, test_deepseek_query, AgentSecretsJson};
 
 
 
@@ -39,6 +39,7 @@ pub struct NodeClient {
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub node_name: String,
     pub hosting_agent_name: Option<String>,
+    pub agent_secrets_json: Option<AgentSecretsJson>,
 
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
 
@@ -63,6 +64,7 @@ impl NodeClient {
             node_name: node_name,
             chat_cmd_sender: chat_cmd_sender,
             hosting_agent_name: None,
+            agent_secrets_json: None,
             umbral_key: umbral_key,
             umbral_capsule: None,
             umbral_ciphertext: None,
@@ -115,7 +117,7 @@ impl NodeClient {
                                 GossipTopic::BroadcastKfrag(agent_name.clone(), 3).to_string(),
                             ]).await;
 
-                            let _ = self.encrypt_secret(agent_secrets_json);
+                            let _ = self.encrypt_secret(agent_secrets_json.clone());
 
                             // // broadcast topic switch to new Agent with new ID
                             // let topic_switch = Some(TopicSwitch {
@@ -125,6 +127,21 @@ impl NodeClient {
                             // });
 
                             self.broadcast_kfrags(agent_name, 3, 2).await.expect("respawn err");
+
+                            self.agent_secrets_json = Some(agent_secrets_json.clone());
+
+                            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
+                                self.log(format!("Decrypted LLM API keys, querying LLM:"));
+
+                                let response = test_claude_query(
+                                    anthropic_api_key,
+                                    "What is your name and what do you do?",
+                                    &agent_secrets_json.context
+                                ).await.unwrap();
+
+                                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                            }
+
                         }
                     };
                 }
@@ -147,10 +164,23 @@ impl NodeClient {
         );
     }
 
+    pub async fn ask_llm(&mut self, question: &str) {
+        if let Some(agent_secrets_json) = &self.agent_secrets_json {
+            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
+                println!("Context: {}", agent_secrets_json.context.blue());
+                let response = test_claude_query(
+                    anthropic_api_key,
+                    question,
+                    &agent_secrets_json.context
+                ).await.unwrap();
+                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+            }
+        }
+    }
+
     pub fn encrypt_secret(&mut self, agent_secrets: AgentSecretsJson) -> Result<()> {
 
         self.hosting_agent_name = Some(agent_secrets.agent_name.clone());
-
         let agent_secrets_bytes = &serde_json::to_vec(&agent_secrets)?;
 
         let (capsule, ciphertext) = umbral_pre::encrypt(
@@ -164,15 +194,18 @@ impl NodeClient {
             &ciphertext
         ).expect("Should be able to decrypt own ciphertext");
 
-        let decrypted_data = serde_json::from_slice::<serde_json::Value>(&plaintext_alice)
+        let agent_secrets_json = serde_json::from_slice::<AgentSecretsJson>(&plaintext_alice)
             .expect("error marshalling decrypted plaintext to JSON data");
-        self.log(format!("Decryptable JSON data: {}", decrypted_data));
-        self.log(format!("Encrypted AgentSecretsJson data: {:?}", hex::encode(ciphertext.clone())));
 
+        // self.log(format!("Decryptable JSON data: {}", decrypted_data));
+        self.log(format!("Encrypted AgentSecretsJson data: {:?}", hex::encode(ciphertext.clone())).black());
+
+        self.agent_secrets_json = Some(agent_secrets_json);
         self.umbral_capsule = Some(capsule);
         self.umbral_ciphertext = Some(ciphertext);
         Ok(())
     }
+
 
     pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
 
@@ -460,14 +493,10 @@ impl NodeClient {
 
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
                 let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)?;
-                self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str));
+                self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str).yellow());
 
                 let agent_secrets_json: AgentSecretsJson = serde_json::from_slice(&plaintext_bob)?;
 
-                // if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key {
-                //     self.log(format!("Decrypted Anthropic key, querying Claude:"));
-                //     let _ = test_claude_query(anthropic_api_key).await;
-                // }
                 Ok(agent_secrets_json)
             },
             Err(e) => {
