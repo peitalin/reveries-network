@@ -19,11 +19,13 @@ pub enum NodeCommand {
     /// Gets Umbral PKs from connected Peers
     GetPeerUmbralPublicKey {
         agent_name: String,
+        agent_nonce: usize,
         sender: mpsc::Sender<UmbralPublicKeyResponse>,
     },
     /// Gets Peers that are subscribed to the Kfrag Broadcast for an agent
     GetKfragBroadcastPeers {
         agent_name: String,
+        agent_nonce: usize,
         sender: oneshot::Sender<HashMap<u32, HashSet<PeerId>>>,
     },
     /// Broadcasts Kfrags to peers (multicasts to specific fragment channels)
@@ -31,11 +33,13 @@ pub enum NodeCommand {
     /// Request Capsule Fragments for threshold decryption
     RequestCfrags {
         agent_name: String,
+        agent_nonce: usize,
         frag_num: usize,
         sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
     },
     RespondCfrag {
         agent_name: String,
+        agent_nonce: usize,
         frag_num: usize,
         channel: ResponseChannel<FragmentResponse>,
     },
@@ -53,10 +57,12 @@ pub enum NodeCommand {
     },
     GetProviders {
         agent_name: String,
+        agent_nonce: usize,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     RequestFile {
         agent_name: String,
+        agent_nonce: usize,
         frag_num: Option<usize>,
         peer: PeerId,
         sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,

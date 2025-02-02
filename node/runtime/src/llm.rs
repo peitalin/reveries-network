@@ -49,6 +49,7 @@ pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
 
     AgentSecretsJson {
         agent_name: agent_name,
+        agent_nonce: 0,
         corekey_secp256k1: AgentKeypair {
             public_key: hex::encode(keypair_secp256k1.public().to_bytes()),
             secret_key: hex::encode(keypair_secp256k1.secret().to_bytes()),
@@ -75,6 +76,8 @@ pub struct AgentKeypair {
 pub struct AgentSecretsJson {
 
     pub agent_name: String,
+
+    pub agent_nonce: usize,
 
     /// seckp256k1 private key, used to encrypt sensitive agent logins/keys
     /// before posting on Github, IPFS, or broadcsting on the network's Kademlia DHT

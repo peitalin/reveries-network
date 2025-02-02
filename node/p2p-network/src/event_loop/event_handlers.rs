@@ -169,7 +169,8 @@ impl EventLoop {
                         self.network_event_sender
                             .send(NetworkLoopEvent::InboundCfragRequest {
                                 agent_name: fragment_request.0,
-                                frag_num: fragment_request.1,
+                                agent_nonce: fragment_request.1,
+                                frag_num: fragment_request.2,
                                 channel,
                             })
                             .await

@@ -98,7 +98,7 @@ impl EventLoop {
 
                 match message.topic.into() {
                     // When a node receives Kfrags in a broadcast/multicast
-                    GossipTopic::BroadcastKfrag(agent_name, frag_num)  => {
+                    GossipTopic::BroadcastKfrag(agent_name, agent_nonce, frag_num)  => {
 
                         let k: KeyFragmentMessage = serde_json::from_slice(&message.data)
                             .expect("Error deserializing KeyFragmentMessage");
@@ -118,13 +118,16 @@ impl EventLoop {
 
                             self.peer_manager.set_peer_info_agent_vessel(
                                 &agent_name,
+                                agent_nonce,
                                 k.vessel_peer_id,
                                 k.next_vessel_peer_id,
                             );
-                            self.peer_manager.insert_peer_agent_fragments(&peer_id, &agent_name, frag_num);
+                            self.peer_manager.insert_peer_agent_fragments(&peer_id, &agent_name, agent_nonce, frag_num);
 
+                            let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+                            println!("INSERTIN CFRAG IN KEY: {}", agent_name_nonce_key);
                             self.cfrags.insert(
-                                agent_name,
+                                agent_name_nonce_key,
                                 CapsuleFragmentIndexed {
                                     frag_num: k.frag_num,
                                     threshold: k.threshold,
@@ -145,13 +148,13 @@ impl EventLoop {
                     GossipTopic::TopicSwitch(t) => {
                         println!("TOPIC SWITCH: {:?}", t);
                     }
-                    // Nothing else to do for GossipTopic::Chat
-                    GossipTopic::Chat(_) => {}
+                    // Nothing else to do for GossipTopic::Unknown
+                    GossipTopic::Unknown => {}
                 }
             }
             gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 match topic.clone().into() {
-                    GossipTopic::BroadcastKfrag(_, _) => {
+                    GossipTopic::BroadcastKfrag(_, _, _) => {
                         self.peer_manager.remove_kfrags_peer(&peer_id)
                     }
                     _ => {}
@@ -160,15 +163,19 @@ impl EventLoop {
             gossipsub::Event::GossipsubNotSupported {..} => {}
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
+                // TODO: check TEE attestation from Peer before adding peer to channel
+                // We want to ensure that the Peer is runnign in a TEE and not subscribe to multiple
+                // fragment channels for the same agent (collution attempts)
+                //
                 // if peer is registered on multiple kfrag broadcasts, blacklist them
                 // Peers should be on just 1 kfrag broadcast channel.
                 // We can enforce this if the binary runs in a TEE
 
                 // self.log(format!("Gossipsub Peer Subscribed {:?} {:?}", peer_id, topic));
                 match topic.clone().into() {
-                    GossipTopic::BroadcastKfrag(agent_name, frag_num) => {
+                    GossipTopic::BroadcastKfrag(agent_name, agent_nonce, frag_num) => {
                         self.log(format!("Adding Peer to kfrags_peers({}, {}, {})", agent_name, frag_num, peer_id));
-                        self.peer_manager.insert_kfrags_peer(peer_id, agent_name, frag_num);
+                        self.peer_manager.insert_kfrags_peer(peer_id, agent_name, agent_nonce, frag_num);
                     },
                     _ => {}
                 }

@@ -22,9 +22,11 @@ use libp2p::{
     PeerId
 };
 use runtime::reencrypt::UmbralKey;
-use crate::{node_client::NodeCommand, get_node_name, short_peer_id, AgentName};
+use crate::{node_client::NodeCommand, get_node_name, short_peer_id};
 use crate::types::{
+    AgentName,
     ChatMessage,
+    TopicSwitch,
     GossipTopic,
     UmbralPeerId,
     NetworkLoopEvent,
@@ -152,7 +154,7 @@ impl EventLoop {
                     println!("Connected peers: {:?}", peer_ids);
 
                     let mut failed_agents = vec![];
-                    let mut topic_switch = None;
+                    let mut topic_switch: Option<TopicSwitch> = None;
 
                     // clone peer_info immutably then
                     // iterate and check which peers have stopped sending heartbeats
@@ -164,9 +166,10 @@ impl EventLoop {
                         println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
 
                         if duration > max_time_before_respawn {
-                            if let Some(AgentVessel { agent_name, next_vessel_peer_id, prev_vessel_peer_id }) = &peer_info.agent_vessel {
+                            if let Some(AgentVessel { agent_name, agent_nonce, next_vessel_peer_id, prev_vessel_peer_id }) = &peer_info.agent_vessel {
 
-                                let respawn_pending = self.pending.respawns.contains(&(agent_name.clone(), *next_vessel_peer_id));
+                                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+                                let respawn_pending = self.pending.respawns.contains(&(agent_name_nonce_key, *next_vessel_peer_id));
 
                                 if respawn_pending {
                                     self.log(format!("Respawn pending: {} -> {}", agent_name, self.node_name));
@@ -180,13 +183,15 @@ impl EventLoop {
 
                                     // TODO: consensus mechanism to vote for reincarnation
                                     let failed_agent = agent_name;
+                                    let agent_nonce = 0; // TODO REFACTOR agent names to incorporate nonce
                                     failed_agents.push(failed_agent);
+
 
                                     if self.peer_id == *next_vessel_peer_id {
 
                                         // Tell dispatch a Respawn(agent_name) request to eventloop
                                         let _ = self.network_event_sender
-                                            .send(NetworkLoopEvent::Respawn(agent_name.to_owned(), prev_vessel_peer_id.clone())).await;
+                                            .send(NetworkLoopEvent::Respawn(agent_name.to_owned(), agent_nonce, prev_vessel_peer_id.clone())).await;
 
                                         self.log(format!("{} '{}' {} {}", "Respawning agent".blue(), agent_name.red(), "in new vessel:".blue(), self.node_name.yellow()));
 
@@ -197,11 +202,11 @@ impl EventLoop {
                                         // 3) broadcast peers to tell them to do the same
 
 
-                                        topic_switch = Some(TopicSwitch {
-                                            prev_topic: agent_name.to_string(), //
-                                            next_topic: agent_name.to_string(), // +1 increment AgentName nonce
-                                            prev_vessel_peer_id: prev_vessel_peer_id.clone()
-                                        });
+                                        // topic_switch = Some(TopicSwitch {
+                                        //     prev_topic: agent_name.to_string(), //
+                                        //     next_topic: agent_name.to_string(), // +1 increment AgentName nonce
+                                        //     prev_vessel_peer_id: prev_vessel_peer_id.clone()
+                                        // });
 
                                         // let _ = self.network_event_sender
                                         //     .send(NetworkLoopEvent::ReBroadcastKfrags(agent_name.to_owned())).await;
@@ -277,7 +282,7 @@ impl EventLoop {
 
     async fn broadcast_topic_switch(&mut self, topic_switch: TopicSwitch) {
 
-        let match_topic = topic_switch.next_topic.clone();
+        let match_topic = "topic_switch";
         let gossip_topic = GossipTopic::TopicSwitch(topic_switch);
         let gossip_topic_bytes = serde_json::to_vec(&gossip_topic)
             .expect("serde err");
@@ -308,17 +313,4 @@ impl EventLoop {
         // }
 
     }
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TopicSwitch {
-    // unsubscribe from prev_topic
-    pub prev_topic: String,
-    // subscribe to next_topic
-    pub next_topic: String,
-    // remove kfrags_peers for old agent
-
-    // remove peer from peer_info and peers_to_agent_frags
-    pub prev_vessel_peer_id: PeerId
 }

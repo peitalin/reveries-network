@@ -19,9 +19,7 @@ use tokio::sync::mpsc;
 pub use crate::types::UmbralPeerId;
 use crate::SendError;
 use crate::types::NetworkLoopEvent;
-use crate::behaviour::{
-    Behaviour,
-};
+use crate::behaviour::Behaviour;
 use crate::event_loop::EventLoop;
 use crate::event_loop::heartbeat_behaviour::{
     HeartbeatBehaviour,
@@ -29,6 +27,9 @@ use crate::event_loop::heartbeat_behaviour::{
 };
 use crate::node_client::NodeClient;
 
+thread_local! {
+    pub static NODE_SEED_NUM: std::cell::RefCell<u8> = std::cell::RefCell::new(1);
+}
 
 /// Creates the network components, namely:
 ///
@@ -170,6 +171,11 @@ pub fn generate_peer_keys(secret_key_seed: Option<u8>) -> (
 
             let mut bytes = [0u8; 32];
             bytes[0] = seed;
+
+            // set seed for working out frag_num this this peer
+            NODE_SEED_NUM.with(|n| {
+                *n.borrow_mut() = seed;
+            });
 
             let id_keys = identity::Keypair::ed25519_from_bytes(bytes).unwrap();
             let node_name = crate::make_node_name(seed);

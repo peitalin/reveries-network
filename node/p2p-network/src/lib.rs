@@ -6,11 +6,6 @@ pub mod types;
 use libp2p::PeerId;
 
 
-pub const AGENT_DELIMITER: &'static str = ".";
-
-pub type AgentName = String;
-pub type FragmentNumber = u32;
-
 
 #[derive(Debug)]
 pub struct SendError(pub String);

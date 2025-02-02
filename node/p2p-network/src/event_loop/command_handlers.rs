@@ -26,8 +26,8 @@ impl EventLoop {
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
                 let _ = self.broadcast_kfrag(key_fragment_message).await;
             }
-            NodeCommand::GetKfragBroadcastPeers { agent_name, sender } => {
-                match self.peer_manager.get_all_kfrag_broadcast_peers(&agent_name) {
+            NodeCommand::GetKfragBroadcastPeers { agent_name, agent_nonce, sender } => {
+                match self.peer_manager.get_all_kfrag_broadcast_peers(&agent_name, agent_nonce) {
                     None => {
                         println!("missing kfrag_peers: {:?}", self.peer_manager.kfrags_peers);
                         // TODO handle TopicSwitch
@@ -37,14 +37,18 @@ impl EventLoop {
                     }
                 }
             }
-            NodeCommand::RequestCfrags { agent_name, frag_num, sender } => {
-                match self.cfrags.get(&agent_name) {
+            NodeCommand::RequestCfrags { agent_name, agent_nonce, frag_num, sender } => {
+
+                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+                // TODO: refactor cfrags into PeerManager. Fix aget_name_nonce_key confusion
+
+                match self.cfrags.get(&agent_name_nonce_key) {
                     None => {},
                     Some(cfrag) => {
 
                         // providers for the kth-frag
                         let providers = self.peer_manager
-                            .get_kfrag_broadcast_peers_by_fragment(&agent_name, frag_num as u32)
+                            .get_kfrag_broadcast_peers_by_fragment(&agent_name, agent_nonce, frag_num as u32)
                             // filter out peers that are the vessel node, they created the kfrags
                             .iter()
                             .filter_map(|&peer_id| match peer_id != cfrag.vessel_peer_id {
@@ -67,7 +71,7 @@ impl EventLoop {
                                     .request_response
                                     .send_request(
                                         &peer_id,
-                                        FragmentRequest(agent_name.clone(), Some(frag_num as usize))
+                                        FragmentRequest(agent_name.clone(), agent_nonce, Some(frag_num as usize))
                                     );
 
                                 self.pending.request_fragments.insert(request_id, sender);
@@ -77,7 +81,7 @@ impl EventLoop {
                     }
                 };
             }
-            NodeCommand::GetProviders { agent_name, sender } => {
+            NodeCommand::GetProviders { agent_name, agent_nonce, sender } => {
                 let query_id = self
                     .swarm
                     .behaviour_mut()
@@ -86,7 +90,7 @@ impl EventLoop {
 
                 self.pending.get_providers.insert(query_id, sender);
             }
-            NodeCommand::GetPeerUmbralPublicKey { sender, agent_name } => {
+            NodeCommand::GetPeerUmbralPublicKey { sender, agent_name, agent_nonce } => {
 
                 let public_keys = self.peer_manager
                     .get_connected_peers()
@@ -106,11 +110,13 @@ impl EventLoop {
                     self.pending.get_umbral_pks.insert(umbral_pk_kademlia_key, sender.clone());
                 };
             }
-            NodeCommand::RespondCfrag { agent_name, frag_num, channel } => {
+            NodeCommand::RespondCfrag { agent_name, agent_nonce, frag_num, channel } => {
 
-                self.log(format!("RespondCfrags: Finding topic: {}", agent_name));
+                self.log(format!("RespondCfrags: Finding topic for: {agent_name}-{agent_nonce}"));
+                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+                // TODO: refactor cfrags into PeerManager. Fix aget_name_nonce_key confusion
 
-                let cfrag_indexed = match self.cfrags.get(&agent_name) {
+                let cfrag_indexed = match self.cfrags.get(&agent_name_nonce_key) {
                     None => None,
                     Some(cfrag) => {
                         self.log(format!("RespondCfrags: Found Cfrag: {:?}", cfrag));
@@ -140,6 +146,7 @@ impl EventLoop {
             }
             NodeCommand::RequestFile {
                 agent_name,
+                agent_nonce,
                 frag_num,
                 peer,
                 sender,
@@ -148,7 +155,7 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FragmentRequest(agent_name, frag_num));
+                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num));
 
                 self.pending.request_fragments.insert(request_id, sender);
             }

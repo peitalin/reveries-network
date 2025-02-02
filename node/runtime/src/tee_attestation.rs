@@ -36,7 +36,7 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     let attestation_bytes = hex::decode(TEE_MOCK_ATTESTATION_REPORT)?;
     let attestation_report = QuoteV4::from_bytes(&attestation_bytes);
 
-    if (log) {
+    if log {
         log_quote_v4_attestation(&attestation_report);
     }
     Ok((attestation_report, attestation_bytes))

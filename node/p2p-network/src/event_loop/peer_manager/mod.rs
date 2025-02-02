@@ -1,14 +1,9 @@
 mod heartbeat_data;
 
-use libp2p::{
-    Multiaddr,
-    PeerId,
-};
-use std::collections::{
-    HashMap,
-    HashSet,
-};
-use crate::{get_node_name, short_peer_id, types::{UmbralPeerId, UmbralPublicKeyResponse}, AgentName, FragmentNumber};
+use libp2p::PeerId;
+use std::collections::{HashMap, HashSet};
+use crate::{get_node_name, short_peer_id};
+use crate::types::{AgentName, FragmentNumber};
 
 use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
@@ -38,6 +33,7 @@ impl PeerInfo {
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct AgentVessel {
     pub agent_name: String,
+    pub agent_nonce: usize,
     pub prev_vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
 }
@@ -45,6 +41,7 @@ pub struct AgentVessel {
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct AgentFragment {
     agent_name: String,
+    agent_nonce: usize,
     frag_num: u32
 }
 
@@ -84,6 +81,7 @@ impl PeerManager {
     pub fn set_peer_info_agent_vessel(
         &mut self,
         agent_name: &str,
+        agent_nonce: usize,
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
@@ -93,6 +91,7 @@ impl PeerManager {
             Some(peer_info) => {
                 peer_info.agent_vessel = Some(AgentVessel {
                     agent_name: agent_name.to_string(),
+                    agent_nonce: agent_nonce,
                     prev_vessel_peer_id: vessel_peer_id,
                     next_vessel_peer_id: next_vessel_peer_id,
                 })
@@ -117,11 +116,18 @@ impl PeerManager {
         };
     }
 
-    pub fn insert_kfrags_peer(&mut self, peer_id: PeerId, agent_name: String, frag_num: u32) {
+    pub fn insert_kfrags_peer(
+        &mut self,
+        peer_id: PeerId,
+        agent_name: String,
+        agent_nonce: usize,
+        frag_num: u32
+    ) {
+        let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
         // record Peer as Kfrag holder.
         // make it easy to queyr list of all Peers for a given AgentName
         self.kfrags_peers
-            .entry(agent_name.clone())
+            .entry(agent_name_nonce_key)
             .and_modify(|hmap| {
                 let maybe_hset = hmap.get_mut(&frag_num);
                 match maybe_hset {
@@ -149,6 +155,7 @@ impl PeerManager {
             .and_modify(|v| {
                 v.insert(AgentFragment {
                     agent_name: agent_name,
+                    agent_nonce: agent_nonce,
                     frag_num: frag_num
                 });
             });
@@ -156,8 +163,9 @@ impl PeerManager {
     }
 
     // removes all peers associated with the agent
-    pub fn remove_kfrags_peers_by_agent_name(&mut self, agent_name: &str) {
-        self.kfrags_peers.remove(agent_name);
+    pub fn remove_kfrags_peers_by_agent_name(&mut self, agent_name: &str, agent_nonce: usize) {
+        let key = format!("{agent_name}-{agent_nonce}");
+        self.kfrags_peers.remove(&key);
     }
 
     pub fn remove_kfrags_peer(&mut self, peer_id: &PeerId) {
@@ -183,13 +191,25 @@ impl PeerManager {
     }
 
     // Returns all fragment holding peers
-    pub fn get_all_kfrag_broadcast_peers(&self, agent_name: &str) -> Option<&HashMap<u32, HashSet<PeerId>>> {
-        self.kfrags_peers.get(agent_name)
+    pub fn get_all_kfrag_broadcast_peers(
+        &self,
+        agent_name: &str,
+        agent_nonce: usize
+    ) -> Option<&HashMap<u32, HashSet<PeerId>>> {
+        let key = format!("{agent_name}-{agent_nonce}");
+        self.kfrags_peers.get(&key)
     }
 
     // Returns peers that just hold a specific fragment
-    pub fn get_kfrag_broadcast_peers_by_fragment(&self, agent_name: &str, frag_num: u32) -> Vec<PeerId> {
-        match self.kfrags_peers.get(agent_name) {
+    pub fn get_kfrag_broadcast_peers_by_fragment(
+        &self,
+        agent_name: &str,
+        agent_nonce: usize,
+        frag_num: u32
+    ) -> Vec<PeerId> {
+
+        let key = format!("{agent_name}-{agent_nonce}");
+        match self.kfrags_peers.get(&key) {
             None => vec![],
             Some(peers_hmap) => {
                 match peers_hmap.get(&frag_num) {
@@ -202,13 +222,20 @@ impl PeerManager {
         }
     }
 
-    pub fn insert_peer_agent_fragments(&mut self, peer_id: &PeerId, agent_name: &str, frag_num: u32) {
-        println!("Adding peer_agent_fragments: '{}' frag({})", agent_name, frag_num);
+    pub fn insert_peer_agent_fragments(
+        &mut self,
+        peer_id: &PeerId,
+        agent_name: &str,
+        agent_nonce: usize,
+        frag_num: u32
+    ) {
+        println!("Adding peer_agent_fragments: '{}-{}' frag({})", agent_name, agent_nonce, frag_num);
         self.peers_to_agent_frags
             .entry(*peer_id)
             .and_modify(|hset| {
                 hset.insert(AgentFragment {
                     agent_name: agent_name.to_string(),
+                    agent_nonce: agent_nonce,
                     frag_num: frag_num
                 });
             })
@@ -216,6 +243,7 @@ impl PeerManager {
                 let mut hset = HashSet::new();
                 hset.insert(AgentFragment {
                     agent_name: agent_name.to_string(),
+                    agent_nonce: agent_nonce,
                     frag_num: frag_num
                 });
                 hset

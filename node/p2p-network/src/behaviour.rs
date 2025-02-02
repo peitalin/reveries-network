@@ -13,7 +13,6 @@ use crate::types::{FragmentRequest, FragmentResponse, GossipTopic};
 use crate::event_loop::heartbeat_behaviour;
 
 
-
 /// Handles all p2p protocols
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
