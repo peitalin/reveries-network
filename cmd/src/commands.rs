@@ -20,6 +20,8 @@ pub enum CliArgument {
         #[clap(long)]
         agent_name: String,
         #[clap(long)]
+        agent_nonce: usize,
+        #[clap(long)]
         shares: usize,
         #[clap(long)]
         threshold: usize,
@@ -27,9 +29,13 @@ pub enum CliArgument {
     Respawn {
         #[clap(long)]
         agent_name: String,
+        #[clap(long)]
+        agent_nonce: usize,
     },
     GetAgentKfragPeers {
         #[clap(long)]
         agent_name: String,
+        #[clap(long)]
+        agent_nonce: usize,
     }
 }

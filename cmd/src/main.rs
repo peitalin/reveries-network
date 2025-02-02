@@ -35,10 +35,11 @@ async fn main() -> Result<()> {
     let client = create_rpc_client(port.port()).await?;
 
     match cmd.argument {
-        CliArgument::Broadcast { agent_name, shares, threshold } => {
+        CliArgument::Broadcast { agent_name, agent_nonce, shares, threshold } => {
 
-            log(format!("Requesting network to proxy re-encrypt agent: {}'s secrets and broadcast fragments(n={}, t={})",
+            log(format!("Requesting network to proxy re-encrypt agent: {}/{}'s secrets and broadcast fragments(n={}, t={})",
                 agent_name,
+                agent_nonce,
                 shares,
                 threshold
             ));
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
                 "broadcast",
                 rpc_params![
                     agent_name,
+                    agent_nonce,
                     shares,
                     threshold
                 ]
@@ -60,24 +62,26 @@ async fn main() -> Result<()> {
                 format!("{}", &response.umbral_public_key).red()
             ));
         }
-        CliArgument::Respawn { agent_name } => {
+        CliArgument::Respawn { agent_name, agent_nonce } => {
             let response2: AgentSecretsJson = client.request(
                 "request",
                 rpc_params![
-                    agent_name
+                    agent_name,
+                    agent_nonce
                 ]
             ).await?;
             log(format!("Decrypted Agent Secrets:\n{:?}\n", response2));
         }
-        CliArgument::GetAgentKfragPeers { agent_name } => {
+        CliArgument::GetAgentKfragPeers { agent_name, agent_nonce } => {
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
                 "get_agent_kfrag_peers",
                 rpc_params![
-                    agent_name.clone()
+                    agent_name.clone(),
+                    agent_nonce.clone()
                 ]
             ).await?;
 
-            log(format!("Peers holding Agent '{}' Kfrags", agent_name.red()));
+            log(format!("Peers holding Agent '{}/{}' Kfrags", agent_name, agent_nonce).red());
             for (frag_num, peers) in response3 {
 
                 let peer_names = peers.iter()

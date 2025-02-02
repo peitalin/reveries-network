@@ -41,14 +41,15 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
 
         let (
             agent_name,
+            agent_nonce,
             shares,
             threshold
-        ) = params.parse::<(String, usize, usize)>().expect("error parsing param");
+        ) = params.parse::<(String, usize, usize, usize)>().expect("error parsing param");
 
         let mut nc1 = nc1.clone();
         async move {
             nc1
-                .broadcast_kfrags(agent_name, shares, threshold)
+                .broadcast_kfrags(agent_name, agent_nonce, shares, threshold)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
@@ -57,11 +58,11 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
     let nc2 = network_client.clone();
 	module.register_async_method("request", move |params, _, _| {
 
-        let agent_name = params.one::<String>().expect("error parsing param");
+        let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
         let mut nc2 = nc2.clone();
         async move {
             nc2
-                .request_respawn(agent_name, None)
+                .request_respawn(agent_name, agent_nonce, None)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
@@ -71,12 +72,12 @@ pub async fn run_server(rpc_port: u16, network_client: NodeClient) -> color_eyre
     let nc3 = network_client.clone();
 	module.register_async_method("get_agent_kfrag_peers", move |params, _, _| {
 
-        let agent_name = params.one::<String>().expect("error parsing param");
+        let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
         let mut nc3 = nc3.clone();
         async move {
 
             let peers = nc3
-                .get_agent_kfrag_peers(agent_name).await;
+                .get_agent_kfrag_peers(agent_name, agent_nonce).await;
 
             Ok::<HashMap<u32, HashSet<PeerId>>, RpcError>(peers)
         }
