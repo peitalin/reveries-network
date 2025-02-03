@@ -6,9 +6,8 @@ use libp2p::{
     Multiaddr
 };
 use tokio::sync::{mpsc, oneshot};
-use crate::behaviour::{
-    KeyFragmentMessage
-};
+use crate::SendError;
+use crate::behaviour::KeyFragmentMessage;
 use crate::types::{
     FragmentResponse,
     UmbralPublicKeyResponse
@@ -35,7 +34,8 @@ pub enum NodeCommand {
         agent_name: String,
         agent_nonce: usize,
         frag_num: usize,
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        // sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
     RespondCfrag {
         agent_name: String,
@@ -65,7 +65,8 @@ pub enum NodeCommand {
         agent_nonce: usize,
         frag_num: Option<usize>,
         peer: PeerId,
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        // sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
     RespondFile {
         file: Vec<u8>,

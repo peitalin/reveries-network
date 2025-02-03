@@ -19,13 +19,13 @@ use rig::{
 pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
 
     let agent_name = match seed {
-        0 => "Auron".to_string(),
-        1 => "Beatrix".to_string(),
-        2 => "Cid".to_string(),
-        3 => "Dagger".to_string(),
-        4 => "Ellone".to_string(),
-        5 => "Fang".to_string(),
-        _ => "Unnamed".to_string(),
+        0 => "auron".to_string(),
+        1 => "beatrix".to_string(),
+        2 => "cid".to_string(),
+        3 => "dagger".to_string(),
+        4 => "ellone".to_string(),
+        5 => "fang".to_string(),
+        _ => "unnamed".to_string(),
     };
 
     dotenv::dotenv().ok();

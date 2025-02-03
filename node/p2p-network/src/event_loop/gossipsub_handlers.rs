@@ -126,7 +126,7 @@ impl EventLoop {
 
                             let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
                             println!("INSERTIN CFRAG IN KEY: {}", agent_name_nonce_key);
-                            self.cfrags.insert(
+                            self.peer_manager.cfrags.insert(
                                 agent_name_nonce_key,
                                 CapsuleFragmentIndexed {
                                     frag_num: k.frag_num,
@@ -140,7 +140,7 @@ impl EventLoop {
                                     ciphertext: k.ciphertext
                                 }
                             );
-                            self.print_stored_cfrags(&self.cfrags);
+                            self.print_stored_cfrags(&self.peer_manager.cfrags);
 
                         }
 

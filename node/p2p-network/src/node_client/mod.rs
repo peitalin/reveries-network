@@ -493,7 +493,6 @@ impl NodeClient {
     ) -> Result<AgentSecretsJson, Error> {
 
         // get next vessel (can randomise as well)
-        println!("new_vessel_cfrags>>>> {:?}", new_vessel_cfrags);
         let mut new_vessel_pk = new_vessel_cfrags.pop().unwrap();
         let threshold = new_vessel_pk.threshold as usize;
         self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));

@@ -5,10 +5,7 @@ mod gossipsub_handlers;
 pub(crate) mod heartbeat_behaviour;
 pub(crate) mod peer_manager;
 
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-};
+use std::collections::{HashMap, HashSet};
 use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use futures::StreamExt;
@@ -22,6 +19,7 @@ use libp2p::{
     PeerId
 };
 use runtime::reencrypt::UmbralKey;
+use crate::SendError;
 use crate::{node_client::NodeCommand, get_node_name, short_peer_id};
 use crate::types::{
     AgentName,
@@ -30,7 +28,6 @@ use crate::types::{
     GossipTopic,
     UmbralPeerId,
     NetworkLoopEvent,
-    CapsuleFragmentIndexed,
     UmbralPublicKeyResponse
 };
 use crate::behaviour::Behaviour;
@@ -56,7 +53,6 @@ pub struct EventLoop {
 
     // Umbral fragments
     umbral_key: UmbralKey,
-    cfrags: HashMap<AgentName, CapsuleFragmentIndexed>,
 
     // tracks peer heartbeats status
     peer_manager: PeerManager,
@@ -77,9 +73,13 @@ struct PendingRequests {
         UmbralPeerId,
         tokio::sync::mpsc::Sender<UmbralPublicKeyResponse>
     >,
+    // request_fragments: HashMap<
+    //     request_response::OutboundRequestId,
+    //     oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
+    // >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
-        oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>
+        oneshot::Sender<Result<Vec<u8>, SendError>>
     >,
     respawns: HashSet<(AgentName, PeerId)>
 }
@@ -116,7 +116,6 @@ impl EventLoop {
             chat_cmd_receiver,
             node_name,
             topics: HashMap::new(),
-            cfrags: HashMap::new(),
             umbral_key: umbral_key,
             peer_manager: PeerManager::new(),
             pending: PendingRequests::new(),

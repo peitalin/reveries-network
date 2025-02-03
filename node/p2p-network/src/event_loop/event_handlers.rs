@@ -1,9 +1,10 @@
 use color_eyre::owo_colors::OwoColorize;
+use colored::Colorize;
 use libp2p::{
     kad, mdns, request_response, swarm::SwarmEvent
 };
+use crate::SendError;
 use crate::behaviour::BehaviourEvent;
-use colored::Colorize;
 use crate::{short_peer_id, get_node_name};
 use crate::types::{
     NetworkLoopEvent,
@@ -185,7 +186,7 @@ impl EventLoop {
                             .remove(&request_id)
                             .expect("request_response: Request pending.");
 
-                        let _ = sender.send(Ok(response.0));
+                        let _ = sender.send(response.0);
                     }
                 }
             },
@@ -203,7 +204,7 @@ impl EventLoop {
                 let _ = self.pending.request_fragments
                     .remove(&request_id)
                     .expect("Request pending")
-                    .send(Err(Box::new(error)));
+                    .send(Err(SendError(error.to_string())));
 
             }
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(

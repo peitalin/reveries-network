@@ -10,6 +10,7 @@ use crate::create_network::NODE_SEED_NUM;
 pub type AgentName = String;
 pub type AgentNonce = usize;
 pub type FragmentNumber = u32;
+
 pub const TOPIC_DELIMITER: &'static str = "/";
 const NANOID_ALPHABET: [char; 16] = [
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f'
@@ -182,7 +183,7 @@ impl From<String> for GossipTopic {
                         prev_topic: Some(PrevTopic {
                             agent_name: prev_name.to_string(),
                             agent_nonce: prev_nonce.parse::<usize>().ok().or(Some(0)).unwrap(),
-                            peer_id: serde_json::from_str(&prev_peer_id).ok().unwrap()
+                            peer_id: serde_json::from_str(&prev_peer_id).ok()
                         })
                     })
                 }

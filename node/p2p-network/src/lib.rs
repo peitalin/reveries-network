@@ -4,10 +4,11 @@ mod event_loop;
 pub mod node_client;
 pub mod types;
 use libp2p::PeerId;
+use serde::{Deserialize, Serialize};
 
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SendError(pub String);
 
 impl std::error::Error for SendError {}

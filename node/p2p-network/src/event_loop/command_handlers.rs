@@ -4,9 +4,10 @@ use libp2p::{
 };
 use crate::node_client::NodeCommand;
 use crate::types::{
-    FragmentRequest, FragmentResponse, UmbralPeerId, UmbralPublicKeyResponse
+    FragmentRequest, FragmentResponse, UmbralPeerId
 };
 use crate::types::CapsuleFragmentIndexed;
+use crate::SendError;
 
 use super::EventLoop;
 
@@ -39,16 +40,13 @@ impl EventLoop {
             }
             NodeCommand::RequestCfrags { agent_name, agent_nonce, frag_num, sender } => {
 
-                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
-                // TODO: refactor cfrags into PeerManager. Fix aget_name_nonce_key confusion
-
-                match self.cfrags.get(&agent_name_nonce_key) {
-                    None => {},
+                match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
+                    None => self.log(format!("No Cfrag peers stored in PeerManager")),
                     Some(cfrag) => {
 
                         // providers for the kth-frag
                         let providers = self.peer_manager
-                            .get_kfrag_broadcast_peers_by_fragment(&agent_name, agent_nonce, frag_num as u32)
+                            .get_kfrag_broadcast_peers_by_fragment(&agent_name, &agent_nonce, frag_num as u32)
                             // filter out peers that are the vessel node, they created the kfrags
                             .iter()
                             .filter_map(|&peer_id| match peer_id != cfrag.vessel_peer_id {
@@ -113,16 +111,14 @@ impl EventLoop {
             NodeCommand::RespondCfrag { agent_name, agent_nonce, frag_num, channel } => {
 
                 self.log(format!("RespondCfrags: Finding topic for: {agent_name}-{agent_nonce}"));
-                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
-                // TODO: refactor cfrags into PeerManager. Fix aget_name_nonce_key confusion
 
-                let cfrag_indexed = match self.cfrags.get(&agent_name_nonce_key) {
+                let cfrag_indexed = match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
                     None => None,
                     Some(cfrag) => {
                         self.log(format!("RespondCfrags: Found Cfrag: {:?}", cfrag));
 
                         let cfrag_indexed_bytes = serde_json::to_vec::<Option<CapsuleFragmentIndexed>>(&Some(cfrag.clone()))
-                            .expect("serde_json frag fail");
+                            .map_err(|e| SendError(e.to_string()));
 
                         // Return None if peer does not have the cfrag
                         self.swarm
@@ -163,7 +159,7 @@ impl EventLoop {
                 self.swarm
                     .behaviour_mut()
                     .request_response
-                    .send_response(channel, FragmentResponse(file))
+                    .send_response(channel, FragmentResponse(Ok(file)))
                     .expect("Connection to peer to be still open.");
             }
         }

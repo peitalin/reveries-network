@@ -3,7 +3,7 @@ mod heartbeat_data;
 use libp2p::PeerId;
 use std::collections::{HashMap, HashSet};
 use crate::{get_node_name, short_peer_id};
-use crate::types::{AgentName, FragmentNumber};
+use crate::types::{AgentName, AgentNonce, CapsuleFragmentIndexed, FragmentNumber};
 
 use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
@@ -52,6 +52,8 @@ pub(crate) struct PeerManager {
     pub(crate) peer_info: HashMap<PeerId, PeerInfo>,
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
     pub(crate) kfrags_peers: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
+    // Capsule frags for each Agent (encrypted secret key fragments)
+    pub(crate) cfrags: HashMap<AgentName, CapsuleFragmentIndexed>,
     // Tracks which AgentFragments a specific Peer holds
     pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
     // average heartbeat window for peers (number of entries to track)
@@ -64,9 +66,14 @@ impl PeerManager {
             kfrags_peers: HashMap::new(),
             peers_to_agent_frags: HashMap::new(),
             peer_info: HashMap::new(),
+            cfrags: HashMap::new(),
             avg_window: 10,
         }
     }
+
+    //////////////////////
+    //// self.peer_info
+    //////////////////////
 
     pub fn insert_peer_info(&mut self, peer_id: PeerId) {
         self.peer_info
@@ -85,7 +92,7 @@ impl PeerManager {
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        println!(">>>>Setting vessel: {} for Agent: {}", get_node_name(&vessel_peer_id), agent_name);
+        println!(">>> Setting vessel: {} for Agent: {}", get_node_name(&vessel_peer_id), agent_name);
         match self.peer_info.get_mut(&vessel_peer_id) {
             None => {},
             Some(peer_info) => {
@@ -115,6 +122,10 @@ impl PeerManager {
             }
         };
     }
+
+    //////////////////////
+    //// self.kfrags_peers
+    //////////////////////
 
     pub fn insert_kfrags_peer(
         &mut self,
@@ -204,7 +215,7 @@ impl PeerManager {
     pub fn get_kfrag_broadcast_peers_by_fragment(
         &self,
         agent_name: &str,
-        agent_nonce: usize,
+        agent_nonce: &usize,
         frag_num: u32
     ) -> Vec<PeerId> {
 
@@ -248,6 +259,28 @@ impl PeerManager {
                 });
                 hset
             });
+    }
+
+    //////////////////////
+    //// self.cfrags
+    //////////////////////
+
+    pub(crate) fn get_cfrags(
+        &self,
+        agent_name: &AgentName,
+        agent_nonce: &AgentNonce
+    ) -> Option<&CapsuleFragmentIndexed> {
+        let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+        self.cfrags.get(&agent_name_nonce_key)
+    }
+
+    pub(crate) fn insert_cfrags(
+        &self,
+        agent_name: &AgentName,
+        agent_nonce: &AgentNonce
+    ) -> Option<&CapsuleFragmentIndexed> {
+        let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
+        self.cfrags.get(&agent_name_nonce_key)
     }
 
 }

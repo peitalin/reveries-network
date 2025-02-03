@@ -1,7 +1,9 @@
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+use color_eyre::eyre;
 use crate::types::{AgentName, AgentNonce};
+use crate::SendError;
 
 #[derive(Debug)]
 pub enum NetworkLoopEvent {
@@ -26,4 +28,4 @@ pub enum NetworkLoopEvent {
 pub struct FragmentRequest(pub String, pub usize, pub Option<usize>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FragmentResponse(pub Vec<u8>);
+pub struct FragmentResponse(pub Result<Vec<u8>, SendError>);
