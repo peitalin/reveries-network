@@ -14,7 +14,7 @@ run-node1:
     cargo run --bin rpc -- \
         --secret-key-seed 1 \
         --generate-agent-secret true \
-        --topics chat,topic_switch,kfrag/frag_num=0/name=beatrix/nonce=0,kfrag/frag_num=1/name=beatrix/nonce=0,kfrag/frag_num=2/name=beatrix/nonce=0,kfrag/frag_num=3/name=beatrix/nonce=0 \
+        --topics chat,topic_switch,kfrag/frag_num=0/total_frags=3/name=beatrix/nonce=0,kfrag/frag_num=1/total_frags=3/name=beatrix/nonce=0,kfrag/frag_num=2/total_frags=3/name=beatrix/nonce=0,kfrag/frag_num=3/total_frags=3/name=beatrix/nonce=0 \
         --rpc-port 8001
 
 # Runs node 2
@@ -22,7 +22,7 @@ run-node2:
     @echo 'Running Node 2';
     cargo run --bin rpc -- \
         --secret-key-seed 2 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=0/name=beatrix/nonce=0 \
+        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=0/total_frags=3/name=beatrix/nonce=0 \
         --rpc-port 8002
 
 # Runs node 3
@@ -30,7 +30,7 @@ run-node3:
     @echo 'Running Node 3';
     cargo run --bin rpc -- \
         --secret-key-seed 3 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=1/name=beatrix/nonce=0 \
+        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=1/total_frags=3/name=beatrix/nonce=0 \
         --rpc-port 8003
 
 # Runs node 4
@@ -38,7 +38,7 @@ run-node4:
     @echo 'Running Node 4';
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=2/name=beatrix/nonce=0 \
+        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=2/total_frags=3/name=beatrix/nonce=0 \
         --rpc-port 8004
 
 # Runs node 5
@@ -46,7 +46,7 @@ run-node5:
     @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=0/name=beatrix/nonce=0 \
+        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=0/total_frags=3/name=beatrix/nonce=0 \
         --rpc-port 8005
 
 broadcast:
@@ -74,6 +74,20 @@ get-agent-kfrag-peers:
         get-agent-kfrag-peers \
         --agent-name beatrix \
         --agent-nonce 0
+
+
+topic-switch:
+    @echo 'Topic Switch to Node 1';
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8001 \
+        topic-switch \
+        --next-agent-name beatrix \
+        --next-agent-nonce 2 \
+        --total-frags 3 \
+        --threshold 2 \
+        --prev-agent-name beatrix \
+        --prev-agent-nonce  1 \
+        --peer-id 12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000

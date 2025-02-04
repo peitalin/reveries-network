@@ -83,13 +83,36 @@ async fn main() -> Result<()> {
 
             log(format!("Peers holding Agent '{}/{}' Kfrags", agent_name, agent_nonce).red());
             for (frag_num, peers) in response3 {
-
                 let peer_names = peers.iter()
                     .map(|peer_id| get_node_name(peer_id))
                     .collect::<Vec<String>>();
 
                 log(format!("Fragment({}): {:?}", format!("{}", frag_num).green(), peer_names));
             }
+        }
+        CliArgument::TopicSwitch {
+            next_agent_name,
+            next_agent_nonce,
+            total_frags,
+            threshold,
+            prev_agent_name,
+            prev_agent_nonce,
+            peer_id
+        } => {
+            let response: usize = client.request(
+                "topic_switch",
+                rpc_params![
+                    next_agent_name,
+                    next_agent_nonce,
+                    total_frags,
+                    threshold,
+                    prev_agent_name,
+                    prev_agent_nonce,
+                    peer_id
+                ]
+            ).await?;
+
+            log(format!("Topic switched: {:?}", response).green());
         }
     }
 
