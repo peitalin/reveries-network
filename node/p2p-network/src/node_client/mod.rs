@@ -7,6 +7,7 @@ pub use commands::NodeCommand;
 use std::collections::{HashMap, HashSet};
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
+use color_eyre::eyre::eyre;
 use futures::FutureExt;
 use tokio::sync::{mpsc, oneshot};
 use hex;
@@ -14,54 +15,47 @@ use libp2p::{core::Multiaddr, PeerId};
 
 use crate::get_node_name;
 use crate::types::{
-    ChatMessage,
-    TopicSwitch,
-    GossipTopic,
-    NetworkLoopEvent,
-    UmbralPublicKeyResponse,
-    CapsuleFragmentIndexed,
+    CapsuleFragmentIndexed, ChatMessage, GossipTopic, NetworkLoopEvent, NextTopic, PrevTopic, TopicSwitch, UmbralPublicKeyResponse
 };
-use crate::behaviour::{
-    KeyFragmentMessage
-};
+use crate::behaviour::KeyFragmentMessage;
 use umbral_pre::VerifiedCapsuleFrag;
 use runtime::reencrypt::{
     UmbralKey,
     generate_pre_kfrags,
 };
-use runtime::llm::{test_claude_query, test_deepseek_query, AgentSecretsJson};
+use runtime::llm::{test_claude_query, AgentSecretsJson};
 
 
 
 #[derive(Clone)]
 pub struct NodeClient {
     pub peer_id: PeerId,
-    pub command_sender: mpsc::Sender<NodeCommand>,
     pub node_name: String,
     pub hosting_agent_name: Option<String>,
-    pub agent_secrets_json: Option<AgentSecretsJson>,
-
+    pub counter: u32,
+    pub command_sender: mpsc::Sender<NodeCommand>,
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
-
-    umbral_key: UmbralKey, // keep private
+    // keep private in TEE
+    agent_secrets_json: Option<AgentSecretsJson>,
+    umbral_key: UmbralKey,
     umbral_capsule: Option<umbral_pre::Capsule>,
     umbral_ciphertext: Option<Box<[u8]>>,
 }
 
 impl NodeClient {
-
     pub fn new(
         peer_id: PeerId,
-        command_sender: mpsc::Sender<NodeCommand>,
         node_name: String,
+        command_sender: mpsc::Sender<NodeCommand>,
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
     ) -> Self {
 
         Self {
-            command_sender: command_sender,
             peer_id: peer_id,
             node_name: node_name,
+            counter: 0,
+            command_sender: command_sender,
             chat_cmd_sender: chat_cmd_sender,
             hosting_agent_name: None,
             agent_secrets_json: None,
@@ -69,6 +63,22 @@ impl NodeClient {
             umbral_capsule: None,
             umbral_ciphertext: None,
         }
+    }
+
+    pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        // In case a listen address was provided use it, otherwise listen on any address.
+        let addr = match listen_address {
+            Some(addr) => addr,
+            // None => "/ip4/0.0.0.0/tcp/0".parse()?,
+            None => "/ip4/0.0.0.0/udp/0/quic-v1".parse()?,
+        };
+
+        self.command_sender
+            .send(NodeCommand::StartListening { addr, sender })
+            .await?;
+
+        receiver.await?.map_err(|e| anyhow!(e.to_string()))
     }
 
     pub async fn listen_to_network_events(
@@ -101,45 +111,60 @@ impl NodeClient {
                     }
                 }
 
-                Some(NetworkLoopEvent::Respawn(agent_name, agent_nonce, prev_vessel_peer_id)) => {
+                Some(NetworkLoopEvent::RespawnRequired  {
+                    agent_name,
+                    agent_nonce,
+                    total_frags,
+                    prev_peer_id
+                }) => {
 
-                    match self.request_respawn(agent_name.clone(), agent_nonce, Some(prev_vessel_peer_id)).await {
+                    let prev_nonce = agent_nonce;
+                    let next_nonce = agent_nonce + 1;
+
+                    match self.request_respawn(
+                        agent_name.clone(),
+                        prev_nonce,
+                        Some(prev_peer_id)
+                    ).await {
                         Err(e) => println!("Error respawning agent in new vessel"),
-                        Ok(agent_secrets_json) => {
+                        Ok(mut agent_secrets_json) => {
 
-                            let topics = self.subscribe_topics(vec![
-                                GossipTopic::BroadcastKfrag(agent_name.clone(), 1, 0).to_string(),
-                                GossipTopic::BroadcastKfrag(agent_name.clone(), 1, 1).to_string(),
-                                GossipTopic::BroadcastKfrag(agent_name.clone(), 1, 2).to_string(),
-                                GossipTopic::BroadcastKfrag(agent_name.clone(), 1, 3).to_string(),
-                            ]).await;
-
-                            let _ = self.encrypt_secret(agent_secrets_json.clone());
-                            let agent_nonce = agent_secrets_json.agent_nonce;
-
-                            // // broadcast topic switch to new Agent with new ID
-                            // let topic_switch = Some(TopicSwitch {
-                            //     prev_topic: agent_name.to_string(), //
-                            //     next_topic: agent_name.to_string(), // +1
-                            //     prev_vessel_peer_id: prev_vessel_peer_id.clone()
-                            // });
-
-                            self.broadcast_kfrags(agent_name, agent_nonce, 3, 2).await.expect("respawn err");
-
+                            agent_secrets_json.agent_nonce = next_nonce;
                             self.agent_secrets_json = Some(agent_secrets_json.clone());
 
+                            let topic_switch = TopicSwitch {
+                                next_topic: NextTopic {
+                                    agent_name: agent_name.clone(),
+                                    agent_nonce: next_nonce,
+                                    total_frags: total_frags,
+                                    threshold: 2
+                                },
+                                prev_topic: Some(PrevTopic {
+                                    agent_name: agent_name.clone(),
+                                    agent_nonce: prev_nonce,
+                                    peer_id: Some(prev_peer_id)
+                                }),
+                            };
+                            let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
+
+                            let _ = self.encrypt_secret(agent_secrets_json.clone());
+                            // 1. test LLM API works
+                            // 2. re-encrypt secrets + provide TEE attestation of it
+                            // 3. confirm shutdown of old vessel
+                            // 4. then broadcast topic switch to new Agent with new nonce
+
                             if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                                self.log(format!("Decrypted LLM API keys, querying LLM:"));
+                                self.log(format!("Decrypted LLM API keys, querying LLM (paused)"));
 
-                                let response = test_claude_query(
-                                    anthropic_api_key,
-                                    "What is your name and what do you do?",
-                                    &agent_secrets_json.context
-                                ).await.unwrap();
-
-                                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                                // let response = test_claude_query(
+                                //     anthropic_api_key,
+                                //     "What is your name and what do you do?",
+                                //     &agent_secrets_json.context
+                                // ).await.unwrap();
+                                // println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
                             }
 
+                            self.broadcast_kfrags(agent_name, next_nonce, 3, 2).await.expect("respawn err");
                         }
                     };
                 }
@@ -151,27 +176,6 @@ impl NodeClient {
                 e => {
                     panic!("Error <network_event_receiver>: {:?}", e);
                 }
-            }
-        }
-    }
-
-    pub fn log<S: std::fmt::Display>(&self, message: S) {
-        println!("{} {}{} {}",
-            "NodeClient".bright_blue(), self.node_name.yellow(), ">".blue(),
-            message
-        );
-    }
-
-    pub async fn ask_llm(&mut self, question: &str) {
-        if let Some(agent_secrets_json) = &self.agent_secrets_json {
-            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                println!("Context: {}", agent_secrets_json.context.blue());
-                let response = test_claude_query(
-                    anthropic_api_key,
-                    question,
-                    &agent_secrets_json.context
-                ).await.unwrap();
-                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
             }
         }
     }
@@ -204,26 +208,29 @@ impl NodeClient {
         Ok(())
     }
 
-
-    pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
+    pub async fn broadcast_switch_topic_nc(&mut self, mut topic_switch: TopicSwitch) -> Result<usize> {
+        // prove node has decrypted AgentSecret
+        // prove node has TEE attestation
+        // prove node has re-encrypted AgentSecret
 
         let (sender, receiver) = oneshot::channel();
-        // In case a listen address was provided use it, otherwise listen on any address.
-        let addr = match listen_address {
-            Some(addr) => addr,
-            // None => "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
-            None => "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
-        };
 
-        self.command_sender
-            .send(NodeCommand::StartListening { addr, sender })
-            .await
-            .expect("Command receiver not to be dropped.");
+        // if let Some(agent_secrets_json) = &mut self.agent_secrets_json {
+        //     let new_nonce = agent_secrets_json.agent_nonce + 1;
+        //     self.agent_secrets_json.as_mut().unwrap().agent_nonce = new_nonce;
+        //     topic_switch.next_topic.agent_nonce = new_nonce;
+        // }
 
-        match receiver.await {
-            Err(e) => Err(anyhow!(e.to_string())),
-            Ok(_) => Ok(())
-        }
+        self.command_sender.send(NodeCommand::SwitchTopic(
+            topic_switch,
+            sender
+        )).await.expect("Command reciever not to be dropped");
+
+        let result = receiver.await
+            .map_err(|e| eyre!(e.to_string()));
+
+        println!("nodeClient: {:?}", result);
+        result
     }
 
     pub async fn subscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
@@ -265,7 +272,7 @@ impl NodeClient {
         &mut self,
         agent_name: String,
         agent_nonce: usize,
-        shares: usize,
+        total_frags: usize,
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
 
@@ -289,13 +296,13 @@ impl NodeClient {
                 let bob_pk = new_vessel_pk.umbral_public_key;
 
                 // Alice generates reencryption key fragments for Ursulas (MPC nodes)
-                self.log(format!("Generating share fragments: ({shares},{threshold})"));
+                self.log(format!("Generating share fragments: ({total_frags},{threshold})"));
                 let kfrags = generate_pre_kfrags(
                     &self.umbral_key.secret_key, // alice_sk
                     &bob_pk, // bob_pk
                     &self.umbral_key.signer, // alice
                     threshold,
-                    shares
+                    total_frags
                 );
 
                 for (i, kfrag) in kfrags.into_iter().enumerate() {
@@ -303,7 +310,8 @@ impl NodeClient {
                     let topic = GossipTopic::BroadcastKfrag(
                         agent_name.clone(),
                         agent_nonce, // nonce
-                        i as u32
+                        total_frags,
+                        i
                     );
 
                     self.command_sender
@@ -350,11 +358,11 @@ impl NodeClient {
         &mut self,
         agent_name: String,
         agent_nonce: usize
-    ) -> HashMap<u32, HashSet<PeerId>> {
+    ) -> HashMap<usize, HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
-            .send(NodeCommand::GetKfragBroadcastPeers {
+            .send(NodeCommand::GetKfragPeers {
                 agent_name: agent_name,
                 agent_nonce: agent_nonce,
                 sender: sender
@@ -372,10 +380,17 @@ impl NodeClient {
         opt_prev_vessel_peer_id: Option<PeerId>
     ) -> Vec<Result<Vec<u8>>> {
 
+        // get new kfrag peers
+        // peers not updated after topic switch---they need to be
+
+        // broadcast kfrags should update kfrag peers? why isnt it working?
         let providers_hmap = self.get_agent_kfrag_peers(
             agent_name.clone(),
             agent_nonce
         ).await;
+        println!("\n\nagent_name: {:?}", agent_name);
+        println!("agent_nonce: {:?}", agent_nonce);
+        println!("\n\nproviders_hmap: {:?}\n\n", providers_hmap);
 
         let mut results = vec![];
 
@@ -407,10 +422,10 @@ impl NodeClient {
                     let (sender, receiver) = oneshot::channel();
 
                     nc.command_sender
-                        .send(NodeCommand::RequestFile {
+                        .send(NodeCommand::RequestFragment {
                             agent_name: agent_name2,
                             agent_nonce: agent_nonce,
-                            frag_num: Some(frag_num as usize),
+                            frag_num: Some(frag_num),
                             peer: peer_id,
                             sender
                         })
@@ -457,7 +472,11 @@ impl NodeClient {
 
                             let new_vessel_pk  = cfrag.bob_pk;
                             let kfrag_num = cfrag.frag_num;
-                            self.log(format!("Received Cfrag({}): {}", kfrag_num, cfrag));
+                            self.log(format!("Received Cfrag({}): {} from {}",
+                                kfrag_num,
+                                cfrag.verifying_pk,
+                                get_node_name(&cfrag.vessel_peer_id)
+                            ));
 
                             // Bob must check that cfrags are valid
                             // assemble kfrags, verify them as cfrags.
@@ -530,6 +549,8 @@ impl NodeClient {
         }
     }
 
+    // This needs to happen within the TEE as there is a decryption step, and the original
+    // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
     pub async fn request_respawn(
         &mut self,
         agent_name: String,
@@ -552,4 +573,24 @@ impl NodeClient {
         self.decrypt_cfrags(verified_cfrags, new_vessel_cfrags, total_frags_received)
     }
 
+    pub fn log<S: std::fmt::Display>(&self, message: S) {
+        println!("{} {}{} {}",
+            "NodeClient".bright_blue(), self.node_name.yellow(), ">".blue(),
+            message
+        );
+    }
+
+    pub async fn ask_llm(&mut self, question: &str) {
+        if let Some(agent_secrets_json) = &self.agent_secrets_json {
+            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
+                println!("Context: {}", agent_secrets_json.context.blue());
+                let response = test_claude_query(
+                    anthropic_api_key,
+                    question,
+                    &agent_secrets_json.context
+                ).await.unwrap();
+                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+            }
+        }
+    }
 }

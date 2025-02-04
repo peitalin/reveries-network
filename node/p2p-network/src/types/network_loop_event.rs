@@ -13,11 +13,12 @@ pub enum NetworkLoopEvent {
         frag_num: Option<usize>,
         channel: ResponseChannel<FragmentResponse>
     },
-    Respawn(
-        AgentName,
-        AgentNonce,
-        PeerId // prev_vessel_peer_id
-    ),
+    RespawnRequired {
+        agent_name: AgentName,
+        agent_nonce: AgentNonce, // prev agent_nonce
+        total_frags: usize,
+        prev_peer_id: PeerId
+    },
     ReBroadcastKfrags(
         AgentName,
         AgentNonce

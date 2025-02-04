@@ -2,13 +2,15 @@ use libp2p::{
     kad,
     PeerId
 };
+use color_eyre::eyre::anyhow;
 use crate::node_client::NodeCommand;
 use crate::types::{
-    FragmentRequest, FragmentResponse, UmbralPeerId
+    FragmentRequest, FragmentResponse, GossipTopic, UmbralPeerId,
+    TopicHash,
 };
+use crate::behaviour::KeyFragmentMessage;
 use crate::types::CapsuleFragmentIndexed;
 use crate::SendError;
-
 use super::EventLoop;
 
 
@@ -25,59 +27,54 @@ impl EventLoop {
                 let _ = sender.send(unsubscribed_topics);
             }
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
-                let _ = self.broadcast_kfrag(key_fragment_message).await;
+
+                let message = key_fragment_message;
+                self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
+                let match_topic = message.topic.to_string();
+
+                let kfrag_indexed: KeyFragmentMessage = message.into();
+                let kfrag_indexed_bytes = serde_json::to_vec(&kfrag_indexed)
+                    .expect("serde err");
+
+                match self.topics.get(&match_topic) {
+                    Some(topic) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .publish(topic.clone(), kfrag_indexed_bytes)
+                            .map_err(|e| anyhow!(e.to_string()))
+                            .ok();
+                    }
+                    None => {
+                        self.log(format!("Topic '{}' not found in subscribed topics", match_topic));
+                        self.print_subscribed_topics();
+                    }
+                }
             }
-            NodeCommand::GetKfragBroadcastPeers { agent_name, agent_nonce, sender } => {
-                match self.peer_manager.get_all_kfrag_broadcast_peers(&agent_name, agent_nonce) {
+            NodeCommand::GetKfragPeers { agent_name, agent_nonce, sender } => {
+                match self.peer_manager.get_all_kfrag_peers(&agent_name, agent_nonce) {
                     None => {
                         println!("missing kfrag_peers: {:?}", self.peer_manager.kfrags_peers);
-                        // TODO handle TopicSwitch
                     }
                     Some(peers) => {
                         let _ = sender.send(peers.clone());
                     }
                 }
             }
-            NodeCommand::RequestCfrags { agent_name, agent_nonce, frag_num, sender } => {
+            NodeCommand::RequestFragment {
+                agent_name,
+                agent_nonce,
+                frag_num,
+                peer,
+                sender,
+            } => {
+                let request_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num));
 
-                match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
-                    None => self.log(format!("No Cfrag peers stored in PeerManager")),
-                    Some(cfrag) => {
-
-                        // providers for the kth-frag
-                        let providers = self.peer_manager
-                            .get_kfrag_broadcast_peers_by_fragment(&agent_name, &agent_nonce, frag_num as u32)
-                            // filter out peers that are the vessel node, they created the kfrags
-                            .iter()
-                            .filter_map(|&peer_id| match peer_id != cfrag.vessel_peer_id {
-                                true => Some(peer_id),
-                                false => None
-                            })
-                            .collect::<Vec<PeerId>>();
-
-                        self.log(format!("Located Cfrag broadcast peers: {:?}", providers));
-                        if providers.is_empty() {
-                            self.log(format!("Could not find provider for agent_name {}", agent_name));
-                        } else {
-
-                            if let Some(peer_id) = providers.iter().next() {
-                                println!("Requesting Cfrag from peer: {:?}", peer_id);
-
-                                let request_id = self
-                                    .swarm
-                                    .behaviour_mut()
-                                    .request_response
-                                    .send_request(
-                                        &peer_id,
-                                        FragmentRequest(agent_name.clone(), agent_nonce, Some(frag_num as usize))
-                                    );
-
-                                self.pending.request_fragments.insert(request_id, sender);
-                            }
-                        }
-
-                    }
-                };
+                self.pending.request_fragments.insert(request_id, sender);
             }
             NodeCommand::GetProviders { agent_name, agent_nonce, sender } => {
                 let query_id = self
@@ -97,9 +94,7 @@ impl EventLoop {
                         peer_id
                     }).collect::<Vec<&PeerId>>();
 
-
                 for peer_id in public_keys {
-
                     let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
                     let _query_id = self.swarm.behaviour_mut()
                         .kademlia
@@ -112,15 +107,17 @@ impl EventLoop {
 
                 self.log(format!("RespondCfrags: Finding topic for: {agent_name}-{agent_nonce}"));
 
-                let cfrag_indexed = match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
+                match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
                     None => None,
+                    // Do not send if no cfrag found, fastest successful futures returns
+                    // with futures::future:select_ok()
                     Some(cfrag) => {
-                        self.log(format!("RespondCfrags: Found Cfrag: {:?}", cfrag));
+                        self.log(format!("RespondCfrags: found cfrag: {:?}", cfrag.verifying_pk));
 
-                        let cfrag_indexed_bytes = serde_json::to_vec::<Option<CapsuleFragmentIndexed>>(&Some(cfrag.clone()))
-                            .map_err(|e| SendError(e.to_string()));
+                        let cfrag_indexed_bytes =
+                            serde_json::to_vec::<Option<CapsuleFragmentIndexed>>(&Some(cfrag.clone()))
+                                .map_err(|e| SendError(e.to_string()));
 
-                        // Return None if peer does not have the cfrag
                         self.swarm
                             .behaviour_mut()
                             .request_response
@@ -130,9 +127,43 @@ impl EventLoop {
                         Some(cfrag)
                     }
                 };
-                //// TODO: handle error properly
-                // Do not send if cfrag not found. Handle futures error
 
+            }
+            NodeCommand::SwitchTopic(ts, sender) => {
+
+                let agent_name = ts.next_topic.agent_name.clone();
+                let agent_nonce = ts.next_topic.agent_nonce.clone();
+                let total_frags = ts.next_topic.total_frags.clone();
+                // let frag_num = NODE_SEED_NUM
+                //     .with(|n| total_frags % *n.borrow());
+
+                self.broadcast_topic_switch(ts).await;
+
+                // get all peers subscribe to topic
+                let all_peers = self.swarm
+                    .behaviour_mut().gossipsub.all_peers()
+                    .collect::<Vec<(&PeerId, Vec<&TopicHash>)>>();
+
+                let peers = all_peers
+                    .into_iter()
+                    .filter_map(|(peer_id, peers_topics)| {
+
+                        let topic1: TopicHash = GossipTopic::BroadcastKfrag(
+                            agent_name.clone(),
+                            agent_nonce,
+                            total_frags,
+                            0
+                        ).into();
+
+                        if peers_topics.contains(&&topic1.into()) {
+                            Some(peer_id)
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<&PeerId>>();
+
+                // send peer len and fragment info so we know if we can broadcast fragments
+                sender.send(peers.len());
             }
             NodeCommand::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
@@ -140,28 +171,13 @@ impl EventLoop {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            NodeCommand::RequestFile {
-                agent_name,
-                agent_nonce,
-                frag_num,
-                peer,
-                sender,
-            } => {
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num));
-
-                self.pending.request_fragments.insert(request_id, sender);
-            }
-            NodeCommand::RespondFile { file, channel } => {
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, FragmentResponse(Ok(file)))
-                    .expect("Connection to peer to be still open.");
-            }
+            // NodeCommand::RespondFragment { fragment, channel } => {
+            //     self.swarm
+            //         .behaviour_mut()
+            //         .request_response
+            //         .send_response(channel, FragmentResponse(Ok(fragment)))
+            //         .expect("Connection to peer to be still open.");
+            // }
         }
 
     }

@@ -89,7 +89,7 @@ impl EventLoop {
                         // self.log(format!("Failed to get record {err:?}"));
                     }
                     kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
-                        let r = std::str::from_utf8(key.as_ref()).unwrap();
+                        // let r = std::str::from_utf8(key.as_ref()).unwrap();
                         // self.log(format!("PutRecordOk {:?}", r));
                     }
                     kad::QueryResult::PutRecord(Err(_err)) => {
@@ -166,7 +166,6 @@ impl EventLoop {
                         channel,
                         ..
                     } => {
-
                         self.network_event_sender
                             .send(NetworkLoopEvent::InboundCfragRequest {
                                 agent_name: fragment_request.0,

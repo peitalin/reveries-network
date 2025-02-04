@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     ) = create_network::new(opt.secret_key_seed).await?;
 
     // Spawn the network task to listen to incoming commands, run in the background.
-    tokio::task::spawn(network_event_loop.listen_for_commands_and_events());
+    tokio::task::spawn(network_event_loop.listen_for_network_events());
 
     node_client
         .start_listening_to_network(opt.listen_address)
@@ -54,13 +54,6 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         let _ = nc.listen_to_network_events(network_events_receiver).await;
     });
-
-    // let _ = node_client.subscribe_topics(vec![
-    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 0).to_string(),
-    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 1).to_string(),
-    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 2).to_string(),
-    //     GossipTopic::BroadcastKfrag(agent_secrets.agent_name.clone(), 4).to_string(),
-    // ]).await;
 
     // Run RPC server if provided an RPC port,
     // so clients can make requests without running a node themselves.

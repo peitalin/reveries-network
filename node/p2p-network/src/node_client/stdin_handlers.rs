@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 
-use crate::types::{ChatMessage, TOPIC_DELIMITER};
+use crate::types::{ChatMessage, PrevTopic, NextTopic, TopicSwitch, TOPIC_DELIMITER};
 use super::NodeClient;
 
 
@@ -31,14 +31,11 @@ impl NodeClient {
 
             let line_split = line.split(" ").collect::<Vec<&str>>();
             let cmd = line_split[0];
-            println!("cmd::::: {}", cmd);
-            println!("cmd::::: {:?}", cmd.to_string());
-            println!("cmd::::: {:?}", StdInputCommand::from(cmd.to_string()));
 
             match cmd.to_string().into() {
                 StdInputCommand::UnknownCmd(s) => {
                     self.log(format!("Unknown command: '{}'", s));
-                    println!("Command must be 'chat', 'broadcast.<agent>', 'request.<agent>'...");
+                    println!("Command must begin with 'topic_switch/', 'broadcast/', 'request/', etc");
                 }
                 StdInputCommand::ChatCmd => {
                     if line_split.len() < 2 {
@@ -47,12 +44,10 @@ impl NodeClient {
 
                         let message = line_split[1..].join(" ");
 
-                        self.chat_cmd_sender
-                            .send(ChatMessage {
-                                topic: cmd.to_string().into(),
-                                message: message.to_string(),
-                            }).await
-                            .expect("ChatMessage receiver not to be dropped");
+                        self.chat_cmd_sender.send(ChatMessage {
+                            topic: cmd.to_string().into(),
+                            message: message.to_string(),
+                        }).await.ok();
                     }
                 }
                 StdInputCommand::LLM => {
@@ -63,11 +58,14 @@ impl NodeClient {
                         self.ask_llm(&message).await;
                     }
                 }
+                StdInputCommand::Switch(topic_switch) => {
+                    self.broadcast_switch_topic_nc(topic_switch).await.ok();
+                }
                 StdInputCommand::BroadcastKfragsCmd(agent_name, agent_nonce, n, t) => {
-                    let _ = self.broadcast_kfrags(agent_name, agent_nonce, n, t).await;
+                    self.broadcast_kfrags(agent_name, agent_nonce, n, t).await.ok();
                 }
                 StdInputCommand::RespawnCmd(agent_name, agent_nonce, prev_vessel_peer_id) => {
-                    let _ = self.request_respawn(agent_name, agent_nonce, prev_vessel_peer_id).await;
+                    self.request_respawn(agent_name, agent_nonce, prev_vessel_peer_id).await.ok();
                 }
             }
         }
@@ -80,6 +78,7 @@ pub enum StdInputCommand {
     ChatCmd,
     LLM,
     UnknownCmd(String),
+    Switch(TopicSwitch),
     BroadcastKfragsCmd(
         String, // agent_name (Topic)
         usize,  // agent_nonce (Topic)
@@ -95,35 +94,23 @@ pub enum StdInputCommand {
 
 impl Display for StdInputCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let d = TOPIC_DELIMITER;
         match self {
             Self::ChatCmd => write!(f, "chat"),
             Self::LLM => write!(f, "llm"),
             Self::UnknownCmd(s) => write!(f, "{}", s),
+            Self::Switch(s) => {
+                write!(f, "topic_switch")
+            },
             Self::BroadcastKfragsCmd(agent_name, agent_nonce, n, t) => {
-                write!(f, "broadcast{d}{}{d}{}{d}({n},{t})", agent_name, agent_nonce)
+                write!(f, "broadcast/{}/{}/({n},{t})", agent_name, agent_nonce)
             }
-            Self::RespawnCmd(agent_name, ..) => write!(f, "request{}{}", d, agent_name),
+            Self::RespawnCmd(agent_name, agent_nonce, prev_vessel_peer_id) => {
+                write!(f, "request/{}/{}", agent_name, agent_nonce)
+            }
         }
     }
 }
 
-impl Into<String> for StdInputCommand {
-    fn into(self) -> String {
-        let d = TOPIC_DELIMITER;
-        match self {
-            Self::ChatCmd => "chat".to_string(),
-            Self::LLM => "llm".to_string(),
-            Self::UnknownCmd(s) => s.to_string(),
-            Self::BroadcastKfragsCmd(agent_name, agent_nonce, n, t) => {
-                format!("broadcast{d}{}{d}{}{d}({n},{t})", agent_name, agent_nonce)
-            }
-            Self::RespawnCmd(agent_name, agent_nonce, prev_vessel_peer_id) => {
-                format!("request{d}{}{d}{}", agent_name, agent_nonce)
-            }
-        }
-    }
-}
 
 impl From<String> for StdInputCommand {
     fn from(s: String) -> Self {
@@ -132,7 +119,8 @@ impl From<String> for StdInputCommand {
             topic,
             agent_name,
             agent_nonce,
-            nshare_threshold
+            nshare_threshold,
+            prev_topic
         ) = parse_stdin_cmd(&s);
 
         let agent_name = agent_name.to_string();
@@ -142,11 +130,27 @@ impl From<String> for StdInputCommand {
             "chat" => Self::ChatCmd,
             "llm" => Self::LLM,
             "request" => Self::RespawnCmd(agent_name, agent_nonce, None),
+            "topic_switch" => {
+
+                println!("\n\n wtffff>>>>>>>> {:?}", s);
+                // let topic_switch = TopicSwitch::from(s);
+                let (total_frags, threshold)= nshare_threshold.unwrap_or((3,2));
+                // n=3 shares, t=2 threshold default
+                Self::Switch(TopicSwitch {
+                    next_topic: NextTopic {
+                        agent_name: agent_name,
+                        agent_nonce: agent_nonce,
+                        total_frags: total_frags,
+                        threshold: threshold,
+                    },
+                    prev_topic: prev_topic,
+                })
+            }
             "broadcast" => {
                 match nshare_threshold {
                     Some((n, t)) => Self::BroadcastKfragsCmd(agent_name, agent_nonce, n, t),
                     None => {
-                        println!("Wrong format. Should be: 'broadcast.<agent_name>.(nshares, threshold)'");
+                        println!("Wrong format. Should be: 'broadcast/<agent_name>/<nonce>/(<nshares>,<threshold>)'");
                         println!("Defaulting to (n=3, t=2) share threshold");
                         Self::BroadcastKfragsCmd(agent_name, agent_nonce, 3, 2)
                     }
@@ -160,28 +164,47 @@ impl From<String> for StdInputCommand {
 
 // Temporary way to issue chat commands to the node and test features in development
 // which will later be replaced with automated heartbeats, protocols, etc;
-pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (&str, &str, Option<usize>, Option<(usize, usize)>) {
+pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (
+    &str,                   // command
+    String,                 // agent name
+    Option<usize>,          // agent nonce
+    Option<(usize, usize)>, // (n,t)
+    Option<PrevTopic>,      // prev topic
+) {
 
-    let mut tsplit = topic_str.split(TOPIC_DELIMITER);
+    let mut tsplit = topic_str.splitn(2, TOPIC_DELIMITER);
     let cmd = tsplit.next().unwrap_or("unknown");
+    let remainder_str = tsplit.next().unwrap_or("").to_string();
+    println!("remainder: {:?}", remainder_str);
 
     match cmd {
-        "chat" => ("chat", "", None, None),
-        "llm" => ("llm", "", None, None),
+        "chat" => ("chat", "".to_string(), None, None, None),
+        "llm" => ("llm", "".to_string(), None, None, None),
+        "topic_switch" => {
+
+            let TopicSwitch {
+                next_topic,
+                prev_topic
+            } = TopicSwitch::from(remainder_str);
+
+            let agent_name2 = next_topic.agent_name.to_string();
+
+            (cmd, agent_name2, Some(next_topic.agent_nonce), None, prev_topic)
+        }
         "request" => {
             let mut tsplit = topic_str.split(TOPIC_DELIMITER);
             let cmd = tsplit.next().unwrap_or("unknown");
-            let agent_name = tsplit.next().unwrap_or("");
+            let agent_name = tsplit.next().unwrap_or("").to_string();
             let agent_nonce = tsplit.next()
                 .unwrap_or("0")
                 .parse::<usize>().ok().or(Some(0));
 
-            (cmd, agent_name, agent_nonce, None)
+            (cmd, agent_name, agent_nonce, None, None)
         }
         "broadcast" => {
             let mut tsplit = topic_str.split(TOPIC_DELIMITER);
             let cmd = tsplit.next().unwrap_or("unknown");
-            let agent_name = tsplit.next().unwrap_or("");
+            let agent_name = tsplit.next().unwrap_or("").to_string();
             let agent_nonce = tsplit.next()
                 .unwrap_or("0")
                 .parse::<usize>().ok().or(Some(0));
@@ -199,8 +222,8 @@ pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (&str, &str, Option<usize>, Op
                     }
                 }
             };
-            (cmd, agent_name, agent_nonce, nshare_threshold)
+            (cmd, agent_name, agent_nonce, nshare_threshold, None)
         }
-        _ => ("unknown", "", None, None),
+        _ => ("unknown", "".to_string(), None, None, None),
     }
 }

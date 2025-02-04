@@ -7,7 +7,7 @@ use libp2p::core::Multiaddr;
 pub struct Opt {
     /// Fixed value to generate deterministic peer ID.
     #[clap(long)]
-    pub secret_key_seed: Option<u8>,
+    pub secret_key_seed: Option<usize>,
 
     #[clap(long)]
     pub listen_address: Option<Multiaddr>,
@@ -19,5 +19,5 @@ pub struct Opt {
     pub topics: Option<Vec<String>>,
 
     #[clap(long)]
-    pub rpc_port: Option<u16>,
+    pub rpc_port: Option<usize>,
 }

@@ -28,7 +28,7 @@ use crate::event_loop::heartbeat_behaviour::{
 use crate::node_client::NodeClient;
 
 thread_local! {
-    pub static NODE_SEED_NUM: std::cell::RefCell<u8> = std::cell::RefCell::new(1);
+    pub static NODE_SEED_NUM: std::cell::RefCell<usize> = std::cell::RefCell::new(1);
 }
 
 /// Creates the network components, namely:
@@ -36,7 +36,7 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new(secret_key_seed: Option<u8>)
+pub async fn new(secret_key_seed: Option<usize>)
     -> Result<(NodeClient, mpsc::Receiver<NetworkLoopEvent>, EventLoop)> {
 
     // Create a public/private key pair, either random or based on a seed.
@@ -134,22 +134,25 @@ pub async fn new(secret_key_seed: Option<u8>)
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
     let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
+    let seed = secret_key_seed.unwrap_or(0);
+
     Ok((
         NodeClient::new(
             peer_id,
-            command_sender,
             node_name.clone(),
+            command_sender,
             chat_cmd_sender,
             umbral_key.clone()
         ),
         network_events_receiver,
         EventLoop::new(
-            peer_id,
+            seed,
             swarm,
-            command_receiver,
-            network_events_sender,
-            chat_cmd_receiver,
+            peer_id,
             node_name,
+            command_receiver,
+            chat_cmd_receiver,
+            network_events_sender,
             umbral_key,
             heartbeat_failure_receiver,
         ),
@@ -158,7 +161,7 @@ pub async fn new(secret_key_seed: Option<u8>)
 
 
 
-pub fn generate_peer_keys(secret_key_seed: Option<u8>) -> (
+pub fn generate_peer_keys(secret_key_seed: Option<usize>) -> (
     libp2p::PeerId,
     identity::Keypair,
     String,
@@ -170,7 +173,7 @@ pub fn generate_peer_keys(secret_key_seed: Option<u8>) -> (
         Some(seed) => {
 
             let mut bytes = [0u8; 32];
-            bytes[0] = seed;
+            bytes[0] = seed as u8;
 
             // set seed for working out frag_num this this peer
             NODE_SEED_NUM.with(|n| {
