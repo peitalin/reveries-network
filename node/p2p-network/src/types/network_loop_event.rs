@@ -11,6 +11,7 @@ pub enum NetworkLoopEvent {
         agent_name: String,
         agent_nonce: usize,
         frag_num: Option<usize>,
+        sender_peer: PeerId,
         channel: ResponseChannel<FragmentResponse>
     },
     RespawnRequired {
@@ -26,7 +27,14 @@ pub enum NetworkLoopEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FragmentRequest(pub String, pub usize, pub Option<usize>);
+pub struct FragmentRequest(
+    pub String,
+    pub usize,
+    pub Option<usize>,
+    pub PeerId
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FragmentResponse(pub Result<Vec<u8>, SendError>);
+pub struct FragmentResponse(
+    pub Result<Vec<u8>, SendError>,
+);

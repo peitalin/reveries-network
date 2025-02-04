@@ -19,11 +19,11 @@ impl EventLoop {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
             NodeCommand::SubscribeTopics { topics, sender } => {
-                let subscribed_topics = self.subscribe_topics(topics).await;
+                let subscribed_topics = self.subscribe_topics(topics);
                 let _ = sender.send(subscribed_topics);
             }
             NodeCommand::UnsubscribeTopics { topics, sender } => {
-                let unsubscribed_topics = self.unsubscribe_topics(&topics).await;
+                let unsubscribed_topics = self.unsubscribe_topics(&topics);
                 let _ = sender.send(unsubscribed_topics);
             }
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
@@ -72,7 +72,7 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num));
+                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num, self.peer_id));
 
                 self.pending.request_fragments.insert(request_id, sender);
             }
@@ -103,12 +103,17 @@ impl EventLoop {
                     self.pending.get_umbral_pks.insert(umbral_pk_kademlia_key, sender.clone());
                 };
             }
-            NodeCommand::RespondCfrag { agent_name, agent_nonce, frag_num, channel } => {
+            NodeCommand::RespondCfrag {
+                agent_name,
+                agent_nonce,
+                frag_num,
+                sender_peer,
+                channel
+            } => {
 
-                self.log(format!("RespondCfrags: Finding topic for: {agent_name}-{agent_nonce}"));
-
+                self.log(format!("RespondCfrags: finding topic for: {agent_name}-{agent_nonce}"));
                 match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
-                    None => None,
+                    None => {},
                     // Do not send if no cfrag found, fastest successful futures returns
                     // with futures::future:select_ok()
                     Some(cfrag) => {
@@ -123,11 +128,8 @@ impl EventLoop {
                             .request_response
                             .send_response(channel, FragmentResponse(cfrag_indexed_bytes))
                             .expect("Connection to peer to be still open.");
-
-                        Some(cfrag)
                     }
-                };
-
+                }
             }
             NodeCommand::SwitchTopic(ts, sender) => {
 

@@ -76,6 +76,7 @@ impl EventLoop {
                                     verifying_pk: k.verifying_pk,
                                     alice_pk: k.alice_pk,
                                     bob_pk: k.bob_pk,
+                                    sender_peer_id: self.peer_id,
                                     vessel_peer_id: peer_id,
                                     capsule: Some(capsule),
                                     ciphertext: k.ciphertext
@@ -91,14 +92,15 @@ impl EventLoop {
                         let ts: TopicSwitch = serde_json::from_slice(&message.data)
                             .expect("Error deserializing TopicSwitch");
 
+                        println!("Received GossipTopic::TopicSwitch");
                         let agent_name = ts.next_topic.agent_name;
                         let agent_nonce = ts.next_topic.agent_nonce;
                         let total_frags = ts.next_topic.total_frags;
-                        let frag_num = NODE_SEED_NUM
-                            .with(|n| total_frags % *n.borrow());
+                        // let frag_num = NODE_SEED_NUM.with(|n| total_frags % *n.borrow());
+                        let frag_num = self.seed % total_frags;
 
                         let topic = GossipTopic::BroadcastKfrag(agent_name, agent_nonce, total_frags, frag_num);
-                        self.subscribe_topics(vec![topic.to_string()]).await;
+                        self.subscribe_topics(vec![topic.to_string()]);
                     }
                     // Nothing else to do for GossipTopic::Unknown
                     GossipTopic::Unknown => {
@@ -172,7 +174,7 @@ impl EventLoop {
             .map(|t| println!("{:?}", t.as_str())).collect::<()>();
     }
 
-    pub async fn subscribe_topics(&mut self, topic_strs: Vec<String>) -> Vec<String> {
+    pub fn subscribe_topics(&mut self, topic_strs: Vec<String>) -> Vec<String> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
@@ -191,7 +193,7 @@ impl EventLoop {
             .collect()
     }
 
-    pub async fn unsubscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
+    pub fn unsubscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);

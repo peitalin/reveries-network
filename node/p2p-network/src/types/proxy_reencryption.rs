@@ -74,7 +74,9 @@ pub struct CapsuleFragmentIndexed {
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,
 
+    pub sender_peer_id: PeerId,
     pub vessel_peer_id: PeerId,
+
     pub cfrag: umbral_pre::CapsuleFrag,
     pub capsule: Option<umbral_pre::Capsule>,
     pub ciphertext: Option<Box<[u8]>>,

@@ -171,6 +171,7 @@ impl EventLoop {
                                 agent_name: fragment_request.0,
                                 agent_nonce: fragment_request.1,
                                 frag_num: fragment_request.2,
+                                sender_peer: fragment_request.3,
                                 channel,
                             })
                             .await

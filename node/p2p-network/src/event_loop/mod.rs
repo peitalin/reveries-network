@@ -196,7 +196,7 @@ impl EventLoop {
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 1).to_string(),
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 2).to_string(),
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 3).to_string(),
-                                        ]).await;
+                                        ]);
 
                                         // Dispatch a Respawn(agent_name) event to EventLoop
                                         let _ = self.network_event_sender
@@ -237,18 +237,18 @@ impl EventLoop {
 
                                     } else {
 
-                                        // If no is not the next vessel:
+                                        // If node is not the next vessel:
                                         // Subscribe to next agent_nonce channel for when it
                                         // is reincarnated and broadcasting cfrags
-                                        // let frag_num: usize = NODE_SEED_NUM.with(|n: &std::cell::RefCell<usize>| {
-                                        //     *n.borrow() % total_frags
-                                        // });
                                         let frag_num = self.seed % total_frags;
                                         self.log(format!("\n\nNEXT FRAG_NUM: {}\n", frag_num));
 
                                         self.subscribe_topics(vec![
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, frag_num).to_string(),
-                                        ]).await;
+                                        ]);
+
+                                        // mark as respawning...
+                                        self.pending.respawns.insert((agent_name_nonce_key, *next_vessel_peer_id));
                                     }
 
                                     // remove peer kfrags, it will disconnect automatically after a while

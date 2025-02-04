@@ -4,6 +4,7 @@ mod stdin_handlers;
 
 pub use commands::NodeCommand;
 
+use core::num;
 use std::collections::{HashMap, HashSet};
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
@@ -92,6 +93,7 @@ impl NodeClient {
                     agent_name,
                     agent_nonce,
                     frag_num,
+                    sender_peer,
                     channel
                 }) => {
                     // check if vessel node for the agent_name is still alive.
@@ -102,6 +104,7 @@ impl NodeClient {
                                 agent_name,
                                 agent_nonce,
                                 frag_num: kfrag_num,
+                                sender_peer,
                                 channel
                             })
                             .await
@@ -146,6 +149,7 @@ impl NodeClient {
                                 }),
                             };
                             let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
+                            println!("num_subscribed: {:?}", num_subscribed);
 
                             let _ = self.encrypt_secret(agent_secrets_json.clone());
                             // 1. test LLM API works
@@ -215,12 +219,6 @@ impl NodeClient {
 
         let (sender, receiver) = oneshot::channel();
 
-        // if let Some(agent_secrets_json) = &mut self.agent_secrets_json {
-        //     let new_nonce = agent_secrets_json.agent_nonce + 1;
-        //     self.agent_secrets_json.as_mut().unwrap().agent_nonce = new_nonce;
-        //     topic_switch.next_topic.agent_nonce = new_nonce;
-        // }
-
         self.command_sender.send(NodeCommand::SwitchTopic(
             topic_switch,
             sender
@@ -229,7 +227,7 @@ impl NodeClient {
         let result = receiver.await
             .map_err(|e| eyre!(e.to_string()));
 
-        println!("nodeClient: {:?}", result);
+        println!("topic switched result: {:?}", result);
         result
     }
 
@@ -388,9 +386,10 @@ impl NodeClient {
             agent_name.clone(),
             agent_nonce
         ).await;
-        println!("\n\nagent_name: {:?}", agent_name);
-        println!("agent_nonce: {:?}", agent_nonce);
-        println!("\n\nproviders_hmap: {:?}\n\n", providers_hmap);
+
+        println!("\n\nfinding providers for: {}-{}", agent_name, agent_nonce);
+        println!("filter out peer: {:?}", opt_prev_vessel_peer_id);
+        println!("\nproviders HashMap<frag_num, peers>: {:?}\n\n", providers_hmap);
 
         let mut results = vec![];
 
@@ -414,16 +413,22 @@ impl NodeClient {
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
 
-                let agent_name2 = agent_name.clone();
+                let agent_name = agent_name.clone();
                 let nc = self.clone();
-                self.log(format!("Requesting cfrag({}) from: {:?}", frag_num, get_node_name(&peer_id)));
+                self.log(format!(
+                    "Requesting {}-{} cfrag({}) from {:?}",
+                    agent_name,
+                    agent_nonce,
+                    frag_num,
+                    get_node_name(&peer_id)
+                ));
 
                 async move {
                     let (sender, receiver) = oneshot::channel();
 
                     nc.command_sender
                         .send(NodeCommand::RequestFragment {
-                            agent_name: agent_name2,
+                            agent_name: agent_name,
                             agent_nonce: agent_nonce,
                             frag_num: Some(frag_num),
                             peer: peer_id,
@@ -439,7 +444,9 @@ impl NodeClient {
             if requests.len() > 0 {
                 // Await the requests, ignore the remaining once a single one succeeds.
                 if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
-                    results.push(Ok(cfrag_raw_bytes));
+                    results.push(
+                        Ok(cfrag_raw_bytes)
+                    );
                 }
             }
         };
@@ -459,7 +466,6 @@ impl NodeClient {
 
         for cfrag_result in cfrags_raw.iter() {
             if let Ok(cfrag_bytes) = cfrag_result {
-                // println!("CFRG BYTEs: {:?}", cfrag_bytes);
                 match serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_bytes) {
                     Err(e) => panic!("{}", e.to_string()),
                     Ok(opt_cfrag) => match opt_cfrag {
@@ -467,16 +473,18 @@ impl NodeClient {
                             println!("No cfrags found.");
                         }
                         Some(cfrag) => {
+
                             total_frags += 1;
-                            self.log(format!("Success!: frag_num({}), total frags: {}", cfrag.frag_num, total_frags));
 
                             let new_vessel_pk  = cfrag.bob_pk;
                             let kfrag_num = cfrag.frag_num;
-                            self.log(format!("Received Cfrag({}): {} from {}",
-                                kfrag_num,
-                                cfrag.verifying_pk,
-                                get_node_name(&cfrag.vessel_peer_id)
+
+                            self.log(format!("Success! cfrag({}) from {}",
+                                // get_node_name(&cfrag.vessel_peer_id),
+                                cfrag.frag_num,
+                                get_node_name(&cfrag.sender_peer_id)
                             ));
+                            println!("total frags: {}", total_frags);
 
                             // Bob must check that cfrags are valid
                             // assemble kfrags, verify them as cfrags.
@@ -486,8 +494,6 @@ impl NodeClient {
                                 &cfrag.alice_pk, // alice pk
                                 &new_vessel_pk // bob pk
                             ).expect("Error verifying Cfrag");
-
-                            self.log(format!("Verified Cfrag({}): {}", kfrag_num, verified_cfrag));
 
                             new_vessel_cfrags.push(cfrag);
                             capsule_frags.insert(kfrag_num as u32, verified_cfrag);
@@ -537,12 +543,12 @@ impl NodeClient {
             },
             Err(e) => {
                 let node_name = get_node_name(&self.peer_id);
-                self.log(format!(">>> Err({})", e));
+                self.log(format!(">>> Err({})", e).red());
                 if total_frags_received < threshold as u32 {
                     self.log(format!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}"));
                 } else {
                     self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
-                    self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
+                    self.log(format!(">>> Only? decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
                 }
                 Err(anyhow!(e.to_string()))
             }

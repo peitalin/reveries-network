@@ -36,6 +36,7 @@ pub enum NodeCommand {
         agent_name: String,
         agent_nonce: usize,
         frag_num: usize,
+        sender_peer: PeerId, // peer who sends cfrag back
         channel: ResponseChannel<FragmentResponse>,
     },
     SwitchTopic(
@@ -64,7 +65,7 @@ pub enum NodeCommand {
         agent_name: String,
         agent_nonce: usize,
         frag_num: Option<usize>,
-        peer: PeerId,
+        peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
     // RespondFragment {
