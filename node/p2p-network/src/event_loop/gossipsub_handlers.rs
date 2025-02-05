@@ -1,17 +1,16 @@
 
 use std::collections::HashMap;
-use color_eyre::{Result, eyre::anyhow};
-use libp2p::{
-    gossipsub,
-    gossipsub::MessageId
-};
+use color_eyre::eyre::anyhow;
+use colored::Colorize;
+use libp2p::gossipsub;
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
     CapsuleFragmentIndexed,
-    GossipTopic, TopicSwitch,
+    KeyFragmentMessage,
+    GossipTopic,
+    TopicSwitch,
 };
 use crate::create_network::NODE_SEED_NUM;
-use crate::behaviour::KeyFragmentMessage;
 use super::EventLoop;
 
 
@@ -49,7 +48,6 @@ impl EventLoop {
                                 Some(&k.alice_pk),
                                 Some(&k.bob_pk)
                             ).expect("err verifying kfrag");
-
 
                             self.peer_manager.set_peer_info_agent_vessel(
                                 &agent_name,
@@ -96,8 +94,13 @@ impl EventLoop {
                         let agent_name = ts.next_topic.agent_name;
                         let agent_nonce = ts.next_topic.agent_nonce;
                         let total_frags = ts.next_topic.total_frags;
-                        // let frag_num = NODE_SEED_NUM.with(|n| total_frags % *n.borrow());
+
+                        NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
                         let frag_num = self.seed % total_frags;
+                        // assert_eq!(frag_num, NODE_SEED_NUM.take());
+                        println!("self.seed: {}", self.seed);
+                        println!("total_frags: {}", total_frags);
+                        println!("frag_num: {}", frag_num);
 
                         let topic = GossipTopic::BroadcastKfrag(agent_name, agent_nonce, total_frags, frag_num);
                         self.subscribe_topics(vec![topic.to_string()]);
@@ -127,14 +130,13 @@ impl EventLoop {
                 // Peers should be on just 1 kfrag broadcast channel.
                 // We can enforce this if the binary runs in a TEE
 
-                // self.log(format!("Gossipsub Peer Subscribed {:?} {:?}", peer_id, topic));
-
+                self.log(format!("Gossipsub Subscribed {} to '{}'", get_node_name(&peer_id).yellow(), topic));
                 // pop topic, then send back confirmation that frag_num
-                self.log(format!("match_topic: {:?}", topic));
                 match topic.clone().into() {
                     GossipTopic::BroadcastKfrag(agent_name, agent_nonce, total_frags, frag_num) => {
-                        self.log(format!("Adding Peer to kfrags_peers({}-{}, {}, {})", agent_name, agent_nonce, frag_num, peer_id));
+                        self.log(format!(">>> Adding peer to kfrags_peers({}-{}, {}, {})", agent_name, agent_nonce, frag_num, short_peer_id(&peer_id)));
                         self.peer_manager.insert_kfrags_peer(peer_id, agent_name, agent_nonce, frag_num);
+                        // self.log(format!("peers_to_agent_frags: {:?}", self.peer_manager.peers_to_agent_frags).green());
                     },
                     _ => {}
                 }
@@ -175,9 +177,11 @@ impl EventLoop {
     }
 
     pub fn subscribe_topics(&mut self, topic_strs: Vec<String>) -> Vec<String> {
+
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
+                println!("Subscribing to: {}", topic);
                 if let Some(_) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic).ok() {
 
                     let entry = self.topics

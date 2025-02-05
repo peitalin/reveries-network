@@ -132,7 +132,6 @@ impl From<String> for StdInputCommand {
             "request" => Self::RespawnCmd(agent_name, agent_nonce, None),
             "topic_switch" => {
 
-                println!("\n\n wtffff>>>>>>>> {:?}", s);
                 // let topic_switch = TopicSwitch::from(s);
                 let (total_frags, threshold)= nshare_threshold.unwrap_or((3,2));
                 // n=3 shares, t=2 threshold default
@@ -175,7 +174,6 @@ pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (
     let mut tsplit = topic_str.splitn(2, TOPIC_DELIMITER);
     let cmd = tsplit.next().unwrap_or("unknown");
     let remainder_str = tsplit.next().unwrap_or("").to_string();
-    println!("remainder: {:?}", remainder_str);
 
     match cmd {
         "chat" => ("chat", "".to_string(), None, None, None),

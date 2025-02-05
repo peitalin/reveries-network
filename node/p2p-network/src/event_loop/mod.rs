@@ -2,6 +2,7 @@ mod chat;
 mod swarm_handlers;
 mod command_handlers;
 mod gossipsub_handlers;
+mod request_response_handlers;
 pub(crate) mod heartbeat_behaviour;
 pub(crate) mod peer_manager;
 
@@ -241,7 +242,7 @@ impl EventLoop {
                                         // Subscribe to next agent_nonce channel for when it
                                         // is reincarnated and broadcasting cfrags
                                         let frag_num = self.seed % total_frags;
-                                        self.log(format!("\n\nNEXT FRAG_NUM: {}\n", frag_num));
+                                        self.log(format!("\nNext frag_num: {}\n", frag_num));
 
                                         self.subscribe_topics(vec![
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, frag_num).to_string(),

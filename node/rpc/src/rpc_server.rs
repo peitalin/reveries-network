@@ -74,7 +74,7 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
 
     // Get kfrag peers
     let nc3 = network_client.clone();
-	module.register_async_method("get_agent_kfrag_peers", move |params, _, _| {
+	module.register_async_method("get_kfrag_peers", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
         let mut nc3 = nc3.clone();

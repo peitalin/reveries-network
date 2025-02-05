@@ -8,8 +8,7 @@ use crate::types::{
     FragmentRequest, FragmentResponse, GossipTopic, UmbralPeerId,
     TopicHash,
 };
-use crate::behaviour::KeyFragmentMessage;
-use crate::types::CapsuleFragmentIndexed;
+use crate::types::{CapsuleFragmentIndexed, KeyFragmentMessage};
 use crate::SendError;
 use super::EventLoop;
 
@@ -21,10 +20,6 @@ impl EventLoop {
             NodeCommand::SubscribeTopics { topics, sender } => {
                 let subscribed_topics = self.subscribe_topics(topics);
                 let _ = sender.send(subscribed_topics);
-            }
-            NodeCommand::UnsubscribeTopics { topics, sender } => {
-                let unsubscribed_topics = self.unsubscribe_topics(&topics);
-                let _ = sender.send(unsubscribed_topics);
             }
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
 
@@ -46,7 +41,7 @@ impl EventLoop {
                             .ok();
                     }
                     None => {
-                        self.log(format!("Topic '{}' not found in subscribed topics", match_topic));
+                        self.log(format!("Topic '{}' not found in subscribed topics.", match_topic));
                         self.print_subscribed_topics();
                     }
                 }

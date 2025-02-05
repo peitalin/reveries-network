@@ -16,9 +16,16 @@ use libp2p::{core::Multiaddr, PeerId};
 
 use crate::get_node_name;
 use crate::types::{
-    CapsuleFragmentIndexed, ChatMessage, GossipTopic, NetworkLoopEvent, NextTopic, PrevTopic, TopicSwitch, UmbralPublicKeyResponse
+    KeyFragmentMessage,
+    CapsuleFragmentIndexed,
+    ChatMessage,
+    GossipTopic,
+    NetworkLoopEvent,
+    NextTopic,
+    PrevTopic,
+    TopicSwitch,
+    UmbralPublicKeyResponse
 };
-use crate::behaviour::KeyFragmentMessage;
 use umbral_pre::VerifiedCapsuleFrag;
 use runtime::reencrypt::{
     UmbralKey,
@@ -222,7 +229,7 @@ impl NodeClient {
         self.command_sender.send(NodeCommand::SwitchTopic(
             topic_switch,
             sender
-        )).await.expect("Command reciever not to be dropped");
+        )).await.expect("Command receiver not to be dropped");
 
         let result = receiver.await
             .map_err(|e| eyre!(e.to_string()));
@@ -249,23 +256,6 @@ impl NodeClient {
         }
     }
 
-    pub async fn unsubscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
-        let (sender, receiver) = oneshot::channel();
-
-        self.command_sender
-            .send(NodeCommand::UnsubscribeTopics { topics, sender })
-            .await
-            .expect("Command receiver not to be dropped.");
-
-        match receiver.await {
-            Ok(unsubscribed_topics) => {
-                self.log(format!("Unsubscribed from {:?}", unsubscribed_topics));
-                Ok(unsubscribed_topics)
-            }
-            Err(e) => Err(e.into())
-        }
-    }
-
     pub async fn broadcast_kfrags(
         &mut self,
         agent_name: String,
@@ -273,6 +263,14 @@ impl NodeClient {
         total_frags: usize,
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
+
+        // first check that broadcast is subscribed too all fragment channels for the agent
+        self.subscribe_topics(vec![
+            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 0).to_string(),
+            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 1).to_string(),
+            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 2).to_string(),
+            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 3).to_string(),
+        ]).await.ok();
 
         let umbral_public_keys = self.get_peer_umbral_pks(
             agent_name.clone(),
@@ -284,12 +282,6 @@ impl NodeClient {
         match umbral_public_keys.iter().next() {
             None => Err(anyhow!("No Umbral PK Peers found")),
             Some(new_vessel_pk) => {
-
-                self.log(format!("\n\nNext Vessel: {}\n\t{:?}\n\t{}\n",
-                    get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
-                    new_vessel_pk.umbral_peer_id,
-                    new_vessel_pk.umbral_public_key,
-                ).yellow());
 
                 let bob_pk = new_vessel_pk.umbral_public_key;
 
@@ -329,6 +321,12 @@ impl NodeClient {
                             }
                         )).await?;
                 }
+
+                self.log(format!("\n\nNext Vessel: {}\n\t{:?}\n\t{}\n",
+                    get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
+                    new_vessel_pk.umbral_peer_id,
+                    new_vessel_pk.umbral_public_key,
+                ).yellow());
 
                 Ok(new_vessel_pk.to_owned())
             }
@@ -378,10 +376,6 @@ impl NodeClient {
         opt_prev_vessel_peer_id: Option<PeerId>
     ) -> Vec<Result<Vec<u8>>> {
 
-        // get new kfrag peers
-        // peers not updated after topic switch---they need to be
-
-        // broadcast kfrags should update kfrag peers? why isnt it working?
         let providers_hmap = self.get_agent_kfrag_peers(
             agent_name.clone(),
             agent_nonce

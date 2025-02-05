@@ -29,8 +29,7 @@ async fn main() -> Result<()> {
 		.try_init();
 
     let cmd = Cmd::parse();
-
-    log(format!("Creating RPC Client..."));
+    log(format!("Querying RPC address: {}", cmd.rpc_server_address).green());
     let port = cmd.rpc_server_address;
     let client = create_rpc_client(port.port()).await?;
 
@@ -72,16 +71,16 @@ async fn main() -> Result<()> {
             ).await?;
             log(format!("Decrypted Agent Secrets:\n{:?}\n", response2));
         }
-        CliArgument::GetAgentKfragPeers { agent_name, agent_nonce } => {
+        CliArgument::GetKfragPeers { agent_name, agent_nonce } => {
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
-                "get_agent_kfrag_peers",
+                "get_kfrag_peers",
                 rpc_params![
                     agent_name.clone(),
                     agent_nonce.clone()
                 ]
             ).await?;
 
-            log(format!("Peers holding Agent '{}/{}' Kfrags", agent_name, agent_nonce).red());
+            log(format!("Peers holding Agent '{}-{}' Kfrags:", agent_name, agent_nonce).green());
             for (frag_num, peers) in response3 {
                 let peer_names = peers.iter()
                     .map(|peer_id| get_node_name(peer_id))

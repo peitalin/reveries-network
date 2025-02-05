@@ -43,23 +43,3 @@ pub struct Behaviour {
     /// Message propagation for threshold key generation and proxy re-encryption
     pub gossipsub: gossipsub::Behaviour
 }
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyFragmentMessage {
-    pub topic: GossipTopic,
-    pub frag_num: usize,
-    pub threshold: usize,
-    pub alice_pk: umbral_pre::PublicKey,
-    pub bob_pk: umbral_pre::PublicKey,
-    pub verifying_pk: umbral_pre::PublicKey,
-    // TODO: split data into private data for the MPC node, vs public data for kademlia
-    // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
-    // public: capsules and ciphertexts -> store on Kademlia
-    pub vessel_peer_id: PeerId,
-    pub next_vessel_peer_id: PeerId,
-    pub kfrag: KeyFrag,
-    pub capsule: Option<umbral_pre::Capsule>,
-    pub ciphertext: Option<Box<[u8]>>
-}
-

@@ -7,9 +7,11 @@ use libp2p::{
 };
 use tokio::sync::{mpsc, oneshot};
 use crate::SendError;
-use crate::behaviour::KeyFragmentMessage;
 use crate::types::{
-    FragmentResponse, TopicSwitch, UmbralPublicKeyResponse
+    KeyFragmentMessage,
+    FragmentResponse,
+    TopicSwitch,
+    UmbralPublicKeyResponse
 };
 
 
@@ -47,18 +49,14 @@ pub enum NodeCommand {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
-    SubscribeTopics {
-        topics: Vec<String>,
-        sender: oneshot::Sender<Vec<String>>,
-    },
-    UnsubscribeTopics {
-        topics: Vec<String>,
-        sender: oneshot::Sender<Vec<String>>,
-    },
     GetProviders {
         agent_name: String,
         agent_nonce: usize,
         sender: oneshot::Sender<HashSet<PeerId>>,
+    },
+    SubscribeTopics {
+        topics: Vec<String>,
+        sender: oneshot::Sender<Vec<String>>,
     },
     /// Request Capsule Fragments for threshold decryption
     RequestFragment {
@@ -68,8 +66,4 @@ pub enum NodeCommand {
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
-    // RespondFragment {
-    //     fragment: Vec<u8>,
-    //     channel: ResponseChannel<FragmentResponse>,
-    // }
 }

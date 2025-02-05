@@ -187,7 +187,7 @@ impl Display for TopicSwitch {
         //// followed by TopicSwitch struct data:
         // total_frags=<n>/name=<next_agent_name>/nonce=<agent_nonce>/prev_name=<prev_agent_name>/prev_nonce=<agent_nonce>/prev_peer_id=<prev_peer_id>
 
-        // Then nodes will do modular arithmetic private_seed % 4 to get their frag_num (channel)
+        // Then nodes will do modular arithmetic to get their frag_num (channel)
         // to listen to for kfrags:
         // let frag_num = NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
 

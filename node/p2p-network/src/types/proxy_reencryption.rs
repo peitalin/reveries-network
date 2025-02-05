@@ -2,6 +2,8 @@ use std::fmt::Display;
 use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use libp2p::PeerId;
+use crate::types::GossipTopic;
+use umbral_pre::KeyFrag;
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
@@ -65,6 +67,24 @@ impl Into<PeerId> for UmbralPeerId {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyFragmentMessage {
+    pub topic: GossipTopic,
+    pub frag_num: usize,
+    pub threshold: usize,
+    pub alice_pk: umbral_pre::PublicKey,
+    pub bob_pk: umbral_pre::PublicKey,
+    pub verifying_pk: umbral_pre::PublicKey,
+    // TODO: split data into private data for the MPC node, vs public data for kademlia
+    // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
+    // public: capsules and ciphertexts -> store on Kademlia
+    pub vessel_peer_id: PeerId,
+    pub next_vessel_peer_id: PeerId,
+    pub kfrag: KeyFrag,
+    pub capsule: Option<umbral_pre::Capsule>,
+    pub ciphertext: Option<Box<[u8]>>
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapsuleFragmentIndexed {
@@ -85,7 +105,7 @@ pub struct CapsuleFragmentIndexed {
 impl Display for CapsuleFragmentIndexed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,
-            "CapsuleFragmentIndexed(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, capsule, ciphertext)",
+            "CapsuleFragmentIndexed(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, ciphertext)",
             self.frag_num,
             self.alice_pk,
             self.bob_pk,

@@ -3,6 +3,7 @@ mod heartbeat_data;
 use libp2p::PeerId;
 use std::collections::{HashMap, HashSet};
 use crate::{get_node_name, short_peer_id};
+use colored::Colorize;
 use crate::types::{AgentName, AgentNonce, CapsuleFragmentIndexed, FragmentNumber};
 
 use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
@@ -94,7 +95,15 @@ impl PeerManager {
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        println!(">>> Setting vessel: {} for Agent: {}", get_node_name(&vessel_peer_id), agent_name);
+
+        println!("{}",
+            format!(
+                ">>> Setting vessel: {} for Agent: {}",
+                get_node_name(&vessel_peer_id),
+                agent_name
+            ).magenta()
+        );
+
         match self.peer_info.get_mut(&vessel_peer_id) {
             None => {},
             Some(peer_info) => {
@@ -168,10 +177,19 @@ impl PeerManager {
             .entry(peer_id)
             .and_modify(|v| {
                 v.insert(AgentFragment {
-                    agent_name: agent_name,
-                    agent_nonce: agent_nonce,
-                    frag_num: frag_num
+                    agent_name: agent_name.clone(),
+                    agent_nonce,
+                    frag_num
                 });
+            })
+            .or_insert_with(|| {
+                let mut hset = HashSet::new();
+                hset.insert(AgentFragment {
+                     agent_name,
+                     agent_nonce,
+                     frag_num
+                });
+                hset
             });
 
     }
@@ -191,12 +209,24 @@ impl PeerManager {
             }
             Some(agent_fragments) => {
                 // remove all kfrags_peers entries for the Peer
-                // println!("peer holds agent_fragments: {:?}", agent_fragments);
+                println!("peer holds agent_fragments: {:?}", agent_fragments);
                 for af in agent_fragments.iter() {
-                    if let Some(hmap) = self.kfrags_peers.get_mut(&af.agent_name) {
-                        let _removed = hmap.remove(&af.frag_num);
-                        // println!("Removed>> {:?}", removed);
+
+                    let agent_name_nonce_key = format!(
+                        "{}-{}",
+                        af.agent_name,
+                        af.agent_nonce
+                    );
+                    println!("frag_num({}): {}", af.frag_num, agent_name_nonce_key);
+
+                    if let Some(hmap) = self.kfrags_peers.get_mut(&agent_name_nonce_key) {
+                        if let Some(hset) = hmap.get_mut(&af.frag_num) {
+                            let _removed = hset.remove(peer_id);
+                            println!("{}: {:?}", "\tremoved".red(), _removed);
+                        }
                     };
+
+                    println!("{}: {:?}", "kfrags_peers".blue(), self.kfrags_peers.get(&agent_name_nonce_key));
                 }
                 // remove Peer from peers_to_agent_frags Hashmap
                 self.peers_to_agent_frags.remove(&peer_id);

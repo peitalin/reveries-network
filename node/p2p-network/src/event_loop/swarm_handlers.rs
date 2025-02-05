@@ -1,13 +1,11 @@
 use color_eyre::owo_colors::OwoColorize;
 use colored::Colorize;
 use libp2p::{
-    kad, mdns, request_response, swarm::SwarmEvent
+    kad, mdns, swarm::SwarmEvent
 };
-use crate::SendError;
 use crate::behaviour::BehaviourEvent;
 use crate::{short_peer_id, get_node_name};
 use crate::types::{
-    NetworkLoopEvent,
     UmbralPeerId,
     UmbralPublicKeyResponse,
 };
@@ -158,67 +156,21 @@ impl EventLoop {
 
             //// Request Response Protocol
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::Message { message, .. }
+                request_response_event
             )) => {
-                match message {
-                    request_response::Message::Request {
-                        request: fragment_request,
-                        channel,
-                        ..
-                    } => {
-                        self.network_event_sender
-                            .send(NetworkLoopEvent::InboundCfragRequest {
-                                agent_name: fragment_request.0,
-                                agent_nonce: fragment_request.1,
-                                frag_num: fragment_request.2,
-                                sender_peer: fragment_request.3,
-                                channel,
-                            })
-                            .await
-                            .expect("Event receiver not to be dropped.");
-                    }
-                    request_response::Message::Response {
-                        request_id,
-                        response,
-                    } => {
-
-                        let sender = self.pending.request_fragments
-                            .remove(&request_id)
-                            .expect("request_response: Request pending.");
-
-                        let _ = sender.send(response.0);
-                    }
-                }
+                self.handle_request_response(request_response_event).await
             },
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::InboundFailure { .. },
-            )) => {
-                // self.log(format!("InboundFailure: {:?} {:?} {:?}", peer, request_id, error));
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::OutboundFailure {
-                    request_id, error, peer
-                },
-            )) => {
-                // self.log(format!("OutboundFailure: {:?} {:?} {:?}", peer, request_id, error));
-                let _ = self.pending.request_fragments
-                    .remove(&request_id)
-                    .expect("Request pending")
-                    .send(Err(SendError(error.to_string())));
-
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::ResponseSent { peer, .. },
-            )) => {
-                // self.log(format!("ResponseSent to {:?}", peer));
-            }
 
             //// Connections
             SwarmEvent::NewListenAddr { .. } => {}
+            SwarmEvent::Dialing { .. } => {}
             SwarmEvent::IncomingConnection { .. } => {},
             SwarmEvent::ConnectionEstablished { .. } => {}
+            SwarmEvent::ExpiredListenAddr { address, .. } => {
+                println!(">>> ExpiredListenAddr with peer: {:?}", address);
+            }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                // println!(">>> ConnectionClosed with peer: {:?}", peer_id);
+                println!(">>> ConnectionClosed with peer: {:?}", peer_id);
                 self.swarm
                     .behaviour_mut()
                     .kademlia
@@ -228,10 +180,8 @@ impl EventLoop {
 
                 self.peer_manager.remove_kfrags_peer(&peer_id);
             }
-            SwarmEvent::OutgoingConnectionError { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {}
-            SwarmEvent::ExpiredListenAddr { .. } => {}
-            SwarmEvent::Dialing { .. } => {}
+            SwarmEvent::OutgoingConnectionError { .. } => {}
 
             //////////////////////////////////
             //// GossipSub protocol for PRE
