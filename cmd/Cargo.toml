@@ -9,6 +9,8 @@ p2p-network = { path = "../node/p2p-network" }
 rpc = { path = "../node/rpc" }
 runtime = { path = "../node/runtime" }
 
+itertools = { version = "0.8.2" }
+
 color-eyre = { workspace = true }
 colored = { workspace = true }
 clap = { workspace = true }

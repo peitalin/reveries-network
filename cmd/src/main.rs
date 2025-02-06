@@ -1,6 +1,8 @@
 mod commands;
 
 use std::collections::{HashMap, HashSet};
+use std::cmp::Ord;
+use itertools::Itertools;
 use commands::{Cmd, CliArgument};
 use clap::Parser;
 use colored::Colorize;
@@ -71,17 +73,23 @@ async fn main() -> Result<()> {
             ).await?;
             log(format!("Decrypted Agent Secrets:\n{:?}\n", response2));
         }
-        CliArgument::GetKfragPeers { agent_name, agent_nonce } => {
+        CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
-                "get_kfrag_peers",
+                "get_kfrag_broadcast_peers",
                 rpc_params![
                     agent_name.clone(),
                     agent_nonce.clone()
                 ]
             ).await?;
 
-            log(format!("Peers holding Agent '{}-{}' Kfrags:", agent_name, agent_nonce).green());
-            for (frag_num, peers) in response3 {
+            let peers_sorted_by_fragments = response3
+                .into_iter()
+                .sorted_by(|a, b| Ord::cmp(&a.0, &b.0))
+                .collect::<Vec<(u32, HashSet<PeerId>)>>();
+
+            log(format!("Peers subscribed to '{}-{}' kfrag broadcasts:", agent_name, agent_nonce).green());
+            for (frag_num, peers) in peers_sorted_by_fragments {
+
                 let peer_names = peers.iter()
                     .map(|peer_id| get_node_name(peer_id))
                     .collect::<Vec<String>>();

@@ -32,7 +32,7 @@ pub enum CliArgument {
         #[clap(long)]
         agent_nonce: usize,
     },
-    GetKfragPeers {
+    GetKfragBroadcastPeers {
         #[clap(long)]
         agent_name: String,
         #[clap(long)]

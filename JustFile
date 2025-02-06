@@ -91,3 +91,35 @@ topic-switch:
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
+
+
+
+
+peers1:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8001 \
+        get-kfrag-broadcast-peers \
+        --agent-name beatrix \
+        --agent-nonce 0
+
+peers2:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8002 \
+        get-kfrag-broadcast-peers \
+        --agent-name beatrix \
+        --agent-nonce 0
+
+
+peers3:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8003 \
+        get-kfrag-broadcast-peers \
+        --agent-name beatrix \
+        --agent-nonce 0
+
+peers4:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8004 \
+        get-kfrag-broadcast-peers \
+        --agent-name beatrix \
+        --agent-nonce 0
