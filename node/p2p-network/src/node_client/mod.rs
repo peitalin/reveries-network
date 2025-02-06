@@ -4,7 +4,6 @@ mod stdin_handlers;
 
 pub use commands::NodeCommand;
 
-use core::num;
 use std::collections::{HashMap, HashSet};
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
@@ -28,9 +27,9 @@ use runtime::llm::{test_claude_query, AgentSecretsJson};
 
 
 #[derive(Clone)]
-pub struct NodeClient {
+pub struct NodeClient<'a> {
     pub peer_id: PeerId,
-    pub node_name: String,
+    pub node_name: &'a str,
     pub hosting_agent_name: Option<String>,
     pub counter: u32,
     pub command_sender: mpsc::Sender<NodeCommand>,
@@ -42,10 +41,10 @@ pub struct NodeClient {
     umbral_ciphertext: Option<Box<[u8]>>,
 }
 
-impl NodeClient {
+impl<'a> NodeClient<'a> {
     pub fn new(
         peer_id: PeerId,
-        node_name: String,
+        node_name: &'a str,
         command_sender: mpsc::Sender<NodeCommand>,
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
@@ -96,22 +95,18 @@ impl NodeClient {
                 }) => {
                     // check if vessel node for the agent_name is still alive.
                     // if so, then reject request.
-                    if let Some(kfrag_num) = frag_num {
-                        self.command_sender
-                            .send(NodeCommand::RespondCfrag {
-                                agent_name_nonce,
-                                frag_num: kfrag_num,
-                                sender_peer,
-                                channel
-                            })
-                            .await
-                            .expect("Command receiver not to be dropped.");
-                    } else {
-                        self.log(format!("frag_num missing"));
-                    }
+                    self.command_sender
+                        .send(NodeCommand::RespondCfrag {
+                            agent_name_nonce,
+                            frag_num,
+                            sender_peer,
+                            channel
+                        })
+                        .await
+                        .expect("Command receiver not to be dropped.");
                 }
 
-                Some(NetworkLoopEvent::RespawnRequired  {
+                Some(NetworkLoopEvent::RespawnRequiredRequest {
                     agent_name_nonce, // previous agent_name_nonce
                     total_frags,
                     prev_peer_id
@@ -127,7 +122,9 @@ impl NodeClient {
                         agent_name_nonce.clone(), // prev agent_name_nonce
                         Some(prev_peer_id)
                     ).await {
-                        Err(e) => println!("Error respawning agent in new vessel"),
+                        Err(e) => {
+                            self.log(format!("Error respawning agent in new vessel: {}", e).red());
+                        }
                         Ok(mut agent_secrets_json) => {
 
                             agent_secrets_json.agent_nonce = next_nonce;
@@ -148,6 +145,7 @@ impl NodeClient {
                             println!("num_subscribed: {:?}", num_subscribed);
 
                             let _ = self.encrypt_secret(agent_secrets_json.clone());
+                            // TODO
                             // 1. test LLM API works
                             // 2. re-encrypt secrets + provide TEE attestation of it
                             // 3. confirm shutdown of old vessel
@@ -167,6 +165,29 @@ impl NodeClient {
                             self.broadcast_kfrags(next_agent_name_nonce, 3, 2).await.expect("respawn err");
                         }
                     };
+                }
+
+                // After broadcasting kfrags, peers should identify the vessel node and
+                // let it know this node has a fragment.
+                Some(NetworkLoopEvent::SaveKfragProviderRequest {
+                    agent_name_nonce,
+                    frag_num,
+                    sender_peer,
+                    channel
+                }) => {
+
+                    println!("{}", format!("SAVING KFRAG PROVIDER").red());
+                    // Only the broadcast and vessel need to know which nodes have which fragments.
+                    // Not necessary for other nodes to keep track of this.
+                    self.command_sender
+                        .send(NodeCommand::SaveKfragProvider {
+                            agent_name_nonce,
+                            frag_num,
+                            sender_peer,
+                            channel
+                        })
+                        .await
+                        .expect("Command receiver not to be dropped.");
                 }
 
                 Some(NetworkLoopEvent::ReBroadcastKfrags(agent_name_nonce)) => {
@@ -320,6 +341,7 @@ impl NodeClient {
                                 topic: topic,
                                 frag_num: i,
                                 threshold: threshold,
+                                total_frags: total_frags,
                                 kfrag: kfrag,
                                 verifying_pk: self.umbral_key.verifying_pk,
                                 alice_pk: self.umbral_key.public_key,
@@ -350,7 +372,7 @@ impl NodeClient {
         let (sender, mut receiver) = mpsc::channel(100);
 
         self.command_sender
-            .send(NodeCommand::GetPeerUmbralPublicKey { sender, agent_name_nonce })
+            .send(NodeCommand::GetPeerUmbralPublicKeys { sender, agent_name_nonce })
             .await
             .expect("Command receiver not to be dropped.");
 
@@ -362,7 +384,7 @@ impl NodeClient {
         pks
     }
 
-    pub async fn get_agent_kfrag_broadcast_peers(
+    pub async fn get_kfrag_broadcast_peers(
         &mut self,
         agent_name_nonce: AgentNameWithNonce,
     ) -> HashMap<usize, HashSet<PeerId>> {
@@ -385,12 +407,12 @@ impl NodeClient {
         opt_prev_vessel_peer_id: Option<PeerId>
     ) -> Vec<Result<Vec<u8>>> {
 
-        let providers_hmap = self.get_agent_kfrag_broadcast_peers(
+        let providers_hmap = self.get_kfrag_broadcast_peers(
             agent_name_nonce.clone()
         ).await;
 
         println!("\n\nfinding providers for: {}", agent_name_nonce);
-        println!("filter out peer: {:?}", opt_prev_vessel_peer_id);
+        println!("filter out vessel peer: {:?}", opt_prev_vessel_peer_id);
         println!("\nproviders HashMap<frag_num, peers>: {:?}\n\n", providers_hmap);
 
         let mut results = vec![];
@@ -430,7 +452,7 @@ impl NodeClient {
                     nc.command_sender
                         .send(NodeCommand::RequestFragment {
                             agent_name_nonce,
-                            frag_num: Some(frag_num),
+                            frag_num: frag_num,
                             peer: peer_id,
                             sender
                         })
@@ -552,7 +574,7 @@ impl NodeClient {
                     self.log(format!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}"));
                 } else {
                     self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
-                    self.log(format!(">>> Only? decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
+                    self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
                 }
                 Err(anyhow!(e.to_string()))
             }

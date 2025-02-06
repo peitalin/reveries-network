@@ -5,9 +5,11 @@ use colored::Colorize;
 use libp2p::gossipsub;
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
+    AgentNameWithNonce,
     CapsuleFragmentIndexed,
-    KeyFragmentMessage,
+    FragmentRequestEnum,
     GossipTopic,
+    KeyFragmentMessage,
     TopicSwitch,
 };
 use crate::create_network::NODE_SEED_NUM;
@@ -15,7 +17,7 @@ use super::EventLoop;
 
 
 
-impl EventLoop {
+impl<'a> EventLoop<'a> {
 
     // When receiving a Gossipsub event/message
     pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) {
@@ -49,6 +51,7 @@ impl EventLoop {
                                 Some(&k.bob_pk)
                             ).expect("err verifying kfrag");
 
+                            // if receiver is next vessel, insert peer kfrags
                             self.peer_manager.set_peer_info_agent_vessel(
                                 &agent_name_nonce,
                                 &total_frags,
@@ -56,12 +59,8 @@ impl EventLoop {
                                 k.next_vessel_peer_id,
                             );
 
-                            self.peer_manager.insert_peer_agent_fragments(
-                                &peer_id,
-                                &agent_name_nonce,
-                                frag_num
-                            );
-
+                            // all nodes store cfrags locally
+                            // nodes should also inform the vessel_node that they hold a fragment
                             self.peer_manager.insert_cfrags(
                                 &agent_name_nonce,
                                 CapsuleFragmentIndexed {
@@ -79,11 +78,22 @@ impl EventLoop {
                             );
                             self.print_stored_cfrags(&self.peer_manager.cfrags);
 
+                            // request-response: let vessel know this peer received a fragment
+                            let request_id = self
+                                .swarm
+                                .behaviour_mut()
+                                .request_response
+                                .send_request(&peer_id, FragmentRequestEnum::ProvidingFragment(
+                                    agent_name_nonce,
+                                    frag_num,
+                                    self.peer_id // sender_peer_id
+                                ));
+
+                            // self.pending.request_fragments.insert(request_id, sender);
                         }
 
                     }
                     GossipTopic::TopicSwitch => {
-
                         let ts: TopicSwitch = serde_json::from_slice(&message.data)
                             .expect("Error deserializing TopicSwitch");
 
@@ -109,12 +119,12 @@ impl EventLoop {
             }
             gossipsub::Event::GossipsubNotSupported {..} => {}
             gossipsub::Event::Unsubscribed { peer_id, topic } => {
-                match topic.clone().into() {
-                    GossipTopic::BroadcastKfrag(_, _, _) => {
-                        self.peer_manager.remove_kfrags_peer(&peer_id);
-                    }
-                    _ => {}
-                }
+                // match topic.clone().into() {
+                //     GossipTopic::BroadcastKfrag(_, _, _) => {
+                //         self.peer_manager.remove_kfrags_peer(&peer_id);
+                //     }
+                //     _ => {}
+                // }
             }
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
@@ -126,13 +136,15 @@ impl EventLoop {
                 // Peers should be on just 1 kfrag broadcast channel.
                 // We can enforce this if the binary runs in a TEE
 
-                self.log(format!("Gossipsub Subscribed {} to '{}'", get_node_name(&peer_id).yellow(), topic));
+                // self.log(format!("Gossipsub Subscribed {} to '{}'", get_node_name(&peer_id).yellow(), topic));
                 // pop topic, then send back confirmation that frag_num
+
                 match topic.clone().into() {
                     GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num) => {
-                        self.log(format!(">>> Adding peer to kfrags_peers({}, {}, {})", agent_name_nonce, frag_num, short_peer_id(&peer_id)));
-                        self.peer_manager.insert_kfrags_broadcast_peer(peer_id, agent_name_nonce, frag_num);
-                        // self.log(format!("peers_to_agent_frags: {:?}", self.peer_manager.peers_to_agent_frags).green());
+                        // self.log(format!(">>> Adding peer to kfrags_peers({}, {}, {})", agent_name_nonce, frag_num, short_peer_id(&peer_id)));
+                        // Only the broadcast and vessel need to know which nodes have which fragments.
+                        // Not necessary for other nodes to keep track of this.
+                        // self.peer_manager.insert_kfrags_broadcast_peer(peer_id, &agent_name_nonce, frag_num);
                     },
                     _ => {}
                 }
@@ -158,7 +170,7 @@ impl EventLoop {
             .ok();
     }
 
-    fn print_stored_cfrags(&self, self_kfrags: &HashMap<String, CapsuleFragmentIndexed>) {
+    fn print_stored_cfrags(&self, self_kfrags: &HashMap<AgentNameWithNonce, CapsuleFragmentIndexed>) {
         self.log(format!("Storing CapsuleFragmentIndexed:"));
         let _ = self_kfrags.iter()
             .map(|(k, v)| println!("key: {}\tfrag_num: {}", k, v.frag_num))

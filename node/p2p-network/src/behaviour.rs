@@ -1,15 +1,12 @@
 use color_eyre::Result;
 use libp2p::{
-    gossipsub::{self},
+    gossipsub,
     kad,
     mdns,
-    PeerId,
-    request_response::{self},
+    request_response,
     swarm::NetworkBehaviour
 };
-use serde::{Deserialize, Serialize};
-use umbral_pre::KeyFrag;
-use crate::types::{FragmentRequest, FragmentResponse, GossipTopic};
+use crate::types::{FragmentRequestEnum, FragmentResponseEnum};
 use crate::event_loop::heartbeat_behaviour;
 
 
@@ -20,7 +17,7 @@ pub struct Behaviour {
     // /// The Behaviour to manage connections to blocked peers.
     // blocked_peer: allow_block_list::Behaviour<allow_block_list::BlockedPeers>,
 
-    pub request_response: request_response::cbor::Behaviour<FragmentRequest, FragmentResponse>,
+    pub request_response: request_response::cbor::Behaviour<FragmentRequestEnum, FragmentResponseEnum>,
 
     /// Stores Umbra public keys for peers, and storing agent secret ciphertexts
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,

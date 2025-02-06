@@ -31,7 +31,10 @@ impl Into<ErrorObjectOwned> for RpcError {
 }
 
 
-pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_eyre::Result<SocketAddr> {
+pub async fn run_server<'a: 'static>(
+    rpc_port: usize,
+    network_client: NodeClient<'a>
+) -> color_eyre::Result<SocketAddr> {
 
 	let server = Server::builder().build(format!("0.0.0.0:{}", rpc_port)).await?;
 	let mut module = RpcModule::new(());
@@ -48,10 +51,10 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
             shares,
             threshold
         ) = params.parse::<(String, usize, usize, usize)>().expect("error parsing param");
+        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
 
         let mut nc1 = nc1.clone();
         async move {
-            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             nc1
                 .broadcast_kfrags(agent_name_nonce, shares, threshold)
                 .await
@@ -64,9 +67,10 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
 	module.register_async_method("request", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
+        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
+
         let mut nc2 = nc2.clone();
         async move {
-            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             nc2
                 .request_respawn(agent_name_nonce, None)
                 .await
@@ -76,14 +80,15 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
 
     // Get kfrag peers
     let nc3 = network_client.clone();
-	module.register_async_method("get_broadcast_peers", move |params, _, _| {
+	module.register_async_method("get_kfrag_broadcast_peers", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
+        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
+
         let mut nc3 = nc3.clone();
         async move {
-            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             let peers: HashMap<usize, HashSet<PeerId>> = nc3
-                .get_agent_kfrag_broadcast_peers(agent_name_nonce).await;
+                .get_kfrag_broadcast_peers(agent_name_nonce).await;
 
             Ok::<HashMap<usize, HashSet<PeerId>>, RpcError>(peers)
         }

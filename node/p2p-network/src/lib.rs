@@ -46,13 +46,13 @@ pub fn get_node_name(peer_id: &PeerId) -> String {
     }
 }
 
-pub fn make_node_name(seed: usize) -> String {
+pub fn make_node_name<'a>(seed: usize) -> &'a str {
     match seed {
-        1 => "ALICE".to_string(),
-        2 => "BELLA".to_string(),
-        3 => "CARL".to_string(),
-        4 => "DANY".to_string(),
-        5 => "EMMA".to_string(),
-        _ => "Unnamed".to_string(),
+        1 => "ALICE",
+        2 => "BELLA",
+        3 => "CARL",
+        4 => "DANY",
+        5 => "EMMA",
+        _ => "Unnamed",
     }
 }

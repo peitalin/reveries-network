@@ -13,20 +13,14 @@ use crate::types::{
 use super::EventLoop;
 
 
-impl EventLoop {
+impl<'a> EventLoop<'a> {
 
     pub(super) async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
 
-            //// Kademlia Protocol tracks:
-            //// - Umbral Public Keys (Proxy Reencryption) for each PeerId this node is connected to.
-            //// - Ciphertexts
+            //// Kademlia tracks:
+            //// - Umbral Public Keys (Proxy Reencryption) for each PeerId
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(e)) => match e {
-
-                // StartProviding event
-                kad::Event::OutboundQueryProgressed {
-                    result: kad::QueryResult::StartProviding(_), ..
-                } => {}
 
                 // GetProviders event
                 kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
@@ -60,7 +54,6 @@ impl EventLoop {
                             ..
                         })
                     )) => {
-
                         let k = std::str::from_utf8(key.as_ref()).unwrap();
                         let umbral_pk_peer_id_key: UmbralPeerId = k.into();
 
@@ -81,30 +74,11 @@ impl EventLoop {
                                 .finish();
                         }
                     }
-                    kad::QueryResult::GetRecord(Ok(_r)) => {
-                        // self.log(format!("GetRecord: {:?}", r));
-                    }
-                    kad::QueryResult::GetRecord(Err(_err)) => {
-                        // self.log(format!("Failed to get record {err:?}"));
-                    }
-                    kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
-                        // let r = std::str::from_utf8(key.as_ref()).unwrap();
-                        // self.log(format!("PutRecordOk {:?}", r));
-                    }
-                    kad::QueryResult::PutRecord(Err(_err)) => {
-                        // self.log(format!("Failed to PutRecord: {err:?}"));
-                    }
-                    kad::QueryResult::StartProviding(Ok(kad::AddProviderOk { .. })) => {
-                        // let r = std::str::from_utf8(key.as_ref()).unwrap();
-                        // self.log(format!("StartProviding: {:?}", r));
-                    }
-                    kad::QueryResult::StartProviding(Err(_err)) => {
-                        // self.log(format!("Failed to StartProviding: {err:?}"));
-                    }
+                    kad::QueryResult::GetRecord(..) => {}
+                    kad::QueryResult::PutRecord(..) => {}
+                    kad::QueryResult::StartProviding(..) => {}
                     kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
-
                         if peer == self.peer_id {
-
                             self.log(format!(
                                 "Kademlia BootstrapOk: Publishing Umbral PK for {:?} {}\n",
                                 get_node_name(&peer),

@@ -38,11 +38,11 @@ use tokio::time;
 use time::Duration;
 use runtime::llm::{AgentSecretsJson, test_claude_query};
 
-pub struct EventLoop {
+pub struct EventLoop<'a> {
     seed: usize,
     swarm: Swarm<Behaviour>,
     peer_id: PeerId, // My node's PeerInfo
-    node_name: String,
+    node_name: &'a str,
     command_receiver: mpsc::Receiver<NodeCommand>,
     chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
     network_event_sender: mpsc::Sender<NetworkLoopEvent>,
@@ -55,7 +55,7 @@ pub struct EventLoop {
     interval: time::Interval,
 
     // tracks peer heartbeats status
-    peer_manager: PeerManager,
+    peer_manager: PeerManager<'a>,
 
     // pending P2p network requests
     pending: PendingRequests,
@@ -90,13 +90,13 @@ impl PendingRequests {
     }
 }
 
-impl EventLoop {
+impl<'a> EventLoop<'a> {
 
     pub fn new(
         seed: usize,
         swarm: Swarm<Behaviour>,
         peer_id: PeerId,
-        node_name: String,
+        node_name: &'a str,
         command_receiver: mpsc::Receiver<NodeCommand>,
         chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
         network_event_sender: mpsc::Sender<NetworkLoopEvent>,
@@ -108,14 +108,14 @@ impl EventLoop {
             seed,
             swarm,
             peer_id,
-            node_name,
+            node_name: &node_name,
             command_receiver,
             chat_cmd_receiver,
             network_event_sender,
             umbral_key: umbral_key,
             internal_heartbeat_fail_receiver,
             interval: tokio::time::interval(Duration::from_secs(1)),
-            peer_manager: PeerManager::new(),
+            peer_manager: PeerManager::new(&node_name),
             pending: PendingRequests::new(),
             topics: HashMap::new(),
         }
@@ -123,7 +123,7 @@ impl EventLoop {
 
     fn log<S: std::fmt::Display>(&self, message: S) {
         println!("{} {}{} {}",
-            "NetworkEvent".green(), self.node_name.yellow(), ">".blue(),
+            "EventLoop".green(), self.node_name.yellow(), ">".blue(),
             message
         );
     }
@@ -170,7 +170,6 @@ impl EventLoop {
                             }) = &peer_info.agent_vessel {
 
                                 let next_agent = AgentNameWithNonce(prev_agent.0.clone(), prev_agent.1 + 1);
-                                let next_nonce = next_agent.1;
                                 let respawn_pending = self.pending.respawns.contains(&(prev_agent.clone(), *next_vessel_peer_id));
 
                                 if respawn_pending {
@@ -200,7 +199,7 @@ impl EventLoop {
 
                                         // Dispatch a Respawn(agent_name) event to EventLoop
                                         let _ = self.network_event_sender
-                                            .send(NetworkLoopEvent::RespawnRequired {
+                                            .send(NetworkLoopEvent::RespawnRequiredRequest {
                                                 agent_name_nonce: prev_agent.clone(),
                                                 total_frags: *total_frags,
                                                 prev_peer_id: prev_vessel_peer_id.clone()
@@ -250,6 +249,7 @@ impl EventLoop {
                                         self.pending.respawns.insert((prev_agent.clone(), *next_vessel_peer_id));
                                     }
 
+                                    // TODO
                                     // remove peer kfrags, it will disconnect automatically after a while
                                     self.remove_peer(peer_id);
                                     // self.peer_manager.remove_kfrags_peers_by_agent_name(agent_name, *agent_nonce);
@@ -257,6 +257,7 @@ impl EventLoop {
 
                             } else {
                                 println!("{} failed but wasn't hosting an agent.", node_name);
+                                // TODO
                                 // remove peer kfrags, it will disconnect automatically after a while
                                 // self.remove_peer(peer_id);
                             }
@@ -270,7 +271,8 @@ impl EventLoop {
 
                 }
                 swarm_event = self.swarm.select_next_some() => self.handle_swarm_event(swarm_event).await,
-                heartbeat = self.internal_heartbeat_fail_receiver.recv() => match heartbeat {
+                heartbeat_fail = self.internal_heartbeat_fail_receiver.recv() => match heartbeat_fail {
+                    // internal Heartbeat failure
                     Some(hb) => self.handle_internal_heartbeat_failure(hb).await,
                     None => break // channel closed, shutting down the network event loop.
                 },
@@ -293,6 +295,7 @@ impl EventLoop {
         println!("\tTodo: initiating LLM runtime shutdown...");
         println!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...");
         println!("\tTodo: Delete agent secrets, to prevent duplicate agents.");
+        // TODO
         // Shutdown the LLM runtime (if in Vessel Mode), but
         // continue attempting to broadcast the agent_secrets reencryption fragments and ciphertexts.
         //

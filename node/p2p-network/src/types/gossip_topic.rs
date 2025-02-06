@@ -81,7 +81,6 @@ impl From<String> for AgentNameWithNonce {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicSwitch {
     // subscribe to next_topic

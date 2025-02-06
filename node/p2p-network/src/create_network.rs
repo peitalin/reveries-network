@@ -37,8 +37,8 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new(secret_key_seed: Option<usize>)
-    -> Result<(NodeClient, mpsc::Receiver<NetworkLoopEvent>, EventLoop)> {
+pub async fn new<'a>(secret_key_seed: Option<usize>)
+    -> Result<(NodeClient<'a>, mpsc::Receiver<NetworkLoopEvent>, EventLoop<'a>)> {
 
     // Create a public/private key pair, either random or based on a seed.
     let (
@@ -52,11 +52,11 @@ pub async fn new(secret_key_seed: Option<usize>)
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
-        // .with_tcp(
-        //     tcp::Config::default(),
-        //     noise::Config::new,
-        //     yamux::Config::default
-        // )?
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default
+        )?
         // QUIC has it's own connection timeout.
         .with_quic()
         .with_behaviour(|key| {
@@ -125,14 +125,10 @@ pub async fn new(secret_key_seed: Option<usize>)
         .build();
 
 
-    //// Kademlia
+    //// set Kademlia server mode
     swarm.behaviour_mut()
         .kademlia
         .set_mode(Some(kad::Mode::Server));
-
-    // Listen on all interfaces and whatever port the OS assigns
-    // swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
-    // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     let (command_sender, command_receiver) = mpsc::channel(100);
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
@@ -143,7 +139,7 @@ pub async fn new(secret_key_seed: Option<usize>)
     Ok((
         NodeClient::new(
             peer_id,
-            node_name.clone(),
+            &node_name,
             command_sender,
             chat_cmd_sender,
             umbral_key.clone()
@@ -153,7 +149,7 @@ pub async fn new(secret_key_seed: Option<usize>)
             seed,
             swarm,
             peer_id,
-            node_name,
+            &node_name,
             command_receiver,
             chat_cmd_receiver,
             network_events_sender,
@@ -165,10 +161,10 @@ pub async fn new(secret_key_seed: Option<usize>)
 
 
 
-pub fn generate_peer_keys(secret_key_seed: Option<usize>) -> (
+pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     libp2p::PeerId,
     identity::Keypair,
-    String,
+    &'a str,
     runtime::reencrypt::UmbralKey
 ) {
 
@@ -192,7 +188,7 @@ pub fn generate_peer_keys(secret_key_seed: Option<usize>) -> (
         None => {
 
             let id_keys = identity::Keypair::generate_ed25519();
-            let node_name = "Unnamed".to_string();
+            let node_name = "Unnamed";
             let umbral_key = runtime::reencrypt::UmbralKey::new(None);
             (id_keys, node_name, umbral_key)
         }

@@ -5,6 +5,8 @@ use libp2p::PeerId;
 use crate::types::GossipTopic;
 use umbral_pre::KeyFrag;
 
+use super::AgentNameWithNonce;
+
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct UmbralPeerId(pub String);
@@ -72,6 +74,7 @@ pub struct KeyFragmentMessage {
     pub topic: GossipTopic,
     pub frag_num: usize,
     pub threshold: usize,
+    pub total_frags: usize,
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,

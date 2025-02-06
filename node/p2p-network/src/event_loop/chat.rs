@@ -1,12 +1,13 @@
 use crate::types::ChatMessage;
 use super::EventLoop;
 
-impl EventLoop {
+impl<'a> EventLoop<'a> {
 
     pub(super) async fn broadcast_chat_message(&mut self, message: ChatMessage) {
 
         self.log(format!("Broadcasting message: {:?}", message));
 
+        /// testing TEE
         let (
             _tee_quote ,
             _tee_quote_bytes

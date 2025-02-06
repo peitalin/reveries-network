@@ -7,7 +7,7 @@ use crate::types::{AgentNameWithNonce, AgentNonce, ChatMessage, NextTopic, PrevT
 use super::NodeClient;
 
 
-impl NodeClient {
+impl<'a> NodeClient<'a> {
 
     pub async fn listen_and_handle_stdin(&mut self) {
         // Read full lines from stdin

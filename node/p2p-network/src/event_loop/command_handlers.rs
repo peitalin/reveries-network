@@ -3,17 +3,22 @@ use libp2p::{
     PeerId
 };
 use color_eyre::eyre::anyhow;
+use colored::Colorize;
 use crate::node_client::NodeCommand;
 use crate::types::{
-    FragmentRequest, FragmentResponse, GossipTopic, UmbralPeerId,
+    FragmentRequestEnum,
+    FragmentResponseEnum,
+    GossipTopic,
     TopicHash,
+    UmbralPeerId
 };
+use crate::short_peer_id;
 use crate::types::{CapsuleFragmentIndexed, KeyFragmentMessage};
 use crate::SendError;
 use super::EventLoop;
 
 
-impl EventLoop {
+impl<'a> EventLoop<'a> {
 
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
@@ -28,6 +33,24 @@ impl EventLoop {
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
 
                 let message = key_fragment_message;
+
+                let agent_name_nonce = match message.topic.clone() {
+                    GossipTopic::BroadcastKfrag(agent_name_nonce, _, _) => {
+                        agent_name_nonce
+                    }
+                    _ => {
+                        panic!("Message type must be GossipTopic::BroadcastKfrag, received: {}", message.topic);
+                    }
+                };
+                // set broadcastoer's peer info
+                self.peer_manager.set_peer_info_agent_vessel(
+                    &agent_name_nonce,
+                    // &message.threshold,
+                    &message.total_frags,
+                    message.vessel_peer_id, // vessel_peer_id
+                    message.next_vessel_peer_id // next_vessel_peer_id
+                );
+
                 self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
                 let match_topic = message.topic.to_string();
 
@@ -57,6 +80,7 @@ impl EventLoop {
                         sender.send(std::collections::HashMap::new()).ok();
                     }
                     Some(peers) => {
+                        // unsorted
                         sender.send(peers.clone()).ok();
                     }
                 }
@@ -71,11 +95,16 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FragmentRequest(agent_name_nonce, frag_num, self.peer_id));
+                    .send_request(&peer, FragmentRequestEnum::FragmentRequest(
+                        agent_name_nonce,
+                        frag_num,
+                        self.peer_id
+                    ));
 
                 self.pending.request_fragments.insert(request_id, sender);
             }
-            NodeCommand::GetProviders { agent_name_nonce, sender } => {
+            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
+
                 let query_id = self
                     .swarm
                     .behaviour_mut()
@@ -84,14 +113,41 @@ impl EventLoop {
 
                 self.pending.get_providers.insert(query_id, sender);
             }
-            NodeCommand::GetPeerUmbralPublicKey { sender, agent_name_nonce } => {
+            NodeCommand::SaveKfragProvider {
+                agent_name_nonce,
+                frag_num,
+                sender_peer,
+                channel
+            } => {
+
+                self.log(format!(
+                    "\n>>> Adding peer to kfrags_peers({}, {}, {})",
+                    agent_name_nonce,
+                    frag_num,
+                    short_peer_id(&sender_peer)
+                ).bright_green());
+
+                self.peer_manager.insert_peer_agent_fragments(&sender_peer, &agent_name_nonce, frag_num);
+                self.peer_manager.insert_kfrags_broadcast_peer(sender_peer, &agent_name_nonce, frag_num);
+                self.peer_manager.insert_peer_info(sender_peer);
+
+                // confirm saved kfrag peer
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(
+                        channel,
+                        FragmentResponseEnum::KfragProviderAck
+                    )
+                    .expect("Connection to peer to be still open.");
+            }
+            NodeCommand::GetPeerUmbralPublicKeys { sender, agent_name_nonce } => {
 
                 let public_keys = self.peer_manager
                     .get_connected_peers()
                     .iter()
-                    .map(|(peer_id, _peer_info)| {
-                        peer_id
-                    }).collect::<Vec<&PeerId>>();
+                    .map(|(peer_id, _peer_info)| peer_id)
+                    .collect::<Vec<&PeerId>>();
 
                 for peer_id in public_keys {
                     let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
@@ -124,15 +180,15 @@ impl EventLoop {
                         self.swarm
                             .behaviour_mut()
                             .request_response
-                            .send_response(channel, FragmentResponse(cfrag_indexed_bytes))
+                            .send_response(
+                                channel,
+                                FragmentResponseEnum::FragmentResponse(cfrag_indexed_bytes)
+                            )
                             .expect("Connection to peer to be still open.");
                     }
                 }
             }
             NodeCommand::SwitchTopic(ts, sender) => {
-
-                // let frag_num = NODE_SEED_NUM
-                //     .with(|n| total_frags % *n.borrow());
 
                 self.broadcast_topic_switch(&ts).await;
 
