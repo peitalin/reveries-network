@@ -38,7 +38,7 @@ run-node4:
     @echo 'Running Node 4';
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=2/total_frags=3/name=beatrix/nonce=0 \
+        --topics chat,topic_switch \
         --rpc-port 8004
 
 # Runs node 5
@@ -46,7 +46,7 @@ run-node5:
     @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --topics chat,topic_switch,request/beatrix,kfrag/frag_num=0/total_frags=3/name=beatrix/nonce=0 \
+        --topics chat,topic_switch \
         --rpc-port 8005
 
 broadcast:
@@ -86,7 +86,7 @@ topic-switch:
         --total-frags 3 \
         --threshold 2 \
         --prev-agent-name beatrix \
-        --prev-agent-nonce  1 \
+        --prev-agent-nonce  0 \
         --peer-id 12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X
 
 run-cait:

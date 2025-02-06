@@ -58,6 +58,10 @@ pub enum NodeCommand {
         topics: Vec<String>,
         sender: oneshot::Sender<Vec<String>>,
     },
+    UnsubscribeTopics {
+        topics: Vec<String>,
+        sender: oneshot::Sender<Vec<String>>,
+    },
     /// Request Capsule Fragments for threshold decryption
     RequestFragment {
         agent_name: String,

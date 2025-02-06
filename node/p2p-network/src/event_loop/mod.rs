@@ -131,7 +131,8 @@ impl EventLoop {
     pub async fn listen_for_network_events(mut self) {
 
         let max_time_before_respawn = self.swarm.behaviour()
-            .heartbeat.config
+            .heartbeat
+            .config
             .max_time_before_rotation();
 
         loop {
@@ -192,7 +193,7 @@ impl EventLoop {
                                     if self.peer_id == *next_vessel_peer_id {
 
                                         // subscribe to all new agent_nonce channels to broadcast
-                                        self.subscribe_topics(vec![
+                                        self.subscribe_topics(&vec![
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 0).to_string(),
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 1).to_string(),
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 2).to_string(),
@@ -244,7 +245,7 @@ impl EventLoop {
                                         let frag_num = self.seed % total_frags;
                                         self.log(format!("\nNext frag_num: {}\n", frag_num));
 
-                                        self.subscribe_topics(vec![
+                                        self.subscribe_topics(&vec![
                                             GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, frag_num).to_string(),
                                         ]);
 
@@ -310,7 +311,8 @@ impl EventLoop {
         // Remove from PeerManager locally
         self.peer_manager.remove_kfrags_peer(peer_id);
         self.peer_manager.remove_peer_info(peer_id);
-
+        // Remove peer from GossipSub
+        self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
         // Remove UmbralPeerId of the Peer on Kademlia
         self.swarm
             .behaviour_mut()

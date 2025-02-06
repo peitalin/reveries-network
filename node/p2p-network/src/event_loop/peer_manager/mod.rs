@@ -4,6 +4,7 @@ use libp2p::PeerId;
 use std::collections::{HashMap, HashSet};
 use crate::{get_node_name, short_peer_id};
 use colored::Colorize;
+use color_eyre::owo_colors::OwoColorize;
 use crate::types::{AgentName, AgentNonce, CapsuleFragmentIndexed, FragmentNumber};
 
 use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
@@ -53,7 +54,9 @@ pub(crate) struct PeerManager {
     // Tracks Vessel Nodes
     pub(crate) peer_info: HashMap<PeerId, PeerInfo>,
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
-    pub(crate) kfrags_peers: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
+    // pub(crate) peers_holding_kfrags: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
+    // Track which Peers are subscribed to whith AgentFragment broadcast channels:
+    pub(crate) kfrag_broadcast_peers: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Capsule frags for each Agent (encrypted secret key fragments)
     pub(crate) cfrags: HashMap<AgentName, CapsuleFragmentIndexed>,
     // Tracks which AgentFragments a specific Peer holds
@@ -62,10 +65,16 @@ pub(crate) struct PeerManager {
     avg_window: u32
 }
 
+// Just because you are subscribed to the same broadcast, doesnt meant your peer has the fragments yet.
+// You need to wait for the broadcast.
+// Then you can assume the peer has the fragment.
+// But even then you won't know until you try retrieve the fragment.
+
+
 impl PeerManager {
     pub fn new() -> Self {
         Self {
-            kfrags_peers: HashMap::new(),
+            kfrag_broadcast_peers: HashMap::new(),
             peers_to_agent_frags: HashMap::new(),
             peer_info: HashMap::new(),
             cfrags: HashMap::new(),
@@ -135,8 +144,39 @@ impl PeerManager {
         };
     }
 
+    pub fn log_heartbeat_tee(&self, peer_id: PeerId) -> Option<String> {
+        if let Some(peer_info) = self.peer_info.get(&peer_id) {
+            match &peer_info.peer_heartbeat_data.payload.tee_attestation {
+                Some(quote) => {
+                    return Some(format!(
+                        "{} {} {} {} {}",
+                        short_peer_id(&peer_id).black(),
+                        "HeartBeat Block".black(),
+                        peer_info.peer_heartbeat_data.payload.block_height.black(),
+                        "TEE ESCDA attestation pubkey:".bright_black(),
+                        format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
+                    ))
+                    // format!(
+                    //     "{} HeartbeatData: Block: {}",
+                    //     short_peer_id(peer_id),
+                    //     peer_info.peer_heartbeat_data.payload.block_height,
+                    // );
+                },
+                None => {
+                    // format!(
+                    //     "{} HeartbeatData: Block: {}\n\t{:?}",
+                    //     short_peer_id(peer_id),
+                    //     peer_info.peer_heartbeat_data.payload.block_height,
+                    //     peer_info.peer_heartbeat_data.payload
+                    // );
+                }
+            }
+        }
+        None
+    }
+
     //////////////////////
-    //// self.kfrags_peers
+    //// self.kfrag_broadcast_peers
     //////////////////////
 
     pub fn insert_kfrags_peer(
@@ -149,7 +189,7 @@ impl PeerManager {
         let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
         // record Peer as Kfrag holder.
         // make it easy to queyr list of all Peers for a given AgentName
-        self.kfrags_peers
+        self.kfrag_broadcast_peers
             .entry(agent_name_nonce_key)
             .and_modify(|hmap| {
                 let maybe_hset = hmap.get_mut(&frag_num);
@@ -195,20 +235,20 @@ impl PeerManager {
     }
 
     // removes all peers associated with the agent
-    pub fn remove_kfrags_peers_by_agent_name(&mut self, agent_name: &str, agent_nonce: usize) {
+    pub fn remove_kfrag_broadcast_peers_by_agent_name(&mut self, agent_name: &str, agent_nonce: usize) {
         let key = format!("{agent_name}-{agent_nonce}");
-        self.kfrags_peers.remove(&key);
+        self.kfrag_broadcast_peers.remove(&key);
     }
 
     pub fn remove_kfrags_peer(&mut self, peer_id: &PeerId) {
         // lookup which agents and fragments Peer provides, and remove those entries
-        println!("\nAttempting to removing kfrags_peers for {:?}", short_peer_id(peer_id));
+        println!("\nAttempting to removing kfrag_broadcast_peers for {:?}", short_peer_id(peer_id));
         match self.peers_to_agent_frags.get_mut(&peer_id) {
             None => {
                 println!("No need, no entry found.");
             }
             Some(agent_fragments) => {
-                // remove all kfrags_peers entries for the Peer
+                // remove all kfrag_broadcast_peers entries for the Peer
                 println!("peer holds agent_fragments: {:?}", agent_fragments);
                 for af in agent_fragments.iter() {
 
@@ -219,14 +259,14 @@ impl PeerManager {
                     );
                     println!("frag_num({}): {}", af.frag_num, agent_name_nonce_key);
 
-                    if let Some(hmap) = self.kfrags_peers.get_mut(&agent_name_nonce_key) {
+                    if let Some(hmap) = self.kfrag_broadcast_peers.get_mut(&agent_name_nonce_key) {
                         if let Some(hset) = hmap.get_mut(&af.frag_num) {
                             let _removed = hset.remove(peer_id);
                             println!("{}: {:?}", "\tremoved".red(), _removed);
                         }
                     };
 
-                    println!("{}: {:?}", "kfrags_peers".blue(), self.kfrags_peers.get(&agent_name_nonce_key));
+                    println!("{}: {:?}", "kfrag_broadcast_peers".blue(), self.kfrag_broadcast_peers.get(&agent_name_nonce_key));
                 }
                 // remove Peer from peers_to_agent_frags Hashmap
                 self.peers_to_agent_frags.remove(&peer_id);
@@ -241,7 +281,7 @@ impl PeerManager {
         agent_nonce: usize
     ) -> Option<&HashMap<usize, HashSet<PeerId>>> {
         let key = format!("{agent_name}-{agent_nonce}");
-        self.kfrags_peers.get(&key)
+        self.kfrag_broadcast_peers.get(&key)
     }
 
     // Returns peers that just hold a specific fragment
@@ -252,7 +292,7 @@ impl PeerManager {
         frag_num: usize
     ) -> Vec<PeerId> {
         let key = format!("{agent_name}-{agent_nonce}");
-        match self.kfrags_peers.get(&key) {
+        match self.kfrag_broadcast_peers.get(&key) {
             None => vec![],
             Some(peers_hmap) => {
                 match peers_hmap.get(&frag_num) {

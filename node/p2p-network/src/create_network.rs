@@ -15,6 +15,7 @@ use libp2p::{
     StreamProtocol,
 };
 use tokio::sync::mpsc;
+use tracing::instrument::WithSubscriber;
 
 pub use crate::types::UmbralPeerId;
 use crate::SendError;
@@ -51,11 +52,12 @@ pub async fn new(secret_key_seed: Option<usize>)
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default
-        )?
+        // .with_tcp(
+        //     tcp::Config::default(),
+        //     noise::Config::new,
+        //     yamux::Config::default
+        // )?
+        // QUIC has it's own connection timeout.
         .with_quic()
         .with_behaviour(|key| {
 
@@ -96,14 +98,14 @@ pub async fn new(secret_key_seed: Option<usize>)
                 ),
                 heartbeat: HeartbeatBehaviour::new(
                     // send_timeout should be larger than idle_timeout
-                    HeartbeatConfig::new(
+                    HeartbeatConfig {
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        Duration::from_millis(10_000),
+                        send_timeout: Duration::from_millis(10_000),
                         // Idle time before sending next `TeeAttestationBytes`
-                        Duration::from_millis(8_000),
+                        idle_timeout: Duration::from_millis(8_000),
                         // Max failures allowed. Requests disconnection if reached
-                        std::num::NonZeroU32::new(1).unwrap(),
-                    ),
+                        max_failures: std::num::NonZeroU32::new(1).unwrap(),
+                    },
                     heartbeat_failure_sender,
                 ),
                 mdns: mdns,
@@ -117,7 +119,9 @@ pub async fn new(secret_key_seed: Option<usize>)
                 )
             })
         })?
-        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .with_swarm_config(|c|
+            c.with_idle_connection_timeout(Duration::from_secs(60))
+        )
         .build();
 
 

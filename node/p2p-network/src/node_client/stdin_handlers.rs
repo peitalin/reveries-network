@@ -10,7 +10,6 @@ use super::NodeClient;
 impl NodeClient {
 
     pub async fn listen_and_handle_stdin(&mut self) {
-        self.log(format!("Enter messages in the terminal and they will be sent to connected peers."));
         // Read full lines from stdin
         let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
         loop {

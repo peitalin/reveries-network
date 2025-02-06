@@ -238,10 +238,9 @@ impl NodeClient {
         result
     }
 
-    pub async fn subscribe_topics(&mut self, topics: Vec<String>) -> Result<Vec<String>> {
+    pub async fn subscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
         let (sender, receiver) = oneshot::channel();
 
-        println!("subscribing to: {:?}", topics);
         self.command_sender
             .send(NodeCommand::SubscribeTopics { topics, sender })
             .await
@@ -256,6 +255,23 @@ impl NodeClient {
         }
     }
 
+    pub async fn unsubscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::UnsubscribeTopics { topics, sender })
+            .await
+            .expect("Command receiver not to be dropped.");
+
+        match receiver.await {
+            Ok(unsubscribed_topics) => {
+                self.log(format!("Unsubscribed from {:?}", unsubscribed_topics));
+                Ok(unsubscribed_topics)
+            }
+            Err(e) => Err(e.into())
+        }
+    }
+
     pub async fn broadcast_kfrags(
         &mut self,
         agent_name: String,
@@ -264,13 +280,18 @@ impl NodeClient {
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
 
-        // first check that broadcast is subscribed too all fragment channels for the agent
-        self.subscribe_topics(vec![
-            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 0).to_string(),
-            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 1).to_string(),
-            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 2).to_string(),
-            GossipTopic::BroadcastKfrag(agent_name.clone(), agent_nonce, total_frags, 3).to_string(),
-        ]).await.ok();
+        // first check that the broadcaster is subscribed to all fragment channels for the agent
+        let topics = (0..total_frags)
+            .map(|n| {
+                GossipTopic::BroadcastKfrag(
+                    agent_name.clone(),
+                    agent_nonce,
+                    total_frags,
+                    n
+                ).to_string()
+            }).collect::<Vec<String>>();
+
+        self.subscribe_topics(topics.clone()).await.ok();
 
         let umbral_public_keys = self.get_peer_umbral_pks(
             agent_name.clone(),
@@ -280,7 +301,11 @@ impl NodeClient {
 
         // choose the next node in the queue to become the next vessel
         match umbral_public_keys.iter().next() {
-            None => Err(anyhow!("No Umbral PK Peers found")),
+            None => {
+                // unsubscribe from the topics
+                self.unsubscribe_topics(topics).await.ok();
+                Err(anyhow!("No Umbral PK Peers found"))
+            }
             Some(new_vessel_pk) => {
 
                 let bob_pk = new_vessel_pk.umbral_public_key;
@@ -328,6 +353,8 @@ impl NodeClient {
                     new_vessel_pk.umbral_public_key,
                 ).yellow());
 
+                // unsubscribe from the topics
+                self.unsubscribe_topics(topics).await.ok();
                 Ok(new_vessel_pk.to_owned())
             }
         }
@@ -344,7 +371,7 @@ impl NodeClient {
 
         let mut pks: Vec<UmbralPublicKeyResponse> = vec![];
         while let Some(pk) = receiver.recv().await {
-            self.log(format!("Received Peer Umbral PK = {}", pk));
+            self.log(format!("Received Peer Umbral PK => {}", pk).blue());
             pks.push(pk);
         }
         pks
@@ -512,7 +539,11 @@ impl NodeClient {
     ) -> Result<AgentSecretsJson, Error> {
 
         // get next vessel (can randomise as well)
-        let mut new_vessel_pk = new_vessel_cfrags.pop().unwrap();
+        let mut new_vessel_pk = match new_vessel_cfrags.pop() {
+            Some(vessel) => vessel,
+            None => return Err(anyhow!("No CapsuleFragments found"))
+        };
+
         let threshold = new_vessel_pk.threshold as usize;
         self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));
 

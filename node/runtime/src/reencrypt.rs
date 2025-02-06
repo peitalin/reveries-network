@@ -1,7 +1,6 @@
 use color_eyre::Result;
 use umbral_pre::{
     decrypt_original, decrypt_reencrypted, encrypt,
-    SecretBox,
     SecretKeyFactory,
     reencrypt, Capsule, KeyFrag, PublicKey, SecretKey, Signer
 };
@@ -18,14 +17,17 @@ pub struct UmbralKey {
 
 impl UmbralKey {
     pub fn new(seed: Option<&[u8]>) -> Self {
-
         // Key Generation (on Alice's side)
-        let sk = match seed {
+        let secret_key = match seed {
             // deterministic with seed
             Some(seed) => {
-                let secret_key_factory = SecretKeyFactory::random();
-                let sk = secret_key_factory.make_key(seed);
-                sk
+                match SecretKeyFactory::from_secure_randomness(seed) {
+                    Ok(factory) => {
+                        let secret_key = factory.make_key(seed);
+                        secret_key
+                    }
+                    Err(e) => panic!("Invalid Umbral seed: {}", e)
+                }
             }
             // or generate random secret key
             None => {
@@ -33,13 +35,13 @@ impl UmbralKey {
             }
         };
 
-        let pk = sk.public_key();
+        let public_key = secret_key.public_key();
         let signer = Signer::new(SecretKey::random());
         let verifying_pk = signer.verifying_key();
 
         UmbralKey {
-            secret_key: sk,
-            public_key: pk,
+            secret_key: secret_key,
+            public_key: public_key,
             signer: signer,
             verifying_pk: verifying_pk
         }

@@ -103,7 +103,7 @@ impl EventLoop {
                         println!("frag_num: {}", frag_num);
 
                         let topic = GossipTopic::BroadcastKfrag(agent_name, agent_nonce, total_frags, frag_num);
-                        self.subscribe_topics(vec![topic.to_string()]);
+                        self.subscribe_topics(&vec![topic.to_string()]);
                     }
                     // Nothing else to do for GossipTopic::Unknown
                     GossipTopic::Unknown => {
@@ -115,7 +115,7 @@ impl EventLoop {
             gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 match topic.clone().into() {
                     GossipTopic::BroadcastKfrag(_, _, _, _) => {
-                        self.peer_manager.remove_kfrags_peer(&peer_id)
+                        self.peer_manager.remove_kfrags_peer(&peer_id);
                     }
                     _ => {}
                 }
@@ -176,8 +176,7 @@ impl EventLoop {
             .map(|t| println!("{:?}", t.as_str())).collect::<()>();
     }
 
-    pub fn subscribe_topics(&mut self, topic_strs: Vec<String>) -> Vec<String> {
-
+    pub fn subscribe_topics(&mut self, topic_strs: &Vec<String>) -> Vec<String> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);

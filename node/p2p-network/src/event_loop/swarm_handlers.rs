@@ -1,5 +1,6 @@
-use color_eyre::owo_colors::OwoColorize;
 use colored::Colorize;
+use color_eyre::owo_colors::OwoColorize;
+use libp2p::Multiaddr;
 use libp2p::{
     kad, mdns, swarm::SwarmEvent
 };
@@ -139,7 +140,7 @@ impl EventLoop {
             //// mDNS Protocol
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
-                    // self.log(format!("mDNS adding peer {:?}", peer_id));
+                    self.log(format!("mDNS adding peer {:?}", peer_id));
                     self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                     self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     self.peer_manager.insert_peer_info(peer_id);
@@ -147,10 +148,8 @@ impl EventLoop {
             }
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                 for (peer_id, multiaddr) in list {
-                    // self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
+                    self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
                     self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
-                    self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-                    self.peer_manager.remove_peer_info(&peer_id);
                 }
             },
 
@@ -165,23 +164,14 @@ impl EventLoop {
             SwarmEvent::NewListenAddr { .. } => {}
             SwarmEvent::Dialing { .. } => {}
             SwarmEvent::IncomingConnection { .. } => {},
-            SwarmEvent::ConnectionEstablished { .. } => {}
-            SwarmEvent::ExpiredListenAddr { address, .. } => {
-                println!(">>> ExpiredListenAddr with peer: {:?}", address);
-            }
+            SwarmEvent::ConnectionEstablished { .. } => { }
+            SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 println!(">>> ConnectionClosed with peer: {:?}", peer_id);
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .remove_record(
-                        &kad::RecordKey::new(&UmbralPeerId::from(peer_id).to_string()),
-                    );
-
-                self.peer_manager.remove_kfrags_peer(&peer_id);
+                self.remove_peer(&peer_id);
             }
-            SwarmEvent::IncomingConnectionError { .. } => {}
-            SwarmEvent::OutgoingConnectionError { .. } => {}
+            SwarmEvent::IncomingConnectionError { .. } => { }
+            SwarmEvent::OutgoingConnectionError { .. } => { }
 
             //////////////////////////////////
             //// GossipSub protocol for PRE
@@ -191,42 +181,9 @@ impl EventLoop {
             }
 
             SwarmEvent::Behaviour(BehaviourEvent::Heartbeat(tee_event)) => {
-
-                self.peer_manager.update_peer_heartbeat(
-                    tee_event.peer_id,
-                    tee_event.latest_tee_attestation.clone()
-                );
-
-                let peer_id = &tee_event.peer_id;
-
-                // need to save heartbeat data to the node locally for quicker retrieval;
-                if let Some(peer_info) = self.peer_manager.peer_info.get(peer_id) {
-
-                    match &peer_info.peer_heartbeat_data.payload.tee_attestation {
-                        Some(quote) => {
-                            self.log(format!(
-                                "{} {} {} {} {}",
-                                short_peer_id(peer_id).black(),
-                                "HeartBeat Block".black(),
-                                peer_info.peer_heartbeat_data.payload.block_height.black(),
-                                "TEE ESCDA attestation pubkey:".bright_black(),
-                                format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
-                            ));
-                            // self.log(format!(
-                            //     "{} HeartbeatData: Block: {}",
-                            //     short_peer_id(peer_id),
-                            //     peer_info.peer_heartbeat_data.payload.block_height,
-                            // ));
-                        },
-                        None => {
-                            // self.log(format!(
-                            //     "{} HeartbeatData: Block: {}\n\t{:?}",
-                            //     short_peer_id(peer_id),
-                            //     peer_info.peer_heartbeat_data.payload.block_height,
-                            //     peer_info.peer_heartbeat_data.payload
-                            // ));
-                        }
-                    }
+                self.peer_manager.update_peer_heartbeat(tee_event.peer_id, tee_event.latest_tee_attestation);
+                if let Some(tee_str) = self.peer_manager.log_heartbeat_tee(tee_event.peer_id) {
+                    self.log(tee_str);
                 }
             }
 

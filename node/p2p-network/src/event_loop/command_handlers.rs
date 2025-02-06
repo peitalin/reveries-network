@@ -18,8 +18,12 @@ impl EventLoop {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
             NodeCommand::SubscribeTopics { topics, sender } => {
-                let subscribed_topics = self.subscribe_topics(topics);
-                let _ = sender.send(subscribed_topics);
+                let subscribed_topics = self.subscribe_topics(&topics);
+                sender.send(subscribed_topics).ok();
+            }
+            NodeCommand::UnsubscribeTopics { topics, sender } => {
+                let unsubscribed_topics = self.unsubscribe_topics(&topics);
+                sender.send(unsubscribed_topics).ok();
             }
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
 
@@ -49,10 +53,11 @@ impl EventLoop {
             NodeCommand::GetKfragPeers { agent_name, agent_nonce, sender } => {
                 match self.peer_manager.get_all_kfrag_peers(&agent_name, agent_nonce) {
                     None => {
-                        println!("missing kfrag_peers: {:?}", self.peer_manager.kfrags_peers);
+                        println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
+                        sender.send(std::collections::HashMap::new()).ok();
                     }
                     Some(peers) => {
-                        let _ = sender.send(peers.clone());
+                        sender.send(peers.clone()).ok();
                     }
                 }
             }
@@ -160,7 +165,7 @@ impl EventLoop {
                     }).collect::<Vec<&PeerId>>();
 
                 // send peer len and fragment info so we know if we can broadcast fragments
-                sender.send(peers.len());
+                sender.send(peers.len()).ok();
             }
             NodeCommand::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
