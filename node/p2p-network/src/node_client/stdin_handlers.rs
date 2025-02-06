@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 
-use crate::types::{ChatMessage, PrevTopic, NextTopic, TopicSwitch, TOPIC_DELIMITER};
+use crate::types::{AgentNameWithNonce, AgentNonce, ChatMessage, NextTopic, PrevTopic, TopicSwitch, TOPIC_DELIMITER};
 use super::NodeClient;
 
 
@@ -60,11 +60,11 @@ impl NodeClient {
                 StdInputCommand::Switch(topic_switch) => {
                     self.broadcast_switch_topic_nc(topic_switch).await.ok();
                 }
-                StdInputCommand::BroadcastKfragsCmd(agent_name, agent_nonce, n, t) => {
-                    self.broadcast_kfrags(agent_name, agent_nonce, n, t).await.ok();
+                StdInputCommand::BroadcastKfragsCmd(agent_name_nonce, n, t) => {
+                    self.broadcast_kfrags(agent_name_nonce, n, t).await.ok();
                 }
-                StdInputCommand::RespawnCmd(agent_name, agent_nonce, prev_vessel_peer_id) => {
-                    self.request_respawn(agent_name, agent_nonce, prev_vessel_peer_id).await.ok();
+                StdInputCommand::RespawnCmd(agent_name_nonce, prev_vessel_peer_id) => {
+                    self.request_respawn(agent_name_nonce, prev_vessel_peer_id).await.ok();
                 }
             }
         }
@@ -79,14 +79,12 @@ pub enum StdInputCommand {
     UnknownCmd(String),
     Switch(TopicSwitch),
     BroadcastKfragsCmd(
-        String, // agent_name (Topic)
-        usize,  // agent_nonce (Topic)
+        AgentNameWithNonce, // agent name + nonce (Topic)
         usize,  // shares: number of Umbral MPC fragments
         usize   // threshold: number of required Umbral fragments
     ),
     RespawnCmd(
-        String, // agent_name (Topic)
-        usize,  // agent_nonce (Topic)
+        AgentNameWithNonce, // agent name + nonce (Topic)
         Option<PeerId> // prev_vessel_peer_id
     ),
 }
@@ -100,11 +98,11 @@ impl Display for StdInputCommand {
             Self::Switch(s) => {
                 write!(f, "topic_switch")
             },
-            Self::BroadcastKfragsCmd(agent_name, agent_nonce, n, t) => {
-                write!(f, "broadcast/{}/{}/({n},{t})", agent_name, agent_nonce)
+            Self::BroadcastKfragsCmd(agent_name_nonce, n, t) => {
+                write!(f, "broadcast/{}/{}/({n},{t})", agent_name_nonce.0, agent_name_nonce.1)
             }
-            Self::RespawnCmd(agent_name, agent_nonce, prev_vessel_peer_id) => {
-                write!(f, "request/{}/{}", agent_name, agent_nonce)
+            Self::RespawnCmd(agent_name_nonce, prev_vessel_peer_id) => {
+                write!(f, "request/{}/{}", agent_name_nonce.0, agent_name_nonce.1)
             }
         }
     }
@@ -124,11 +122,12 @@ impl From<String> for StdInputCommand {
 
         let agent_name = agent_name.to_string();
         let agent_nonce = agent_nonce.unwrap_or(0);
+        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
 
         match topic {
             "chat" => Self::ChatCmd,
             "llm" => Self::LLM,
-            "request" => Self::RespawnCmd(agent_name, agent_nonce, None),
+            "request" => Self::RespawnCmd(agent_name_nonce, None),
             "topic_switch" => {
 
                 // let topic_switch = TopicSwitch::from(s);
@@ -136,8 +135,7 @@ impl From<String> for StdInputCommand {
                 // n=3 shares, t=2 threshold default
                 Self::Switch(TopicSwitch {
                     next_topic: NextTopic {
-                        agent_name: agent_name,
-                        agent_nonce: agent_nonce,
+                        agent_name_nonce: agent_name_nonce,
                         total_frags: total_frags,
                         threshold: threshold,
                     },
@@ -146,11 +144,11 @@ impl From<String> for StdInputCommand {
             }
             "broadcast" => {
                 match nshare_threshold {
-                    Some((n, t)) => Self::BroadcastKfragsCmd(agent_name, agent_nonce, n, t),
+                    Some((n, t)) => Self::BroadcastKfragsCmd(agent_name_nonce, n, t),
                     None => {
                         println!("Wrong format. Should be: 'broadcast/<agent_name>/<nonce>/(<nshares>,<threshold>)'");
                         println!("Defaulting to (n=3, t=2) share threshold");
-                        Self::BroadcastKfragsCmd(agent_name, agent_nonce, 3, 2)
+                        Self::BroadcastKfragsCmd(agent_name_nonce, 3, 2)
                     }
                 }
             }
@@ -184,9 +182,10 @@ pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (
                 prev_topic
             } = TopicSwitch::from(remainder_str);
 
-            let agent_name2 = next_topic.agent_name.to_string();
+            let name = next_topic.agent_name_nonce.0;
+            let nonce = next_topic.agent_name_nonce.1;
 
-            (cmd, agent_name2, Some(next_topic.agent_nonce), None, prev_topic)
+            (cmd, name, Some(nonce), None, prev_topic)
         }
         "request" => {
             let mut tsplit = topic_str.split(TOPIC_DELIMITER);

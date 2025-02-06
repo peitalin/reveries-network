@@ -41,6 +41,44 @@ lazy_static! {
     static ref PREV_TOPIC_REGEX: Regex = Regex::new(
         r"/prev_name=([a-zA-Z0-9-_]*)/prev_nonce=([a-zA-Z0-9]*)/prev_peer_id=([a-zA-Z0-9-_]*)"
     ).unwrap();
+
+    static ref AGENT_NAME_NONCE_REGEX: Regex = Regex::new(
+        r"([a-zA-Z0-9-_]*)-([a-zA-Z0-9-_]*)"
+    ).unwrap();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AgentNameWithNonce(pub AgentName, pub AgentNonce);
+
+impl AgentNameWithNonce {
+    pub fn as_key(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Display for AgentNameWithNonce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}", self.0, self.1)
+    }
+}
+
+impl Into<String> for AgentNameWithNonce {
+    fn into(self) -> String {
+        format!("{}-{}", self.0, self.1)
+    }
+}
+
+impl From<String> for AgentNameWithNonce {
+    fn from(s: String) -> Self {
+        match AGENT_NAME_NONCE_REGEX.captures(&s).map(|c| c.extract()) {
+            Some((_c, [name, nonce])) => {
+                AgentNameWithNonce(name.to_string(), nonce.parse::<usize>().unwrap())
+            }
+            None => {
+                AgentNameWithNonce("".to_string(), 0)
+            }
+        }
+    }
 }
 
 
@@ -53,8 +91,7 @@ pub struct TopicSwitch {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextTopic {
-    pub agent_name: String,
-    pub agent_nonce: usize,
+    pub agent_name_nonce: AgentNameWithNonce,
     // total number of fragments in the new re-encryption of the key.
     // Nodes will do modular arithmetic private_seed % total_frags to get
     // their frag_num/channel to listen to for kfrags.
@@ -63,15 +100,14 @@ pub struct NextTopic {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrevTopic {
-    pub agent_name: String,
-    pub agent_nonce: usize,
+    pub agent_name_nonce: AgentNameWithNonce,
     // To know which peer to remove from peer_info, peers_to_agent_frags, and kfrag_peers
     pub peer_id: Option<PeerId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GossipTopic {
-    BroadcastKfrag(AgentName, AgentNonce, TotalFragments, FragmentNumber),
+    BroadcastKfrag(AgentNameWithNonce, TotalFragments, FragmentNumber),
     TopicSwitch,
     Unknown, // catches all other topics
 }
@@ -80,8 +116,7 @@ impl Default for TopicSwitch {
     fn default() -> Self {
         Self {
             next_topic: NextTopic {
-                agent_name: "default_name".to_string(),
-                agent_nonce: 0,
+                agent_name_nonce: AgentNameWithNonce("default".to_string(), 0),
                 total_frags: 3,
                 threshold: 2
             },
@@ -91,20 +126,18 @@ impl Default for TopicSwitch {
 }
 
 impl TopicSwitch {
-    fn get_subscribe_topic(&self, frag_num: usize) -> String {
+    fn get_next_subscribtion_topic(&self, frag_num: usize) -> String {
         GossipTopic::BroadcastKfrag(
-            self.next_topic.agent_name.to_string(),
-            self.next_topic.agent_nonce,
+            self.next_topic.agent_name_nonce.clone(),
             self.next_topic.total_frags,
             frag_num
         ).to_string()
     }
 
-    fn get_unsubscribe_topic(&self, frag_num: usize) -> Option<String> {
+    fn get_prev_unsubscription_topic(&self, frag_num: usize) -> Option<String> {
         if let Some(prev_topic) = &self.prev_topic {
             Some(GossipTopic::BroadcastKfrag(
-                prev_topic.agent_name.to_string(),
-                prev_topic.agent_nonce,
+                prev_topic.agent_name_nonce.clone(),
                 0, // Todo: not used, refactor
                 frag_num
             ).to_string())
@@ -130,13 +163,13 @@ impl From<String> for TopicSwitch {
             let threshold = threshold.parse::<usize>().ok().or(Some(1)).unwrap();
             let agent_name = agent_name.to_string();
             let agent_nonce = agent_nonce.parse::<usize>().ok().or(Some(1)).unwrap();
+            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
 
             match PREV_TOPIC_REGEX.captures(&rest_of_str).map(|c| c.extract()) {
                 None => {
                     return TopicSwitch {
                         next_topic: NextTopic {
-                            agent_name,
-                            agent_nonce,
+                            agent_name_nonce,
                             total_frags,
                             threshold
                         },
@@ -148,16 +181,16 @@ impl From<String> for TopicSwitch {
                     prev_nonce,
                     prev_peer_id
                 ])) => {
+                    let prev_name = prev_name.to_string();
+                    let prev_nonce = prev_nonce.parse::<usize>().ok().or(Some(1)).unwrap();
                     return TopicSwitch {
                         next_topic: NextTopic {
-                            agent_name,
-                            agent_nonce,
+                            agent_name_nonce,
                             total_frags,
                             threshold
                         },
                         prev_topic: Some(PrevTopic {
-                            agent_name: prev_name.to_string(),
-                            agent_nonce: prev_nonce.parse::<usize>().ok().or(Some(0)).unwrap(),
+                            agent_name_nonce: AgentNameWithNonce(prev_name, prev_nonce),
                             peer_id: match PeerId::from_str(&prev_peer_id) {
                                 Ok(peer_id) => Some(peer_id),
                                 Err(e) => {
@@ -179,9 +212,10 @@ impl From<String> for TopicSwitch {
 impl Display for TopicSwitch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 
-        let total_frags = self.next_topic.total_frags;
-        let threshold = self.next_topic.threshold;
-        let next_topic2 = format!("name={}/nonce={}", self.next_topic.agent_name, self.next_topic.agent_nonce);
+        let next_topic = self.next_topic.clone();
+        let total_frags = next_topic.total_frags;
+        let threshold = next_topic.threshold;
+        let next_topic2 = format!("name={}/nonce={}", next_topic.agent_name_nonce.0, next_topic.agent_name_nonce.1);
 
         //// When broadcasting a topic_switch to a new agent, topic will be: topic_switch,
         //// followed by TopicSwitch struct data:
@@ -194,12 +228,12 @@ impl Display for TopicSwitch {
         match &self.prev_topic {
             Some(prev_topic) => {
                 let prev_topic2 = match prev_topic.peer_id {
-                    None => format!("prev_name={}/prev_nonce={}", prev_topic.agent_name, prev_topic.agent_nonce),
+                    None => format!("prev_name={}/prev_nonce={}", prev_topic.agent_name_nonce.0, prev_topic.agent_name_nonce.1),
                     Some(prev_peer_id) => {
                         format!(
                             "prev_name={}/prev_nonce={}/prev_peer_id={}",
-                            prev_topic.agent_name,
-                            prev_topic.agent_nonce,
+                            prev_topic.agent_name_nonce.0,
+                            prev_topic.agent_name_nonce.1,
                             prev_peer_id
                         )
                     }
@@ -224,12 +258,13 @@ impl Display for GossipTopic {
 
         match self {
             Self::BroadcastKfrag(
-                agent_name,
-                agent_nonce,
+                agent_name_nonce,
                 total_frags,
                 frag_num
             ) => {
-                write!(f, "kfrag/frag_num={frag_num}/total_frags={total_frags}/name={agent_name}/nonce={agent_nonce}")
+                let name = agent_name_nonce.0.clone();
+                let nonce = agent_name_nonce.1;
+                write!(f, "kfrag/frag_num={frag_num}/total_frags={total_frags}/name={name}/nonce={nonce}")
             },
             Self::TopicSwitch => write!(f, "topic_switch"),
             Self::Unknown => write!(f, "unknown"),
@@ -256,7 +291,11 @@ impl From<String> for GossipTopic {
             let agent_nonce = agent_nonce.parse::<usize>().ok().or(Some(0)).unwrap();
             let total_frags = total_frags.parse::<usize>().ok().or(Some(0)).unwrap();
 
-            return GossipTopic::BroadcastKfrag(agent_name.to_string(), agent_nonce, total_frags, frag_num)
+            return GossipTopic::BroadcastKfrag(
+                AgentNameWithNonce(agent_name.to_string(), agent_nonce),
+                total_frags,
+                frag_num
+            )
 
         } else if s.starts_with("topic_switch") {
             return GossipTopic::TopicSwitch
@@ -297,21 +336,19 @@ mod tests {
         let prev_peer_id = PeerId::random();
         let a = TopicSwitch {
             next_topic: NextTopic {
-                agent_name: "bob-ef44".to_string(),
-                agent_nonce: 1,
+                agent_name_nonce: AgentNameWithNonce("bob".to_string(), 1),
                 total_frags: 4,
                 threshold: 3,
             },
             prev_topic: Some(PrevTopic {
-                agent_name: "alice-db22".to_string(),
-                agent_nonce: 2,
+                agent_name_nonce: AgentNameWithNonce("alice".to_string(), 2),
                 peer_id: Some(prev_peer_id),
             }),
         };
 
         // Format:
         // total_frags=<n>/threshold=<t>/name=<next_agent_name>/nonce=<agent_nonce>/prev_name=<prev_agent_name>/prev_nonce=<agent_nonce>/prev_peer_id=<prev_peer_id>
-        let expected_topic_str = format!("total_frags=4/threshold=3/name=bob-ef44/nonce=1/prev_name=alice-db22/prev_nonce=2/prev_peer_id={}", prev_peer_id);
+        let expected_topic_str = format!("total_frags=4/threshold=3/name=bob/nonce=1/prev_name=alice/prev_nonce=2/prev_peer_id={}", prev_peer_id);
         assert_eq!(a.to_string(), expected_topic_str);
     }
 
@@ -320,23 +357,22 @@ mod tests {
 
         let a = TopicSwitch {
             next_topic: NextTopic {
-                agent_name: "bob-ef44".to_string(),
-                agent_nonce: 1,
+                agent_name_nonce: AgentNameWithNonce("bob".to_string(), 1),
                 total_frags: 5,
                 threshold: 3
             },
             prev_topic: None,
         };
 
-        let expected_topic_str = format!("total_frags=5/threshold=3/name=bob-ef44/nonce=1");
+        let expected_topic_str = format!("total_frags=5/threshold=3/name=bob/nonce=1");
         assert_eq!(a.to_string(), expected_topic_str);
     }
 
     #[test]
     fn test_display_gossiptopic3() {
 
-        let teststr1 = format!("total_frags=4/threshold=2/name=bob-ef44/nonce=3/prev_name=alice-db22/prev_nonce=2/prev_peer_id=a123456");
-        let teststr2 = format!("total_frags=4/threshold=2/name=bob-ef44/nonce=3");
+        let teststr1 = format!("total_frags=4/threshold=2/name=bob/nonce=3/prev_name=alice/prev_nonce=2/prev_peer_id=a123456");
+        let teststr2 = format!("total_frags=4/threshold=2/name=bob/nonce=3");
 
         match TOPIC_SWITCH_REGEX.captures(&teststr1).map(|c| c.extract()) {
             None => panic!("no regex match on teststr1"),
@@ -350,9 +386,9 @@ mod tests {
 
                 assert_eq!(total_frags, "4");
                 assert_eq!(threshold, "2");
-                assert_eq!(name, "bob-ef44");
+                assert_eq!(name, "bob");
                 assert_eq!(nonce, "3");
-                assert_eq!(the_rest, "/prev_name=alice-db22/prev_nonce=2/prev_peer_id=a123456");
+                assert_eq!(the_rest, "/prev_name=alice/prev_nonce=2/prev_peer_id=a123456");
 
                 if the_rest.len() > 0 {
                     match PREV_TOPIC_REGEX.captures(&the_rest).map(|c| c.extract()) {
@@ -361,7 +397,7 @@ mod tests {
                             _cap,
                             [prev_name, prev_nonce, prev_peer_id]
                         )) => {
-                            assert_eq!(prev_name, "alice-db22");
+                            assert_eq!(prev_name, "alice");
                             assert_eq!(prev_nonce, "2");
                             assert_eq!(prev_peer_id, "a123456");
                         }
@@ -375,7 +411,7 @@ mod tests {
             Some((_cap, [total_frags, threshold, name, nonce, rest])) => {
                 assert_eq!(total_frags, "4");
                 assert_eq!(threshold, "2");
-                assert_eq!(name, "bob-ef44");
+                assert_eq!(name, "bob");
                 assert_eq!(nonce, "3");
                 assert_eq!(rest, "");
             }

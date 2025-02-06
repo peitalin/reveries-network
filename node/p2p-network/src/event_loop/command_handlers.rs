@@ -50,8 +50,8 @@ impl EventLoop {
                     }
                 }
             }
-            NodeCommand::GetKfragPeers { agent_name, agent_nonce, sender } => {
-                match self.peer_manager.get_all_kfrag_peers(&agent_name, agent_nonce) {
+            NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
+                match self.peer_manager.get_all_kfrag_peers(&agent_name_nonce) {
                     None => {
                         println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
                         sender.send(std::collections::HashMap::new()).ok();
@@ -62,8 +62,7 @@ impl EventLoop {
                 }
             }
             NodeCommand::RequestFragment {
-                agent_name,
-                agent_nonce,
+                agent_name_nonce,
                 frag_num,
                 peer,
                 sender,
@@ -72,20 +71,20 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FragmentRequest(agent_name, agent_nonce, frag_num, self.peer_id));
+                    .send_request(&peer, FragmentRequest(agent_name_nonce, frag_num, self.peer_id));
 
                 self.pending.request_fragments.insert(request_id, sender);
             }
-            NodeCommand::GetProviders { agent_name, agent_nonce, sender } => {
+            NodeCommand::GetProviders { agent_name_nonce, sender } => {
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kademlia
-                    .get_providers(agent_name.into_bytes().into());
+                    .get_providers(agent_name_nonce.to_string().into_bytes().into());
 
                 self.pending.get_providers.insert(query_id, sender);
             }
-            NodeCommand::GetPeerUmbralPublicKey { sender, agent_name, agent_nonce } => {
+            NodeCommand::GetPeerUmbralPublicKey { sender, agent_name_nonce } => {
 
                 let public_keys = self.peer_manager
                     .get_connected_peers()
@@ -104,15 +103,14 @@ impl EventLoop {
                 };
             }
             NodeCommand::RespondCfrag {
-                agent_name,
-                agent_nonce,
+                agent_name_nonce,
                 frag_num,
                 sender_peer,
                 channel
             } => {
 
-                self.log(format!("RespondCfrags: finding topic for: {agent_name}-{agent_nonce}"));
-                match self.peer_manager.get_cfrags(&agent_name, &agent_nonce) {
+                self.log(format!("RespondCfrags for: {agent_name_nonce}"));
+                match self.peer_manager.get_cfrags(&agent_name_nonce) {
                     None => {},
                     // Do not send if no cfrag found, fastest successful futures returns
                     // with futures::future:select_ok()
@@ -133,13 +131,13 @@ impl EventLoop {
             }
             NodeCommand::SwitchTopic(ts, sender) => {
 
-                let agent_name = ts.next_topic.agent_name.clone();
-                let agent_nonce = ts.next_topic.agent_nonce.clone();
-                let total_frags = ts.next_topic.total_frags.clone();
                 // let frag_num = NODE_SEED_NUM
                 //     .with(|n| total_frags % *n.borrow());
 
-                self.broadcast_topic_switch(ts).await;
+                self.broadcast_topic_switch(&ts).await;
+
+                let agent_name_nonce = ts.next_topic.agent_name_nonce;
+                let total_frags = ts.next_topic.total_frags;
 
                 // get all peers subscribe to topic
                 let all_peers = self.swarm
@@ -151,8 +149,7 @@ impl EventLoop {
                     .filter_map(|(peer_id, peers_topics)| {
 
                         let topic1: TopicHash = GossipTopic::BroadcastKfrag(
-                            agent_name.clone(),
-                            agent_nonce,
+                            agent_name_nonce.clone(),
                             total_frags,
                             0
                         ).into();
@@ -173,13 +170,6 @@ impl EventLoop {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            // NodeCommand::RespondFragment { fragment, channel } => {
-            //     self.swarm
-            //         .behaviour_mut()
-            //         .request_response
-            //         .send_response(channel, FragmentResponse(Ok(fragment)))
-            //         .expect("Connection to peer to be still open.");
-            // }
         }
 
     }

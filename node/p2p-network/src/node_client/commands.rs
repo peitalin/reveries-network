@@ -8,8 +8,9 @@ use libp2p::{
 use tokio::sync::{mpsc, oneshot};
 use crate::SendError;
 use crate::types::{
-    KeyFragmentMessage,
+    AgentNameWithNonce,
     FragmentResponse,
+    KeyFragmentMessage,
     TopicSwitch,
     UmbralPublicKeyResponse
 };
@@ -18,16 +19,14 @@ use crate::types::{
 pub enum NodeCommand {
     /// Gets Umbral PKs from connected Peers
     GetPeerUmbralPublicKey {
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         sender: mpsc::Sender<UmbralPublicKeyResponse>,
     },
     /// Gets Peers that are subscribed to the Kfrag Broadcast channel for an agent
 
     /// Gets Peers that have the Kfrags for an agent
-    GetKfragPeers {
-        agent_name: String,
-        agent_nonce: usize,
+    GetKfragBroadcastPeers {
+        agent_name_nonce: AgentNameWithNonce,
         // returns: {frag_num: [peer_id]}
         sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
     },
@@ -35,8 +34,7 @@ pub enum NodeCommand {
     BroadcastKfrags(KeyFragmentMessage),
 
     RespondCfrag {
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         sender_peer: PeerId, // peer who sends cfrag back
         channel: ResponseChannel<FragmentResponse>,
@@ -50,8 +48,7 @@ pub enum NodeCommand {
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
     GetProviders {
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     SubscribeTopics {
@@ -64,8 +61,7 @@ pub enum NodeCommand {
     },
     /// Request Capsule Fragments for threshold decryption
     RequestFragment {
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         frag_num: Option<usize>,
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,

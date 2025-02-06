@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
-use p2p_network::types::{NextTopic, PrevTopic, TopicSwitch};
+use p2p_network::types::{AgentNameWithNonce, NextTopic, PrevTopic, TopicSwitch};
 use serde::{Deserialize, Serialize};
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server};
@@ -51,8 +51,9 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
 
         let mut nc1 = nc1.clone();
         async move {
+            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             nc1
-                .broadcast_kfrags(agent_name, agent_nonce, shares, threshold)
+                .broadcast_kfrags(agent_name_nonce, shares, threshold)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
@@ -65,8 +66,9 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
         let mut nc2 = nc2.clone();
         async move {
+            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             nc2
-                .request_respawn(agent_name, agent_nonce, None)
+                .request_respawn(agent_name_nonce, None)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
@@ -74,13 +76,14 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
 
     // Get kfrag peers
     let nc3 = network_client.clone();
-	module.register_async_method("get_kfrag_peers", move |params, _, _| {
+	module.register_async_method("get_broadcast_peers", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>().expect("error parsing param");
         let mut nc3 = nc3.clone();
         async move {
+            let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
             let peers: HashMap<usize, HashSet<PeerId>> = nc3
-                .get_agent_kfrag_peers(agent_name, agent_nonce).await;
+                .get_agent_kfrag_broadcast_peers(agent_name_nonce).await;
 
             Ok::<HashMap<usize, HashSet<PeerId>>, RpcError>(peers)
         }
@@ -108,14 +111,12 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> color_ey
             let result = nc4
                 .broadcast_switch_topic_nc(TopicSwitch {
                     next_topic: NextTopic {
-                        agent_name: next_agent_name,
-                        agent_nonce: next_agent_nonce,
+                        agent_name_nonce: AgentNameWithNonce(next_agent_name, next_agent_nonce),
                         total_frags: total_frags,
                         threshold: threshold,
                     },
                     prev_topic: Some(PrevTopic {
-                        agent_name: prev_agent_name,
-                        agent_nonce: prev_agent_nonce,
+                        agent_name_nonce: AgentNameWithNonce(prev_agent_name, prev_agent_nonce),
                         peer_id: PeerId::from_str(&peer_id).ok(),
                     })
                 }).await.map_err(|e| RpcError(e.to_string()))?;

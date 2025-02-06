@@ -16,15 +16,7 @@ use libp2p::{core::Multiaddr, PeerId};
 
 use crate::get_node_name;
 use crate::types::{
-    KeyFragmentMessage,
-    CapsuleFragmentIndexed,
-    ChatMessage,
-    GossipTopic,
-    NetworkLoopEvent,
-    NextTopic,
-    PrevTopic,
-    TopicSwitch,
-    UmbralPublicKeyResponse
+    AgentNameWithNonce, CapsuleFragmentIndexed, ChatMessage, GossipTopic, KeyFragmentMessage, NetworkLoopEvent, NextTopic, PrevTopic, TopicSwitch, UmbralPublicKeyResponse
 };
 use umbral_pre::VerifiedCapsuleFrag;
 use runtime::reencrypt::{
@@ -97,8 +89,7 @@ impl NodeClient {
             match network_event_receiver.recv().await {
                 // Reply with the content of the file on incoming requests.
                 Some(NetworkLoopEvent::InboundCfragRequest {
-                    agent_name,
-                    agent_nonce,
+                    agent_name_nonce,
                     frag_num,
                     sender_peer,
                     channel
@@ -108,8 +99,7 @@ impl NodeClient {
                     if let Some(kfrag_num) = frag_num {
                         self.command_sender
                             .send(NodeCommand::RespondCfrag {
-                                agent_name,
-                                agent_nonce,
+                                agent_name_nonce,
                                 frag_num: kfrag_num,
                                 sender_peer,
                                 channel
@@ -122,18 +112,19 @@ impl NodeClient {
                 }
 
                 Some(NetworkLoopEvent::RespawnRequired  {
-                    agent_name,
-                    agent_nonce,
+                    agent_name_nonce, // previous agent_name_nonce
                     total_frags,
                     prev_peer_id
                 }) => {
 
-                    let prev_nonce = agent_nonce;
-                    let next_nonce = agent_nonce + 1;
+                    let next_nonce = agent_name_nonce.1 + 1;
+                    let next_agent_name_nonce = AgentNameWithNonce(
+                        agent_name_nonce.0.clone(),
+                        next_nonce
+                    );
 
                     match self.request_respawn(
-                        agent_name.clone(),
-                        prev_nonce,
+                        agent_name_nonce.clone(), // prev agent_name_nonce
                         Some(prev_peer_id)
                     ).await {
                         Err(e) => println!("Error respawning agent in new vessel"),
@@ -144,14 +135,12 @@ impl NodeClient {
 
                             let topic_switch = TopicSwitch {
                                 next_topic: NextTopic {
-                                    agent_name: agent_name.clone(),
-                                    agent_nonce: next_nonce,
-                                    total_frags: total_frags,
+                                    agent_name_nonce: next_agent_name_nonce.clone(),
+                                    total_frags,
                                     threshold: 2
                                 },
                                 prev_topic: Some(PrevTopic {
-                                    agent_name: agent_name.clone(),
-                                    agent_nonce: prev_nonce,
+                                    agent_name_nonce: agent_name_nonce,
                                     peer_id: Some(prev_peer_id)
                                 }),
                             };
@@ -175,13 +164,13 @@ impl NodeClient {
                                 // println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
                             }
 
-                            self.broadcast_kfrags(agent_name, next_nonce, 3, 2).await.expect("respawn err");
+                            self.broadcast_kfrags(next_agent_name_nonce, 3, 2).await.expect("respawn err");
                         }
                     };
                 }
 
-                Some(NetworkLoopEvent::ReBroadcastKfrags(agent_name, agent_nonce)) => {
-                    self.broadcast_kfrags(agent_name, agent_nonce, 3, 2).await.expect("respawn err");
+                Some(NetworkLoopEvent::ReBroadcastKfrags(agent_name_nonce)) => {
+                    self.broadcast_kfrags(agent_name_nonce, 3, 2).await.expect("respawn err");
                 }
 
                 e => {
@@ -274,8 +263,7 @@ impl NodeClient {
 
     pub async fn broadcast_kfrags(
         &mut self,
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         total_frags: usize,
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
@@ -284,8 +272,7 @@ impl NodeClient {
         let topics = (0..total_frags)
             .map(|n| {
                 GossipTopic::BroadcastKfrag(
-                    agent_name.clone(),
-                    agent_nonce,
+                    agent_name_nonce.clone(),
                     total_frags,
                     n
                 ).to_string()
@@ -294,8 +281,7 @@ impl NodeClient {
         self.subscribe_topics(topics.clone()).await.ok();
 
         let umbral_public_keys = self.get_peer_umbral_pks(
-            agent_name.clone(),
-            agent_nonce,
+            agent_name_nonce.clone(),
         ).await;
         // self.log(format!("received Umbral PKs: {:?}\n", umbral_public_keys));
 
@@ -323,8 +309,7 @@ impl NodeClient {
                 for (i, kfrag) in kfrags.into_iter().enumerate() {
 
                     let topic = GossipTopic::BroadcastKfrag(
-                        agent_name.clone(),
-                        agent_nonce, // nonce
+                        agent_name_nonce.clone(),
                         total_frags,
                         i
                     );
@@ -361,11 +346,11 @@ impl NodeClient {
     }
 
 
-    pub async fn get_peer_umbral_pks(&mut self, agent_name: String, agent_nonce: usize) -> Vec<UmbralPublicKeyResponse> {
+    pub async fn get_peer_umbral_pks(&mut self, agent_name_nonce: AgentNameWithNonce) -> Vec<UmbralPublicKeyResponse> {
         let (sender, mut receiver) = mpsc::channel(100);
 
         self.command_sender
-            .send(NodeCommand::GetPeerUmbralPublicKey { sender, agent_name, agent_nonce })
+            .send(NodeCommand::GetPeerUmbralPublicKey { sender, agent_name_nonce })
             .await
             .expect("Command receiver not to be dropped.");
 
@@ -377,17 +362,15 @@ impl NodeClient {
         pks
     }
 
-    pub async fn get_agent_kfrag_peers(
+    pub async fn get_agent_kfrag_broadcast_peers(
         &mut self,
-        agent_name: String,
-        agent_nonce: usize
+        agent_name_nonce: AgentNameWithNonce,
     ) -> HashMap<usize, HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
-            .send(NodeCommand::GetKfragPeers {
-                agent_name: agent_name,
-                agent_nonce: agent_nonce,
+            .send(NodeCommand::GetKfragBroadcastPeers {
+                agent_name_nonce: agent_name_nonce,
                 sender: sender
             })
             .await
@@ -398,17 +381,15 @@ impl NodeClient {
 
     pub async fn request_cfrags(
         &mut self,
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         opt_prev_vessel_peer_id: Option<PeerId>
     ) -> Vec<Result<Vec<u8>>> {
 
-        let providers_hmap = self.get_agent_kfrag_peers(
-            agent_name.clone(),
-            agent_nonce
+        let providers_hmap = self.get_agent_kfrag_broadcast_peers(
+            agent_name_nonce.clone()
         ).await;
 
-        println!("\n\nfinding providers for: {}-{}", agent_name, agent_nonce);
+        println!("\n\nfinding providers for: {}", agent_name_nonce);
         println!("filter out peer: {:?}", opt_prev_vessel_peer_id);
         println!("\nproviders HashMap<frag_num, peers>: {:?}\n\n", providers_hmap);
 
@@ -434,23 +415,21 @@ impl NodeClient {
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
 
-                let agent_name = agent_name.clone();
                 let nc = self.clone();
                 self.log(format!(
-                    "Requesting {}-{} cfrag({}) from {:?}",
-                    agent_name,
-                    agent_nonce,
+                    "Requesting {} cfrag({}) from {:?}",
+                    agent_name_nonce,
                     frag_num,
                     get_node_name(&peer_id)
                 ));
+                let agent_name_nonce = agent_name_nonce.clone();
 
                 async move {
                     let (sender, receiver) = oneshot::channel();
 
                     nc.command_sender
                         .send(NodeCommand::RequestFragment {
-                            agent_name: agent_name,
-                            agent_nonce: agent_nonce,
+                            agent_name_nonce,
                             frag_num: Some(frag_num),
                             peer: peer_id,
                             sender
@@ -584,14 +563,12 @@ impl NodeClient {
     // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
     pub async fn request_respawn(
         &mut self,
-        agent_name: String,
-        agent_nonce: usize,
+        agent_name_nonce: AgentNameWithNonce,
         prev_vessel_peer_id: Option<PeerId>
     ) -> Result<AgentSecretsJson> {
 
         let cfrags_raw = self.request_cfrags(
-            agent_name,
-            agent_nonce,
+            agent_name_nonce.clone(),
             prev_vessel_peer_id
         ).await;
 

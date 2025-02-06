@@ -22,7 +22,7 @@ use runtime::reencrypt::UmbralKey;
 use crate::SendError;
 use crate::{node_client::NodeCommand, get_node_name, short_peer_id};
 use crate::types::{
-    AgentName,
+    AgentNameWithNonce,
     ChatMessage,
     TopicSwitch,
     GossipTopic,
@@ -76,7 +76,7 @@ struct PendingRequests {
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, SendError>>
     >,
-    respawns: HashSet<(AgentName, PeerId)>,
+    respawns: HashSet<(AgentNameWithNonce, PeerId)>,
 }
 
 impl PendingRequests {
@@ -163,60 +163,57 @@ impl EventLoop {
 
                         if duration > max_time_before_respawn {
                             if let Some(AgentVessel {
-                                agent_name,
-                                agent_nonce,
+                                agent_name_nonce: prev_agent,
                                 total_frags,
                                 next_vessel_peer_id,
                                 prev_vessel_peer_id
                             }) = &peer_info.agent_vessel {
 
-                                let agent_name_nonce_key = format!("{agent_name}-{agent_nonce}");
-                                let next_nonce = agent_nonce + 1;
-                                let respawn_pending = self.pending.respawns.contains(&(agent_name_nonce_key.clone(), *next_vessel_peer_id));
+                                let next_agent = AgentNameWithNonce(prev_agent.0.clone(), prev_agent.1 + 1);
+                                let next_nonce = next_agent.1;
+                                let respawn_pending = self.pending.respawns.contains(&(prev_agent.clone(), *next_vessel_peer_id));
 
                                 if respawn_pending {
-                                    self.log(format!("Respawn pending: {} -> {}", agent_name, self.node_name));
+                                    self.log(format!("Respawn pending: {} -> {}", next_agent, self.node_name));
 
                                 } else {
 
                                     self.log(format!(
                                         "{} failed. Consensus: voting to reincarnate agent '{}'",
                                         node_name,
-                                        agent_name
+                                        prev_agent
                                     ).magenta());
 
                                     // TODO: consensus mechanism to vote for reincarnation
-                                    let failed_agent = agent_name;
-                                    failed_agents.push(failed_agent);
+                                    failed_agents.push(prev_agent);
 
                                     // if this node is the next vessel for the agent
                                     if self.peer_id == *next_vessel_peer_id {
 
                                         // subscribe to all new agent_nonce channels to broadcast
                                         self.subscribe_topics(&vec![
-                                            GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 0).to_string(),
-                                            GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 1).to_string(),
-                                            GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 2).to_string(),
-                                            GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, 3).to_string(),
+                                            GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 0).to_string(),
+                                            GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 1).to_string(),
+                                            GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 2).to_string(),
+                                            GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 3).to_string(),
                                         ]);
 
                                         // Dispatch a Respawn(agent_name) event to EventLoop
                                         let _ = self.network_event_sender
                                             .send(NetworkLoopEvent::RespawnRequired {
-                                                agent_name: agent_name.to_owned(),
-                                                agent_nonce: agent_nonce.clone(),
+                                                agent_name_nonce: prev_agent.clone(),
                                                 total_frags: *total_frags,
                                                 prev_peer_id: prev_vessel_peer_id.clone()
                                             }).await;
 
                                         self.log(format!("{} '{}' {} {}", "Respawning agent".blue(),
-                                            agent_name.green(),
+                                            prev_agent.to_string().green(),
                                             "in new vessel:".blue(),
                                             self.node_name.yellow()
                                         ));
 
                                         // mark as respawning...
-                                        self.pending.respawns.insert((agent_name_nonce_key, *next_vessel_peer_id));
+                                        self.pending.respawns.insert((prev_agent.clone(), *next_vessel_peer_id));
 
                                         // TODO: once respawn is pending,
                                         // 1) unsubscribe from Topic + subscribe to new Topic
@@ -246,11 +243,11 @@ impl EventLoop {
                                         self.log(format!("\nNext frag_num: {}\n", frag_num));
 
                                         self.subscribe_topics(&vec![
-                                            GossipTopic::BroadcastKfrag(agent_name.clone(), next_nonce, *total_frags, frag_num).to_string(),
+                                            GossipTopic::BroadcastKfrag(next_agent, *total_frags, frag_num).to_string(),
                                         ]);
 
                                         // mark as respawning...
-                                        self.pending.respawns.insert((agent_name_nonce_key, *next_vessel_peer_id));
+                                        self.pending.respawns.insert((prev_agent.clone(), *next_vessel_peer_id));
                                     }
 
                                     // remove peer kfrags, it will disconnect automatically after a while
@@ -268,7 +265,7 @@ impl EventLoop {
 
                     if let Some(topic_switch2) = topic_switch {
                         self.log(format!("Broadcasting topic switch"));
-                        self.broadcast_topic_switch(topic_switch2).await;
+                        self.broadcast_topic_switch(&topic_switch2).await;
                     }
 
                 }
