@@ -3,8 +3,14 @@ name = "runtime"
 version = "0.1.0"
 edition = "2021"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk" }
+# TDX dependency
+[target.'cfg(feature = "tdx")'.dependencies]
+tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
+
+# TDX feature flag
+[features]
+tdx_enabled = ["dep:tdx"]
+
 
 [dependencies]
 rig-core = { git = "https://github.com/0xPlaygrounds/rig" }

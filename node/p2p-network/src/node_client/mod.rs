@@ -15,7 +15,16 @@ use libp2p::{core::Multiaddr, PeerId};
 
 use crate::get_node_name;
 use crate::types::{
-    AgentNameWithNonce, CapsuleFragmentIndexed, ChatMessage, GossipTopic, KeyFragmentMessage, NetworkLoopEvent, NextTopic, PrevTopic, TopicSwitch, UmbralPublicKeyResponse
+    AgentNameWithNonce,
+    CapsuleFragmentMessage,
+    ChatMessage,
+    GossipTopic,
+    KeyFragmentMessage,
+    NetworkLoopEvent,
+    NextTopic,
+    PrevTopic,
+    TopicSwitch,
+    UmbralPublicKeyResponse
 };
 use umbral_pre::VerifiedCapsuleFrag;
 use runtime::reencrypt::{
@@ -87,10 +96,10 @@ impl<'a> NodeClient<'a> {
         loop {
             match network_event_receiver.recv().await {
                 // Reply with the content of the file on incoming requests.
-                Some(NetworkLoopEvent::InboundCfragRequest {
+                Some(NetworkLoopEvent::InboundCapsuleFragRequest {
                     agent_name_nonce,
                     frag_num,
-                    sender_peer,
+                    sender_peer_id,
                     channel
                 }) => {
                     // check if vessel node for the agent_name is still alive.
@@ -99,7 +108,7 @@ impl<'a> NodeClient<'a> {
                         .send(NodeCommand::RespondCfrag {
                             agent_name_nonce,
                             frag_num,
-                            sender_peer,
+                            sender_peer_id,
                             channel
                         })
                         .await
@@ -172,18 +181,18 @@ impl<'a> NodeClient<'a> {
                 Some(NetworkLoopEvent::SaveKfragProviderRequest {
                     agent_name_nonce,
                     frag_num,
-                    sender_peer,
+                    sender_peer_id,
                     channel
                 }) => {
 
-                    println!("{}", format!("SAVING KFRAG PROVIDER").red());
+                    self.log(format!("Saving provider {} to peer_manager", sender_peer_id));
                     // Only the broadcast and vessel need to know which nodes have which fragments.
                     // Not necessary for other nodes to keep track of this.
                     self.command_sender
                         .send(NodeCommand::SaveKfragProvider {
                             agent_name_nonce,
                             frag_num,
-                            sender_peer,
+                            sender_peer_id,
                             channel
                         })
                         .await
@@ -304,7 +313,6 @@ impl<'a> NodeClient<'a> {
         let umbral_public_keys = self.get_peer_umbral_pks(
             agent_name_nonce.clone(),
         ).await;
-        // self.log(format!("received Umbral PKs: {:?}\n", umbral_public_keys));
 
         // choose the next node in the queue to become the next vessel
         match umbral_public_keys.iter().next() {
@@ -479,16 +487,16 @@ impl<'a> NodeClient<'a> {
 
     fn parse_cfrags(&self, cfrags_raw: Vec<Result<Vec<u8>, Error>>) -> (
         Vec<VerifiedCapsuleFrag>,
-        Vec<CapsuleFragmentIndexed>,
+        Vec<CapsuleFragmentMessage>,
         u32
     ) {
         let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
-        let mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed> = Vec::new();
+        let mut new_vessel_cfrags: Vec<CapsuleFragmentMessage> = Vec::new();
         let mut total_frags = 0;
 
         for cfrag_result in cfrags_raw.iter() {
             if let Ok(cfrag_bytes) = cfrag_result {
-                match serde_json::from_slice::<Option<CapsuleFragmentIndexed>>(&cfrag_bytes) {
+                match serde_json::from_slice::<Option<CapsuleFragmentMessage>>(&cfrag_bytes) {
                     Err(e) => panic!("{}", e.to_string()),
                     Ok(opt_cfrag) => match opt_cfrag {
                         None => {
@@ -535,7 +543,7 @@ impl<'a> NodeClient<'a> {
     fn decrypt_cfrags(
         &self,
         verified_cfrags: Vec<VerifiedCapsuleFrag>,
-        mut new_vessel_cfrags: Vec<CapsuleFragmentIndexed>,
+        mut new_vessel_cfrags: Vec<CapsuleFragmentMessage>,
         total_frags_received: u32
     ) -> Result<AgentSecretsJson, Error> {
 
@@ -558,13 +566,10 @@ impl<'a> NodeClient<'a> {
             new_vessel_pk.ciphertext.as_mut().unwrap()
         ) {
             Ok(plaintext_bob) => {
-
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
                 let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)?;
                 self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str).yellow());
-
                 let agent_secrets_json: AgentSecretsJson = serde_json::from_slice(&plaintext_bob)?;
-
                 Ok(agent_secrets_json)
             },
             Err(e) => {

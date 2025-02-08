@@ -47,7 +47,7 @@ pub enum NodeCommand {
     RespondCfrag {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer: PeerId, // peer who sends cfrag back
+        sender_peer_id: PeerId, // peer who sends cfrag back
         channel: ResponseChannel<FragmentResponseEnum>,
     },
     SwitchTopic(
@@ -57,7 +57,7 @@ pub enum NodeCommand {
     SaveKfragProvider {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer: PeerId, // peer who holds the kfrag
+        sender_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
     },
     StartListening {

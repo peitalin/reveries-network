@@ -7,10 +7,10 @@ use crate::SendError;
 
 #[derive(Debug)]
 pub enum NetworkLoopEvent {
-    InboundCfragRequest {
+    InboundCapsuleFragRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer: PeerId,
+        sender_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
     RespawnRequiredRequest {
@@ -21,7 +21,7 @@ pub enum NetworkLoopEvent {
     SaveKfragProviderRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer: PeerId,
+        sender_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
     ReBroadcastKfrags(AgentNameWithNonce),

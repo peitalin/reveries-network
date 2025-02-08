@@ -5,8 +5,6 @@ use libp2p::PeerId;
 use crate::types::GossipTopic;
 use umbral_pre::KeyFrag;
 
-use super::AgentNameWithNonce;
-
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct UmbralPeerId(pub String);
@@ -90,25 +88,26 @@ pub struct KeyFragmentMessage {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapsuleFragmentIndexed {
+pub struct CapsuleFragmentMessage {
     pub frag_num: usize,
     pub threshold: usize,
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,
 
-    pub sender_peer_id: PeerId,
-    pub vessel_peer_id: PeerId,
+    pub sender_peer_id: PeerId, // peer which holds/send the kfrags
+    pub vessel_peer_id: PeerId, // peer which houses the agent
+    pub next_vessel_peer_id: PeerId, // next peer which houses the agent
 
     pub cfrag: umbral_pre::CapsuleFrag,
     pub capsule: Option<umbral_pre::Capsule>,
     pub ciphertext: Option<Box<[u8]>>,
 }
 
-impl Display for CapsuleFragmentIndexed {
+impl Display for CapsuleFragmentMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,
-            "CapsuleFragmentIndexed(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, ciphertext)",
+            "CapsuleFragmentMessage(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, ciphertext)",
             self.frag_num,
             self.alice_pk,
             self.bob_pk,

@@ -6,7 +6,7 @@ use libp2p::gossipsub;
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
     AgentNameWithNonce,
-    CapsuleFragmentIndexed,
+    CapsuleFragmentMessage,
     FragmentRequestEnum,
     GossipTopic,
     KeyFragmentMessage,
@@ -18,12 +18,11 @@ use super::EventLoop;
 
 
 impl<'a> EventLoop<'a> {
-
     // When receiving a Gossipsub event/message
     pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) {
         match gevent {
             gossipsub::Event::Message {
-                propagation_source: peer_id,
+                propagation_source: propagation_peer_id,
                 message_id,
                 message,
             } => {
@@ -31,8 +30,8 @@ impl<'a> EventLoop<'a> {
                 self.log(format!(
                     "\n\tReceived message: '{}'\n\t|from peer: {} {}\n\t|topic: '{}'\n",
                     String::from_utf8_lossy(&message.data),
-                    get_node_name(&peer_id),
-                    short_peer_id(&peer_id),
+                    get_node_name(&propagation_peer_id),
+                    short_peer_id(&propagation_peer_id),
                     message.topic
                 ));
 
@@ -52,44 +51,50 @@ impl<'a> EventLoop<'a> {
                             ).expect("err verifying kfrag");
 
                             // if receiver is next vessel, insert peer kfrags
-                            self.peer_manager.set_peer_info_agent_vessel(
-                                &agent_name_nonce,
-                                &total_frags,
-                                k.vessel_peer_id,
-                                k.next_vessel_peer_id,
-                            );
+                            if !self.peer_manager.peer_info.contains_key(&k.vessel_peer_id) {
+                                self.peer_manager.set_peer_info_agent_vessel(
+                                    &agent_name_nonce,
+                                    &total_frags,
+                                    k.vessel_peer_id,
+                                    k.next_vessel_peer_id,
+                                );
+                            }
 
                             // all nodes store cfrags locally
                             // nodes should also inform the vessel_node that they hold a fragment
                             self.peer_manager.insert_cfrags(
                                 &agent_name_nonce,
-                                CapsuleFragmentIndexed {
+                                CapsuleFragmentMessage {
                                     frag_num: k.frag_num,
                                     threshold: k.threshold,
                                     cfrag: umbral_pre::reencrypt(&capsule, verified_kfrag).unverify(),
                                     verifying_pk: k.verifying_pk,
-                                    alice_pk: k.alice_pk,
-                                    bob_pk: k.bob_pk,
+                                    alice_pk: k.alice_pk, // vessel
+                                    bob_pk: k.bob_pk, // next vessel
                                     sender_peer_id: self.peer_id,
-                                    vessel_peer_id: peer_id,
+                                    vessel_peer_id: propagation_peer_id,
+                                    next_vessel_peer_id: k.next_vessel_peer_id,
                                     capsule: Some(capsule),
                                     ciphertext: k.ciphertext
                                 }
                             );
                             self.print_stored_cfrags(&self.peer_manager.cfrags);
 
-                            // request-response: let vessel know this peer received a fragment
-                            let request_id = self
-                                .swarm
-                                .behaviour_mut()
-                                .request_response
-                                .send_request(&peer_id, FragmentRequestEnum::ProvidingFragment(
-                                    agent_name_nonce,
-                                    frag_num,
-                                    self.peer_id // sender_peer_id
-                                ));
-
-                            // self.pending.request_fragments.insert(request_id, sender);
+                            if self.peer_id != k.next_vessel_peer_id {
+                                // request-response: let vessel know this peer received a fragment
+                                let request_id = self
+                                    .swarm
+                                    .behaviour_mut()
+                                    .request_response
+                                    .send_request(
+                                        &k.next_vessel_peer_id,
+                                        FragmentRequestEnum::ProvidingFragment(
+                                            agent_name_nonce,
+                                            frag_num,
+                                            self.peer_id // sender_peer_id
+                                        )
+                                    );
+                            }
                         }
 
                     }
@@ -118,34 +123,23 @@ impl<'a> EventLoop<'a> {
                 }
             }
             gossipsub::Event::GossipsubNotSupported {..} => {}
-            gossipsub::Event::Unsubscribed { peer_id, topic } => {
-                // match topic.clone().into() {
-                //     GossipTopic::BroadcastKfrag(_, _, _) => {
-                //         self.peer_manager.remove_kfrags_peer(&peer_id);
-                //     }
-                //     _ => {}
-                // }
-            }
+            gossipsub::Event::Unsubscribed { peer_id, topic } => {}
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
                 // TODO: check TEE attestation from Peer before adding peer to channel
-                // We want to ensure that the Peer is runnign in a TEE and not subscribe to multiple
-                // fragment channels for the same agent (collution attempts)
+                // We want to ensure that the Peer is running in a TEE and not subscribe to multiple
+                // fragment channels for the same agent (collusion attempts)
                 //
                 // if peer is registered on multiple kfrag broadcasts, blacklist them
                 // Peers should be on just 1 kfrag broadcast channel.
                 // We can enforce this if the binary runs in a TEE
 
-                // self.log(format!("Gossipsub Subscribed {} to '{}'", get_node_name(&peer_id).yellow(), topic));
-                // pop topic, then send back confirmation that frag_num
-
-                match topic.clone().into() {
-                    GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num) => {
-                        // self.log(format!(">>> Adding peer to kfrags_peers({}, {}, {})", agent_name_nonce, frag_num, short_peer_id(&peer_id)));
-                        // Only the broadcast and vessel need to know which nodes have which fragments.
-                        // Not necessary for other nodes to keep track of this.
-                        // self.peer_manager.insert_kfrags_broadcast_peer(peer_id, &agent_name_nonce, frag_num);
-                    },
+                match topic.into() {
+                    GossipTopic::BroadcastKfrag(
+                        agent_name_nonce,
+                        total_frags,
+                        frag_num
+                    ) => {},
                     _ => {}
                 }
 
@@ -170,10 +164,12 @@ impl<'a> EventLoop<'a> {
             .ok();
     }
 
-    fn print_stored_cfrags(&self, self_kfrags: &HashMap<AgentNameWithNonce, CapsuleFragmentIndexed>) {
-        self.log(format!("Storing CapsuleFragmentIndexed:"));
+    fn print_stored_cfrags(&self, self_kfrags: &HashMap<AgentNameWithNonce, CapsuleFragmentMessage>) {
+        self.log(format!("Storing CapsuleFragmentMessage:"));
         let _ = self_kfrags.iter()
-            .map(|(k, v)| println!("key: {}\tfrag_num: {}", k, v.frag_num))
+            .map(|(k, v)|
+                println!("key: {}\tfrag_num: {}", k, v.frag_num)
+            )
             .collect::<Vec<()>>();
     }
 

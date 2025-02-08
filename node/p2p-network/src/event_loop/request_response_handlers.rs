@@ -1,4 +1,5 @@
 use libp2p::request_response;
+use colored::Colorize;
 use crate::SendError;
 use crate::types::{
     NetworkLoopEvent,
@@ -26,36 +27,38 @@ impl<'a> EventLoop<'a> {
                         request: fragment_request,
                         channel,
                         ..
-                    } => match fragment_request {
-                        FragmentRequestEnum::FragmentRequest(
-                            agent_name_nonce,
-                            frag_num,
-                            sender_peer
-                        ) => {
-                            self.network_event_sender
-                                .send(NetworkLoopEvent::InboundCfragRequest {
-                                    agent_name_nonce,
-                                    frag_num,
-                                    sender_peer,
-                                    channel,
-                                })
-                                .await
-                                .expect("Event receiver not to be dropped.");
-                        },
-                        FragmentRequestEnum::ProvidingFragment(
-                            agent_name_nonce,
-                            frag_num,
-                            sender_peer
-                        ) => {
-                            self.network_event_sender
-                                .send(NetworkLoopEvent::SaveKfragProviderRequest {
-                                    agent_name_nonce,
-                                    frag_num,
-                                    sender_peer,
-                                    channel,
-                                })
-                                .await
-                                .expect("Event receiver not to be dropped.");
+                    } => {
+                        match fragment_request {
+                            FragmentRequestEnum::FragmentRequest(
+                                agent_name_nonce,
+                                frag_num,
+                                sender_peer_id
+                            ) => {
+                                self.network_event_sender
+                                    .send(NetworkLoopEvent::InboundCapsuleFragRequest {
+                                        agent_name_nonce,
+                                        frag_num,
+                                        sender_peer_id,
+                                        channel,
+                                    })
+                                    .await
+                                    .expect("Event receiver not to be dropped.");
+                            },
+                            FragmentRequestEnum::ProvidingFragment(
+                                agent_name_nonce,
+                                frag_num,
+                                sender_peer_id
+                            ) => {
+                                self.network_event_sender
+                                    .send(NetworkLoopEvent::SaveKfragProviderRequest {
+                                        agent_name_nonce,
+                                        frag_num,
+                                        sender_peer_id,
+                                        channel,
+                                    })
+                                    .await
+                                    .expect("Event receiver not to be dropped.");
+                            }
                         }
                     }
 
@@ -68,15 +71,15 @@ impl<'a> EventLoop<'a> {
                     } => {
                         match response {
                             FragmentResponseEnum::FragmentResponse(fragment_bytes) => {
-
+                                // get sender channel associated with the request-response id
                                 let sender = self.pending.request_fragments
                                     .remove(&request_id)
                                     .expect("request_response: Request pending.");
-
+                                // send fragment to it
                                 let _ = sender.send(fragment_bytes);
                             }
                             FragmentResponseEnum::KfragProviderAck => {
-                                println!("Vessel acknowledged provider");
+                                self.log(format!("\nVessel acknowledged fragment provider\n").green());
                             }
                             _ => {}
                         }
@@ -92,7 +95,7 @@ impl<'a> EventLoop<'a> {
             } => {
                 self.pending.request_fragments
                     .remove(&request_id)
-                    .expect(&format!("Request pending for {}", peer))
+                    .expect(&format!("RequestId {} not found for {}", request_id, peer))
                     .send(Err(SendError(error.to_string())))
                     .ok();
             }

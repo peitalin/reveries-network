@@ -16,7 +16,7 @@ impl<'a> NodeClient<'a> {
             tokio::select! {
                 Ok(Some(line)) = stdin.next_line() => {
                     self.handle_stdin_commands(line).await
-                }
+                },
             }
         }
     }

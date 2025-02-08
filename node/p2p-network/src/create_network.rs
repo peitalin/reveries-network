@@ -15,7 +15,6 @@ use libp2p::{
     StreamProtocol,
 };
 use tokio::sync::mpsc;
-use tracing::instrument::WithSubscriber;
 
 pub use crate::types::UmbralPeerId;
 use crate::SendError;
@@ -33,7 +32,6 @@ thread_local! {
 }
 
 /// Creates the network components, namely:
-///
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
@@ -48,7 +46,15 @@ pub async fn new<'a>(secret_key_seed: Option<usize>)
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
+    // just used for determining which fragment the peer subscribes
+    let seed = secret_key_seed.unwrap_or(0);
+
+    // Channels
     let (heartbeat_failure_sender, heartbeat_failure_receiver) = tokio::sync::mpsc::channel(100);
+    let (command_sender, command_receiver) = mpsc::channel(100);
+    let (network_events_sender, network_events_receiver) = mpsc::channel(100);
+    let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
+
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
@@ -129,12 +135,6 @@ pub async fn new<'a>(secret_key_seed: Option<usize>)
     swarm.behaviour_mut()
         .kademlia
         .set_mode(Some(kad::Mode::Server));
-
-    let (command_sender, command_receiver) = mpsc::channel(100);
-    let (network_events_sender, network_events_receiver) = mpsc::channel(100);
-    let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
-
-    let seed = secret_key_seed.unwrap_or(0);
 
     Ok((
         NodeClient::new(

@@ -1,27 +1,18 @@
 use hex;
 use color_eyre::Result;
-use color_eyre::eyre::anyhow;
 pub use dcap_rs::types::quotes::version_4::QuoteV4;
 
-#[cfg(target_os = "linux")]
-use tdx::{
-    device::DeviceOptions,
-    Tdx
-};
+#[cfg(all(target_os = "linux", feature = "tdx_enabled"))]
+use tdx::{device::DeviceOptions, Tdx};
 
-
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "tdx_enabled"))]
 pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     // Initialise a TDX object
     let tdx = Tdx::new();
-
     // Retrieve an attestation report with options to report the hardware device
     let raw_report = tdx.get_attestation_report_with_options(
-        DeviceOptions {
-            report_data: Some([0; 64]),
-        }
+        DeviceOptions { report_data: Some([0; 64]) }
     )?;
-
     let attestation_report = QuoteV4::from_bytes(&raw_report);
     if (log) {
         println!("Attestation Report raw bytes: 0x{}", hex::encode(raw_report));
@@ -30,12 +21,10 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     Ok((attestation_report, attestation_bytes))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", feature = "tdx_enabled")))]
 pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
-
     let attestation_bytes = hex::decode(TEE_MOCK_ATTESTATION_REPORT)?;
     let attestation_report = QuoteV4::from_bytes(&attestation_bytes);
-
     if log {
         log_quote_v4_attestation(&attestation_report);
     }

@@ -18,21 +18,15 @@ impl<'a> EventLoop<'a> {
     pub(super) async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
 
-            //// Kademlia tracks:
-            //// - Umbral Public Keys (Proxy Reencryption) for each PeerId
+            //// Kademlia tracks: Umbral PublicKeys (Proxy Reencryption) for each PeerId
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(e)) => match e {
 
                 // GetProviders event
                 kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
                     kad::QueryResult::GetProviders(p) => match p {
                         Ok(kad::GetProvidersOk::FoundProviders { key, providers }) => {
-
-                            for peer in providers.clone() {
-                                let kkey = std::str::from_utf8(key.as_ref()).unwrap();
-                                self.log(format!("{peer:?} provides key {:?}", kkey));
-                            }
-
                             if let Some(sender) = self.pending.get_providers.remove(&id) {
+                                // send providers back
                                 sender.send(providers).expect("Receiver not to be dropped");
                                 // Finish the query. We are only interested in the first result.
                                 self.swarm
@@ -58,14 +52,12 @@ impl<'a> EventLoop<'a> {
                         let umbral_pk_peer_id_key: UmbralPeerId = k.into();
 
                         if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_peer_id_key) {
-
                             match serde_json::from_slice::<UmbralPublicKeyResponse>(&value) {
                                 Ok(umbral_pk_response) => {
                                     let _ = sender.send(umbral_pk_response).await;
                                 }
                                 Err(_e) => println!("Err deserializing UmbralPublicKeyResponse"),
                             }
-
                             self.swarm
                                 .behaviour_mut()
                                 .kademlia
@@ -111,21 +103,6 @@ impl<'a> EventLoop<'a> {
                 _ => {} // ignore other Kademlia events
             }
 
-            //// mDNS Protocol
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                for (peer_id, multiaddr) in list {
-                    self.log(format!("mDNS adding peer {:?}", peer_id));
-                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                    self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                    self.peer_manager.insert_peer_info(peer_id);
-                }
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                for (peer_id, multiaddr) in list {
-                    self.log(format!("mDNS peer expired {:?}. Removing peer.", peer_id));
-                    self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
-                }
-            },
 
             //// Request Response Protocol
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -134,18 +111,6 @@ impl<'a> EventLoop<'a> {
                 self.handle_request_response(request_response_event).await
             },
 
-            //// Connections
-            SwarmEvent::NewListenAddr { .. } => {}
-            SwarmEvent::Dialing { .. } => {}
-            SwarmEvent::IncomingConnection { .. } => {},
-            SwarmEvent::ConnectionEstablished { .. } => { }
-            SwarmEvent::ExpiredListenAddr { .. } => { }
-            SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                println!(">>> ConnectionClosed with peer: {:?}", peer_id);
-                self.remove_peer(&peer_id);
-            }
-            SwarmEvent::IncomingConnectionError { .. } => { }
-            SwarmEvent::OutgoingConnectionError { .. } => { }
 
             //////////////////////////////////
             //// GossipSub protocol for PRE
@@ -160,6 +125,31 @@ impl<'a> EventLoop<'a> {
                     self.log(tee_str);
                 }
             }
+
+            //// Connections
+            SwarmEvent::NewListenAddr { .. } => {}
+            SwarmEvent::Dialing { .. } => {}
+            SwarmEvent::IncomingConnection { .. } => {},
+            SwarmEvent::ConnectionEstablished { .. } => { }
+            SwarmEvent::ExpiredListenAddr { .. } => { }
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                // println!(">>> ConnectionClosed with peer: {:?}", peer_id);
+                self.remove_peer(&peer_id);
+            }
+            SwarmEvent::IncomingConnectionError { .. } => { }
+            SwarmEvent::OutgoingConnectionError { .. } => { }
+            //// mDNS Protocol
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                for (peer_id, multiaddr) in list {
+                    self.log(format!("mDNS adding peer {:?}", peer_id));
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+                }
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                for (peer_id, multiaddr) in list {
+                    self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
+                }
+            },
 
             swarm_event => println!("Unhandled SwarmEvent: {swarm_event:?}"),
         }

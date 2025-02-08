@@ -120,12 +120,10 @@ pub fn run_reencrypt_example() -> Result<String> {
     let verified_cfrag1 = reencrypt(&capsule, verified_kfrag1);
 
 
-    // Simulate network transfer from Usrula
+    // Simulate network transfer from Usrula to Bob
     let cfrag0 = verified_cfrag0.clone().unverify();
     let cfrag1 = verified_cfrag1.clone().unverify();
 
-    // Finally, Bob opens the capsule by using at least `threshold` cfrags,
-    // and then decrypts the re-encrypted ciphertext.
     // Bob must check that cfrags are valid
     let verified_cfrag0 = cfrag0.verify(
         &capsule,
@@ -141,6 +139,8 @@ pub fn run_reencrypt_example() -> Result<String> {
         &bob_pk
     ).unwrap();
 
+    // Finally, Bob opens the capsule by using at least `threshold` cfrags,
+    // and then decrypts the re-encrypted ciphertext.
     let plaintext_bob = decrypt_reencrypted(
        &bob_sk,
        &alice_pk,

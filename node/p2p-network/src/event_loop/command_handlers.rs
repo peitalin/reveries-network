@@ -13,7 +13,7 @@ use crate::types::{
     UmbralPeerId
 };
 use crate::short_peer_id;
-use crate::types::{CapsuleFragmentIndexed, KeyFragmentMessage};
+use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
 use super::EventLoop;
 
@@ -42,7 +42,7 @@ impl<'a> EventLoop<'a> {
                         panic!("Message type must be GossipTopic::BroadcastKfrag, received: {}", message.topic);
                     }
                 };
-                // set broadcastoer's peer info
+                // set broadcaster's peer info
                 self.peer_manager.set_peer_info_agent_vessel(
                     &agent_name_nonce,
                     // &message.threshold,
@@ -116,7 +116,7 @@ impl<'a> EventLoop<'a> {
             NodeCommand::SaveKfragProvider {
                 agent_name_nonce,
                 frag_num,
-                sender_peer,
+                sender_peer_id,
                 channel
             } => {
 
@@ -124,12 +124,10 @@ impl<'a> EventLoop<'a> {
                     "\n>>> Adding peer to kfrags_peers({}, {}, {})",
                     agent_name_nonce,
                     frag_num,
-                    short_peer_id(&sender_peer)
+                    short_peer_id(&sender_peer_id)
                 ).bright_green());
 
-                self.peer_manager.insert_peer_agent_fragments(&sender_peer, &agent_name_nonce, frag_num);
-                self.peer_manager.insert_kfrags_broadcast_peer(sender_peer, &agent_name_nonce, frag_num);
-                self.peer_manager.insert_peer_info(sender_peer);
+                self.save_peer(&sender_peer_id, agent_name_nonce, frag_num);
 
                 // confirm saved kfrag peer
                 self.swarm
@@ -161,7 +159,7 @@ impl<'a> EventLoop<'a> {
             NodeCommand::RespondCfrag {
                 agent_name_nonce,
                 frag_num,
-                sender_peer,
+                sender_peer_id,
                 channel
             } => {
 
@@ -174,7 +172,7 @@ impl<'a> EventLoop<'a> {
                         self.log(format!("RespondCfrags: found cfrag: {:?}", cfrag.verifying_pk));
 
                         let cfrag_indexed_bytes =
-                            serde_json::to_vec::<Option<CapsuleFragmentIndexed>>(&Some(cfrag.clone()))
+                            serde_json::to_vec::<Option<CapsuleFragmentMessage>>(&Some(cfrag.clone()))
                                 .map_err(|e| SendError(e.to_string()));
 
                         self.swarm

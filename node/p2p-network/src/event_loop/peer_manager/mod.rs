@@ -5,27 +5,27 @@ use std::collections::{HashMap, HashSet};
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use colored::Colorize;
 use color_eyre::owo_colors::OwoColorize;
-use crate::types::{AgentName, AgentNonce, CapsuleFragmentIndexed, FragmentNumber};
+use crate::types::{AgentName, AgentNonce, CapsuleFragmentMessage, FragmentNumber};
 
 use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
 
 
 #[derive(Clone, Debug)]
-pub(crate) struct PeerInfo {
+pub(crate) struct PeerHeartbeatInfo {
     pub peer_id: PeerId,
     // pub peer_umbral_public_key: Option<umbral_pre::PublicKey>,
-    pub peer_heartbeat_data: heartbeat_data::HeartBeatData,
+    pub heartbeat_data: heartbeat_data::HeartBeatData,
     /// name of the Agent this peer is currently hosting (if any)
     pub agent_vessel: Option<AgentVessel>,
     pub client_version: Option<String>,
 }
 
-impl PeerInfo {
+impl PeerHeartbeatInfo {
     pub fn new(peer_id: PeerId, heartbeat_avg_window: u32) -> Self {
         Self {
             peer_id,
             // peer_umbral_public_key: None,
-            peer_heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
+            heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
             agent_vessel: None,
             client_version: None,
         }
@@ -51,7 +51,7 @@ pub struct AgentFragment {
 pub(crate) struct PeerManager<'a> {
     pub(crate) node_name: &'a str,
     // Tracks Vessel Nodes
-    pub(crate) peer_info: HashMap<PeerId, PeerInfo>,
+    pub(crate) peer_info: HashMap<PeerId, PeerHeartbeatInfo>,
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
     // pub(crate) peers_holding_kfrags: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Track which Peers are subscribed to whith AgentFragment broadcast channels:
@@ -59,7 +59,7 @@ pub(crate) struct PeerManager<'a> {
     // Capsule frags for each Agent (encrypted secret key fragments)
     // also contains ciphtertexts atm.
     // TODO: refactor to move ciphertext to target vessel nodes, away from frag holding nodes
-    pub(crate) cfrags: HashMap<AgentNameWithNonce, CapsuleFragmentIndexed>,
+    pub(crate) cfrags: HashMap<AgentNameWithNonce, CapsuleFragmentMessage>,
     // Tracks which AgentFragments a specific Peer holds, so that when a node dies
     // we know which fragments to delete from a peer
     pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
@@ -86,7 +86,7 @@ impl<'a> PeerManager<'a> {
 
     pub fn insert_peer_info(&mut self, peer_id: PeerId) {
         self.peer_info
-            .insert(peer_id, PeerInfo::new(peer_id, self.avg_window));
+            .insert(peer_id, PeerHeartbeatInfo::new(peer_id, self.avg_window));
     }
 
     pub fn remove_peer_info(&mut self, peer_id: &PeerId) {
@@ -101,10 +101,9 @@ impl<'a> PeerManager<'a> {
         next_vessel_peer_id: PeerId,
     ) {
 
-        self.log(format!(">>> Setting vessel: {} for Agent: {}",
-            get_node_name(&vessel_peer_id),
-            agent_name_nonce
-        ).magenta());
+        self.log(format!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow()));
+        println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&vessel_peer_id).bright_blue()));
+        println!("{}", format!("\tNext vessel:\t{}\n", get_node_name(&next_vessel_peer_id).bright_blue()));
 
         match self.peer_info.get_mut(&vessel_peer_id) {
             None => {},
@@ -119,18 +118,18 @@ impl<'a> PeerManager<'a> {
         }
     }
 
-    pub fn get_connected_peers(&self) -> &HashMap<PeerId, PeerInfo> {
+    pub fn get_connected_peers(&self) -> &HashMap<PeerId, PeerHeartbeatInfo> {
         &self.peer_info
     }
 
     pub fn update_peer_heartbeat(&mut self, peer_id: PeerId, heartbeat_payload: TeeAttestation) {
         match self.peer_info.get_mut(&peer_id) {
             Some(peer_info) => {
-                peer_info.peer_heartbeat_data.update(heartbeat_payload);
+                peer_info.heartbeat_data.update(heartbeat_payload);
             }
             None => {
-                let mut new_peer_info = PeerInfo::new(peer_id, self.avg_window); // heartbeat_avg_window
-                new_peer_info.peer_heartbeat_data.update(heartbeat_payload);
+                let mut new_peer_info = PeerHeartbeatInfo::new(peer_id, self.avg_window); // heartbeat_avg_window
+                new_peer_info.heartbeat_data.update(heartbeat_payload);
                 self.peer_info.insert(peer_id, new_peer_info);
             }
         };
@@ -138,28 +137,28 @@ impl<'a> PeerManager<'a> {
 
     pub fn log_heartbeat_tee(&self, peer_id: PeerId) -> Option<String> {
         if let Some(peer_info) = self.peer_info.get(&peer_id) {
-            match &peer_info.peer_heartbeat_data.payload.tee_attestation {
+            match &peer_info.heartbeat_data.payload.tee_attestation {
                 Some(quote) => {
                     return Some(format!(
                         "{} {} {} {} {}",
                         short_peer_id(&peer_id).black(),
                         "HeartBeat Block".black(),
-                        peer_info.peer_heartbeat_data.payload.block_height.black(),
+                        peer_info.heartbeat_data.payload.block_height.black(),
                         "TEE ESCDA attestation pubkey:".bright_black(),
                         format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
                     ))
                     // format!(
                     //     "{} HeartbeatData: Block: {}",
                     //     short_peer_id(peer_id),
-                    //     peer_info.peer_heartbeat_data.payload.block_height,
+                    //     peer_info.heartbeat_data.payload.block_height,
                     // );
                 },
                 None => {
                     // format!(
                     //     "{} HeartbeatData: Block: {}\n\t{:?}",
                     //     short_peer_id(peer_id),
-                    //     peer_info.peer_heartbeat_data.payload.block_height,
-                    //     peer_info.peer_heartbeat_data.payload
+                    //     peer_info.heartbeat_data.payload.block_height,
+                    //     peer_info.heartbeat_data.payload
                     // );
                 }
             }
@@ -227,7 +226,7 @@ impl<'a> PeerManager<'a> {
         self.kfrag_broadcast_peers.remove(agent_name_nonce);
     }
 
-    pub fn remove_kfrags_peer(&mut self, peer_id: &PeerId) {
+    pub fn remove_kfrags_broadcast_peer(&mut self, peer_id: &PeerId) {
 
         // lookup all the agents and fragments Peer holds
         println!("\nRemoving kfrag_broadcast_peers for {}", short_peer_id(peer_id));
@@ -318,14 +317,14 @@ impl<'a> PeerManager<'a> {
     pub(crate) fn get_cfrags(
         &self,
         agent_name_nonce: &AgentNameWithNonce,
-    ) -> Option<&CapsuleFragmentIndexed> {
+    ) -> Option<&CapsuleFragmentMessage> {
         self.cfrags.get(agent_name_nonce)
     }
 
     pub(crate) fn insert_cfrags(
         &mut self,
         agent_name_nonce: &AgentNameWithNonce,
-        cfrag_indexed: CapsuleFragmentIndexed,
+        cfrag_indexed: CapsuleFragmentMessage,
     ) {
         self.cfrags
             .entry(agent_name_nonce.clone())
@@ -334,7 +333,7 @@ impl<'a> PeerManager<'a> {
 
     fn log<S: std::fmt::Display>(&self, message: S) {
         println!("{} {}{} {}",
-            "PeerManager".green(), self.node_name.yellow(), ">".blue(),
+            "PeerManager".blue(), self.node_name.yellow(), ">".blue(),
             message
         );
     }

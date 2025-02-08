@@ -24,10 +24,11 @@ use crate::{node_client::NodeCommand, get_node_name, short_peer_id};
 use crate::types::{
     AgentNameWithNonce,
     ChatMessage,
-    TopicSwitch,
+    FragmentNumber,
     GossipTopic,
-    UmbralPeerId,
     NetworkLoopEvent,
+    TopicSwitch,
+    UmbralPeerId,
     UmbralPublicKeyResponse
 };
 use crate::create_network::NODE_SEED_NUM;
@@ -41,7 +42,7 @@ use runtime::llm::{AgentSecretsJson, test_claude_query};
 pub struct EventLoop<'a> {
     seed: usize,
     swarm: Swarm<Behaviour>,
-    peer_id: PeerId, // My node's PeerInfo
+    peer_id: PeerId, // This node's PeerId
     node_name: &'a str,
     command_receiver: mpsc::Receiver<NodeCommand>,
     chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
@@ -123,7 +124,7 @@ impl<'a> EventLoop<'a> {
 
     fn log<S: std::fmt::Display>(&self, message: S) {
         println!("{} {}{} {}",
-            "EventLoop".green(), self.node_name.yellow(), ">".blue(),
+            "EventLoop".blue(), self.node_name.yellow(), ">".blue(),
             message
         );
     }
@@ -156,8 +157,8 @@ impl<'a> EventLoop<'a> {
                     // iterate and check which peers have stopped sending heartbeats
                     for (peer_id, peer_info) in self.peer_manager.peer_info.clone().iter() {
 
-                        // let last_hb = peer_info.peer_heartbeat_data.last_heartbeat;
-                        let duration = peer_info.peer_heartbeat_data.duration_since_last_heartbeat();
+                        // let last_hb = peer_info.heartbeat_data.last_heartbeat;
+                        let duration = peer_info.heartbeat_data.duration_since_last_heartbeat();
                         let node_name = get_node_name(&peer_id).magenta();
                         println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
 
@@ -309,7 +310,7 @@ impl<'a> EventLoop<'a> {
 
     fn remove_peer(&mut self, peer_id: &PeerId) {
         // Remove from PeerManager locally
-        self.peer_manager.remove_kfrags_peer(peer_id);
+        self.peer_manager.remove_kfrags_broadcast_peer(peer_id);
         self.peer_manager.remove_peer_info(peer_id);
         // Remove peer from GossipSub
         self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
@@ -318,6 +319,17 @@ impl<'a> EventLoop<'a> {
             .behaviour_mut()
             .kademlia
             .remove_record(&kad::RecordKey::new(&UmbralPeerId::from(peer_id).to_string()));
+    }
+
+    fn save_peer(&mut self,
+        sender_peer_id: &PeerId,
+        agent_name_nonce: AgentNameWithNonce,
+        frag_num: FragmentNumber
+    ) {
+        // Add to PeerManager locally
+        self.peer_manager.insert_peer_agent_fragments(&sender_peer_id, &agent_name_nonce, frag_num);
+        self.peer_manager.insert_kfrags_broadcast_peer(sender_peer_id.clone(), &agent_name_nonce, frag_num);
+        self.peer_manager.insert_peer_info(sender_peer_id.clone());
     }
 
 }

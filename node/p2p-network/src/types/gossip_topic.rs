@@ -28,22 +28,22 @@ lazy_static! {
     // kfrag/frag_num=<frag_name>/name=<agent_name>/nonce=<agent_nonce>
     // kfrag/frag_num=3/name=bob-4uh1/nonce=1
     static ref KFRAG_REGEX: Regex = Regex::new(
-        r"kfrag/frag_num=([0-9]*)/total_frags=([0-9]*)/name=([a-zA-Z0-9-_]*)/nonce=([0-9]*)"
+        r"kfrag/frag_num=([0-9]*)/total_frags=([0-9]*)/name=([a-zA-Z0-9-._]*)/nonce=([0-9]*)"
     ).unwrap();
 
     //// When broadcasting a topic_switch to a new agent, topic will be:
     // topic_switch/total_frags=<n>/name=<next_agent_name>/nonce=<agent_nonce>/prev_name=<prev_agent_name>/prev_nonce=<agent_nonce>/prev_peer_id=<prev_peer_id>
     static ref TOPIC_SWITCH_REGEX: Regex = Regex::new(
-        r"total_frags=([0-9]*)/threshold=([0-9]*)/name=([a-zA-Z0-9-_]*)/nonce=([a-zA-Z0-9]*)([/a-zA-Z0-9-_/=]*)"
+        r"total_frags=([0-9]*)/threshold=([0-9]*)/name=([a-zA-Z0-9-._]*)/nonce=([a-zA-Z0-9]*)([/a-zA-Z0-9-_/=]*)"
     ).unwrap();
 
     // For parsing the inner regex for topic_switch topics
     static ref PREV_TOPIC_REGEX: Regex = Regex::new(
-        r"/prev_name=([a-zA-Z0-9-_]*)/prev_nonce=([a-zA-Z0-9]*)/prev_peer_id=([a-zA-Z0-9-_]*)"
+        r"/prev_name=([a-zA-Z0-9-._]*)/prev_nonce=([a-zA-Z0-9]*)/prev_peer_id=([a-zA-Z0-9-_]*)"
     ).unwrap();
 
     static ref AGENT_NAME_NONCE_REGEX: Regex = Regex::new(
-        r"([a-zA-Z0-9-_]*)-([a-zA-Z0-9-_]*)"
+        r"([a-zA-Z0-9-._]*)-([a-zA-Z0-9-._]*)"
     ).unwrap();
 }
 
