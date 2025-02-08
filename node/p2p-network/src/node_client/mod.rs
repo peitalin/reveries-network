@@ -1,10 +1,14 @@
 
 mod commands;
 mod stdin_handlers;
+pub(crate) mod container_manager;
 
 pub use commands::NodeCommand;
+pub use container_manager::{ContainerManager, RestartReason};
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use color_eyre::eyre::eyre;
@@ -43,6 +47,8 @@ pub struct NodeClient<'a> {
     pub counter: u32,
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
+    // container app state
+    container_manager: Arc<ContainerManager>,
     // keep private in TEE
     agent_secrets_json: Option<AgentSecretsJson>,
     umbral_key: UmbralKey,
@@ -57,15 +63,19 @@ impl<'a> NodeClient<'a> {
         command_sender: mpsc::Sender<NodeCommand>,
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
+        container_manager: Arc<ContainerManager>
     ) -> Self {
 
         Self {
             peer_id: peer_id,
             node_name: node_name,
+            hosting_agent_name: None,
             counter: 0,
             command_sender: command_sender,
             chat_cmd_sender: chat_cmd_sender,
-            hosting_agent_name: None,
+            // manages container reboot
+            container_manager: container_manager,
+            // keep private in TEE
             agent_secrets_json: None,
             umbral_key: umbral_key,
             umbral_capsule: None,
@@ -238,7 +248,7 @@ impl<'a> NodeClient<'a> {
         Ok(())
     }
 
-    pub async fn broadcast_switch_topic_nc(&mut self, mut topic_switch: TopicSwitch) -> Result<usize> {
+    pub async fn broadcast_switch_topic_nc(&mut self, topic_switch: TopicSwitch) -> Result<usize> {
         // prove node has decrypted AgentSecret
         // prove node has TEE attestation
         // prove node has re-encrypted AgentSecret
@@ -627,5 +637,17 @@ impl<'a> NodeClient<'a> {
                 println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
             }
         }
+    }
+
+    pub async fn trigger_restart(&mut self) -> Result<RestartReason> {
+
+        let (sender, receiver) = oneshot::channel();
+        // self.container_manager.trigger_restart(RestartReason::Scheduled).await
+        self.command_sender.send(NodeCommand::TriggerRestart {
+            sender,
+            reason: RestartReason::HeartbeatFailure,
+        }).await.ok();
+
+        receiver.await.map_err(|e| anyhow!(e.to_string()))
     }
 }

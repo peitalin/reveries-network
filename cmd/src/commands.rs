@@ -54,4 +54,6 @@ pub enum CliArgument {
         #[clap(long)]
         peer_id: String,
     },
+
+    TriggerRestart
 }

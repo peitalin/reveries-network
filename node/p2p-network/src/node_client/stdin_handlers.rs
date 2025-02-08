@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 
 use crate::types::{AgentNameWithNonce, AgentNonce, ChatMessage, NextTopic, PrevTopic, TopicSwitch, TOPIC_DELIMITER};
+use crate::node_client::container_manager::RestartReason;
 use super::NodeClient;
 
 

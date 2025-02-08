@@ -20,6 +20,7 @@ services:
       - "8001:8001"
     stdin_open: true
     tty: true
+    restart: always
     command: >
       sh -c "ls && just run-node1"
 
@@ -33,6 +34,7 @@ services:
       - "8002:8002"
     stdin_open: true
     tty: true
+    restart: always
     command: >
       sh -c "ls && just run-node2"
 

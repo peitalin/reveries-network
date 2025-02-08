@@ -12,6 +12,7 @@ use jsonrpsee::{
     core::client::ClientT
 };
 use libp2p::PeerId;
+use p2p_network::node_client::RestartReason;
 use rpc::rpc_client::create_rpc_client;
 use p2p_network::{
     get_node_name,
@@ -120,6 +121,14 @@ async fn main() -> Result<()> {
             ).await?;
 
             log(format!("Topic switched: {:?}", response).green());
+        }
+
+        CliArgument::TriggerRestart => {
+            let response: RestartReason = client.request(
+                "trigger_restart",
+                rpc_params![]
+            ).await?;
+            log(format!("Triggered restart: {:?}", response).green());
         }
     }
 

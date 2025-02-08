@@ -5,7 +5,8 @@ mod commands;
 use color_eyre::Result;
 use clap::Parser;
 
-use p2p_network::{types::GossipTopic, create_network};
+use p2p_network::create_network;
+use p2p_network::node_client::ContainerManager;
 use commands::Opt;
 use rpc_server::run_server;
 
@@ -31,6 +32,7 @@ async fn main() -> Result<()> {
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
 
+
     node_client
         .start_listening_to_network(opt.listen_address)
         .await?;
@@ -45,9 +47,8 @@ async fn main() -> Result<()> {
         opt.secret_key_seed.or(Some(0)).unwrap() as i32
     );
 
-    let _ = match opt.generate_agent_secret {
-        Some(true) => node_client.encrypt_secret(agent_secrets.clone()),
-        _ => Ok(()),
+    if let Some(true) = opt.generate_agent_secret {
+        node_client.encrypt_secret(agent_secrets.clone()).ok();
     };
 
     let mut nc = node_client.clone();

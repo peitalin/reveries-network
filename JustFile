@@ -134,3 +134,9 @@ peers5:
 
 dockerup:
     docker compose up
+
+
+trigger-restart:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8001 \
+        trigger-restart \

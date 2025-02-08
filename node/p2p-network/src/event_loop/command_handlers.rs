@@ -121,7 +121,7 @@ impl<'a> EventLoop<'a> {
             } => {
 
                 self.log(format!(
-                    "\n>>> Adding peer to kfrags_peers({}, {}, {})",
+                    "\nAdding peer to kfrags_peers({}, {}, {})",
                     agent_name_nonce,
                     frag_num,
                     short_peer_id(&sender_peer_id)
@@ -223,6 +223,13 @@ impl<'a> EventLoop<'a> {
                     Ok(_) => sender.send(Ok(())),
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
+            }
+            NodeCommand::TriggerRestart { sender, reason } => {
+                self.log(format!("Restart Triggered. Reason: {:?}", reason).magenta());
+                sender.send(reason.clone()).ok();
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                // self.handle_internal_heartbeat_failure(heartbeat)
+                self.container_manager.trigger_restart(reason).await.ok();
             }
         }
 

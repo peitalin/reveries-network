@@ -16,6 +16,8 @@ use crate::types::{
     UmbralPublicKeyResponse
 };
 
+use super::container_manager::RestartReason;
+
 
 pub enum NodeCommand {
     /// Gets Umbral PublicKey(s) of peers that hold Agent fragments from Kademlia
@@ -79,4 +81,8 @@ pub enum NodeCommand {
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
+    TriggerRestart {
+        sender: oneshot::Sender<RestartReason>,
+        reason: RestartReason,
+    }
 }

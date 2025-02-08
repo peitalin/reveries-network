@@ -31,6 +31,7 @@ use crate::types::{
     UmbralPeerId,
     UmbralPublicKeyResponse
 };
+use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
 use crate::event_loop::peer_manager::AgentVessel;
@@ -62,6 +63,8 @@ pub struct EventLoop<'a> {
     pending: PendingRequests,
 
     topics: HashMap<String, IdentTopic>,
+
+    container_manager: std::sync::Arc<ContainerManager>
 }
 
 struct PendingRequests {
@@ -103,6 +106,7 @@ impl<'a> EventLoop<'a> {
         network_event_sender: mpsc::Sender<NetworkLoopEvent>,
         umbral_key: UmbralKey,
         internal_heartbeat_fail_receiver: tokio::sync::mpsc::Receiver<String>,
+        container_manager: std::sync::Arc<ContainerManager>
     ) -> Self {
 
         Self {
@@ -119,6 +123,7 @@ impl<'a> EventLoop<'a> {
             peer_manager: PeerManager::new(&node_name),
             pending: PendingRequests::new(),
             topics: HashMap::new(),
+            container_manager,
         }
     }
 
@@ -293,9 +298,14 @@ impl<'a> EventLoop<'a> {
         // Internal heartbeat failure is when this node fails to send heartbeats to external
         // nodes. It realizes it is no longer connected to the network.
         self.log(format!("{}", heartbeat));
-        println!("\tTodo: initiating LLM runtime shutdown...");
-        println!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...");
-        println!("\tTodo: Delete agent secrets, to prevent duplicate agents.");
+        self.log(format!("\tTodo: initiating LLM runtime shutdown...").red());
+        self.log(format!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...").red());
+        self.log(format!("\tTodo: Delete agent secrets, to prevent duplicate agents.").red());
+
+        self.container_manager
+            .trigger_restart(RestartReason::ResourceExhaustion)
+            .await.ok();
+
         // TODO
         // Shutdown the LLM runtime (if in Vessel Mode), but
         // continue attempting to broadcast the agent_secrets reencryption fragments and ciphertexts.

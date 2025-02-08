@@ -14,10 +14,12 @@ use libp2p::{
     gossipsub,
     StreamProtocol,
 };
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 pub use crate::types::UmbralPeerId;
-use crate::SendError;
+use crate::{node_client, SendError};
 use crate::types::NetworkLoopEvent;
 use crate::behaviour::Behaviour;
 use crate::event_loop::EventLoop;
@@ -25,7 +27,10 @@ use crate::event_loop::heartbeat_behaviour::{
     HeartbeatBehaviour,
     HeartbeatConfig
 };
-use crate::node_client::NodeClient;
+use crate::node_client::{
+    NodeClient,
+    ContainerManager
+};
 
 thread_local! {
     pub static NODE_SEED_NUM: std::cell::RefCell<usize> = std::cell::RefCell::new(1);
@@ -35,8 +40,11 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new<'a>(secret_key_seed: Option<usize>)
-    -> Result<(NodeClient<'a>, mpsc::Receiver<NetworkLoopEvent>, EventLoop<'a>)> {
+pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
+    NodeClient<'a>,
+    mpsc::Receiver<NetworkLoopEvent>,
+    EventLoop<'a>
+)> {
 
     // Create a public/private key pair, either random or based on a seed.
     let (
@@ -136,14 +144,24 @@ pub async fn new<'a>(secret_key_seed: Option<usize>)
         .kademlia
         .set_mode(Some(kad::Mode::Server));
 
+
+    let container_manager = std::sync::Arc::new(
+        ContainerManager::new(
+            std::time::Duration::from_secs(30),
+        )
+    );
+
+    let node_client = NodeClient::new(
+        peer_id,
+        &node_name,
+        command_sender,
+        chat_cmd_sender,
+        umbral_key.clone(),
+        container_manager.clone()
+    );
+
     Ok((
-        NodeClient::new(
-            peer_id,
-            &node_name,
-            command_sender,
-            chat_cmd_sender,
-            umbral_key.clone()
-        ),
+        node_client,
         network_events_receiver,
         EventLoop::new(
             seed,
@@ -155,6 +173,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>)
             network_events_sender,
             umbral_key,
             heartbeat_failure_receiver,
+            container_manager
         ),
     ))
 }

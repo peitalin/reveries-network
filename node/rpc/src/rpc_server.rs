@@ -4,7 +4,7 @@ use p2p_network::types::{AgentNameWithNonce, NextTopic, PrevTopic, TopicSwitch};
 use serde::{Deserialize, Serialize};
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server};
-use p2p_network::node_client::NodeClient;
+use p2p_network::node_client::{NodeClient, RestartReason};
 use std::str::FromStr;
 use libp2p::PeerId;
 
@@ -127,6 +127,20 @@ pub async fn run_server<'a: 'static>(
                 }).await.map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<usize, RpcError>(result)
+        }
+    })?;
+
+    // Topic Switch
+    let nc4 = network_client.clone();
+	module.register_async_method("trigger_restart", move |params, _, _| {
+
+        let mut nc4 = nc4.clone();
+        async move {
+            let result = nc4
+                .trigger_restart().await
+                .map_err(|e| RpcError(e.to_string()))?;
+
+            Ok::<RestartReason, RpcError>(result)
         }
     })?;
 
