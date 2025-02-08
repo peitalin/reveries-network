@@ -1,0 +1,63 @@
+
+services:
+  # runtime:
+  #   image: 1up
+  #   expose:
+  #     - "8001"
+  #     - "8002"
+  #     - "8003"
+  #     - "8004"
+  #     - "8005"
+  #   command: >
+  #     sh -c "ls && just run-runtime"
+
+  node1:
+    image: 1up
+    expose:
+      - "8001"
+      - "80"
+    ports:
+      - "8001:8001"
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just run-node1"
+
+
+  node2:
+    image: 1up
+    expose:
+      - "8002"
+      - "80"
+    ports:
+      - "8002:8002"
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just run-node2"
+
+
+  # node3:
+  #   image: 1up
+  #   expose:
+  #     - "8003"
+  #     - "80"
+  #   ports:
+  #     - "8003:8003"
+  #   stdin_open: true
+  #   tty: true
+  #   command: >
+  #     sh -c "ls && just run-node3"
+
+
+  # node4:
+  #   image: 1up
+  #   expose:
+  #     - "8004"
+  #     - "80"
+  #   ports:
+  #     - "8004:8004"
+  #   stdin_open: true
+  #   tty: true
+  #   command: >
+  #     sh -c "ls && just run-node4"

@@ -122,4 +122,15 @@ peers4:
         --rpc-server-address 0.0.0.0:8004 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 0
+        --agent-nonce 1
+
+peers5:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8005 \
+        get-kfrag-broadcast-peers \
+        --agent-name beatrix \
+        --agent-nonce 1
+
+
+dockerup:
+    docker compose up
