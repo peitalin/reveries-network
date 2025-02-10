@@ -1,7 +1,6 @@
 
 use std::collections::HashMap;
 use color_eyre::eyre::anyhow;
-use colored::Colorize;
 use libp2p::gossipsub;
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
@@ -13,11 +12,11 @@ use crate::types::{
     TopicSwitch,
 };
 use crate::create_network::NODE_SEED_NUM;
-use super::EventLoop;
+use super::NetworkEvents;
 
 
 
-impl<'a> EventLoop<'a> {
+impl<'a> NetworkEvents<'a> {
     // When receiving a Gossipsub event/message
     pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) {
         match gevent {
@@ -123,6 +122,7 @@ impl<'a> EventLoop<'a> {
                 }
             }
             gossipsub::Event::GossipsubNotSupported {..} => {}
+            gossipsub::Event::SlowPeer {..} => {}
             gossipsub::Event::Unsubscribed { peer_id, topic } => {}
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
@@ -204,13 +204,9 @@ impl<'a> EventLoop<'a> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
-                if let Some(_) = self.swarm.behaviour_mut().gossipsub.unsubscribe(&topic).ok() {
-                    self.topics.remove(topic_str)
-                        .map(|t| t.to_string())
-                } else {
-                    eprintln!("Could not unsubscribe from topic: {}", topic_str);
-                    None
-                }
+                self.swarm.behaviour_mut().gossipsub.unsubscribe(&topic);
+                self.topics.remove(topic_str)
+                    .map(|t| t.to_string())
             })
             .collect()
     }

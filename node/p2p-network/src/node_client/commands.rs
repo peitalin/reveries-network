@@ -81,7 +81,7 @@ pub enum NodeCommand {
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
-    TriggerRestart {
+    SimulateNodeFailure {
         sender: oneshot::Sender<RestartReason>,
         reason: RestartReason,
     }

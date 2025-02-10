@@ -1,3 +1,5 @@
+pub(crate) mod heartbeat_behaviour;
+
 use color_eyre::Result;
 use libp2p::{
     gossipsub,
@@ -7,7 +9,6 @@ use libp2p::{
     swarm::NetworkBehaviour
 };
 use crate::types::{FragmentRequestEnum, FragmentResponseEnum};
-use crate::event_loop::heartbeat_behaviour;
 
 
 /// Handles all p2p protocols

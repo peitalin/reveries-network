@@ -2,15 +2,16 @@ mod chat;
 mod swarm_handlers;
 mod command_handlers;
 mod gossipsub_handlers;
+mod kademlia_handlers;
 mod request_response_handlers;
-pub(crate) mod heartbeat_behaviour;
 pub(crate) mod peer_manager;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use color_eyre::Result;
 use colored::Colorize;
 use futures::StreamExt;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use libp2p::{
     gossipsub::IdentTopic,
     kad,
@@ -26,7 +27,7 @@ use crate::types::{
     ChatMessage,
     FragmentNumber,
     GossipTopic,
-    NetworkLoopEvent,
+    NetworkEvent,
     TopicSwitch,
     UmbralPeerId,
     UmbralPublicKeyResponse
@@ -34,25 +35,25 @@ use crate::types::{
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
-use crate::event_loop::peer_manager::AgentVessel;
+use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
 use runtime::llm::{AgentSecretsJson, test_claude_query};
 
-pub struct EventLoop<'a> {
+pub struct NetworkEvents<'a> {
     seed: usize,
     swarm: Swarm<Behaviour>,
     peer_id: PeerId, // This node's PeerId
     node_name: &'a str,
     command_receiver: mpsc::Receiver<NodeCommand>,
     chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
-    network_event_sender: mpsc::Sender<NetworkLoopEvent>,
+    network_event_sender: mpsc::Sender<NetworkEvent>,
 
     // Umbral fragments
     umbral_key: UmbralKey,
 
-    internal_heartbeat_fail_receiver: tokio::sync::mpsc::Receiver<String>,
+    internal_heartbeat_fail_receiver: mpsc::Receiver<String>,
 
     interval: time::Interval,
 
@@ -64,7 +65,7 @@ pub struct EventLoop<'a> {
 
     topics: HashMap<String, IdentTopic>,
 
-    container_manager: std::sync::Arc<ContainerManager>
+    container_manager: Arc<RwLock<ContainerManager>>
 }
 
 struct PendingRequests {
@@ -94,7 +95,7 @@ impl PendingRequests {
     }
 }
 
-impl<'a> EventLoop<'a> {
+impl<'a> NetworkEvents<'a> {
 
     pub fn new(
         seed: usize,
@@ -103,10 +104,10 @@ impl<'a> EventLoop<'a> {
         node_name: &'a str,
         command_receiver: mpsc::Receiver<NodeCommand>,
         chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
-        network_event_sender: mpsc::Sender<NetworkLoopEvent>,
+        network_event_sender: mpsc::Sender<NetworkEvent>,
         umbral_key: UmbralKey,
-        internal_heartbeat_fail_receiver: tokio::sync::mpsc::Receiver<String>,
-        container_manager: std::sync::Arc<ContainerManager>
+        internal_heartbeat_fail_receiver: mpsc::Receiver<String>,
+        container_manager: Arc<RwLock<ContainerManager>>
     ) -> Self {
 
         Self {
@@ -129,7 +130,7 @@ impl<'a> EventLoop<'a> {
 
     fn log<S: std::fmt::Display>(&self, message: S) {
         println!("{} {}{} {}",
-            "EventLoop".blue(), self.node_name.yellow(), ">".blue(),
+            "NetworkEvents".blue(), self.node_name.yellow(), ">".blue(),
             message
         );
     }
@@ -153,7 +154,6 @@ impl<'a> EventLoop<'a> {
                         .iter().map(|p| format!("{}", get_node_name(p.0)))
                         .collect::<Vec<String>>();
 
-                    // self.log(format!("Connected peers: {:?}", peer_ids));
                     println!("Connected peers: {:?}", peer_ids);
 
                     let mut failed_agents = vec![];
@@ -168,7 +168,7 @@ impl<'a> EventLoop<'a> {
                         println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
 
                         if duration > max_time_before_respawn {
-                            if let Some(AgentVessel {
+                            if let Some(AgentVesselTransferInfo {
                                 agent_name_nonce: prev_agent,
                                 total_frags,
                                 next_vessel_peer_id,
@@ -203,13 +203,16 @@ impl<'a> EventLoop<'a> {
                                             GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 3).to_string(),
                                         ]);
 
-                                        // Dispatch a Respawn(agent_name) event to EventLoop
+                                        // Dispatch a Respawn(agent_name) event to NetworkEvents
                                         let _ = self.network_event_sender
-                                            .send(NetworkLoopEvent::RespawnRequiredRequest {
-                                                agent_name_nonce: prev_agent.clone(),
-                                                total_frags: *total_frags,
-                                                prev_peer_id: prev_vessel_peer_id.clone()
-                                            }).await;
+                                            .send(NetworkEvent::RespawnRequiredRequest(
+                                                AgentVesselTransferInfo {
+                                                    agent_name_nonce: prev_agent.clone(),
+                                                    total_frags: *total_frags,
+                                                    next_vessel_peer_id: *next_vessel_peer_id,
+                                                    prev_vessel_peer_id: prev_vessel_peer_id.clone()
+                                                }
+                                            )).await;
 
                                         self.log(format!("{} '{}' {} {}", "Respawning agent".blue(),
                                             prev_agent.to_string().green(),
@@ -233,7 +236,7 @@ impl<'a> EventLoop<'a> {
                                         // });
 
                                         // let _ = self.network_event_sender
-                                        //     .send(NetworkLoopEvent::ReBroadcastKfrags(agent_name.to_owned())).await;
+                                        //     .send(NetworkEvent::ReBroadcastKfrags(agent_name.to_owned())).await;
                                         // TODO: once broadcast happens, tell peers to update their PeerManager fields
                                         // - kfrags_peers
                                         // - peers_to_agent_frags
@@ -247,6 +250,7 @@ impl<'a> EventLoop<'a> {
                                         let frag_num = self.seed % total_frags;
                                         self.log(format!("\nNext frag_num: {}\n", frag_num));
 
+                                        // Broadcast new agent fragments
                                         self.subscribe_topics(&vec![
                                             GossipTopic::BroadcastKfrag(next_agent, *total_frags, frag_num).to_string(),
                                         ]);
@@ -276,7 +280,9 @@ impl<'a> EventLoop<'a> {
                     }
 
                 }
-                swarm_event = self.swarm.select_next_some() => self.handle_swarm_event(swarm_event).await,
+                swarm_event = self.swarm.select_next_some() => {
+                    self.handle_swarm_event(swarm_event).await;
+                },
                 heartbeat_fail = self.internal_heartbeat_fail_receiver.recv() => match heartbeat_fail {
                     // internal Heartbeat failure
                     Some(hb) => self.handle_internal_heartbeat_failure(hb).await,
@@ -302,9 +308,13 @@ impl<'a> EventLoop<'a> {
         self.log(format!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...").red());
         self.log(format!("\tTodo: Delete agent secrets, to prevent duplicate agents.").red());
 
-        self.container_manager
-            .trigger_restart(RestartReason::ResourceExhaustion)
-            .await.ok();
+        self.swarm.behaviour_mut().heartbeat.increment_network_fail_count(10);
+
+        // self.container_manager
+        //     .write()
+        //     .await
+        //     .trigger_restart(RestartReason::NetworkHeartbeatFailure)
+        //     .await.ok();
 
         // TODO
         // Shutdown the LLM runtime (if in Vessel Mode), but
@@ -340,6 +350,13 @@ impl<'a> EventLoop<'a> {
         self.peer_manager.insert_peer_agent_fragments(&sender_peer_id, &agent_name_nonce, frag_num);
         self.peer_manager.insert_kfrags_broadcast_peer(sender_peer_id.clone(), &agent_name_nonce, frag_num);
         self.peer_manager.insert_peer_info(sender_peer_id.clone());
+    }
+
+    pub(crate) async fn simulate_network_failure(&mut self, num_failures: u32) {
+
+        self.swarm.behaviour_mut()
+            .heartbeat
+            .increment_network_fail_count(num_failures);
     }
 
 }

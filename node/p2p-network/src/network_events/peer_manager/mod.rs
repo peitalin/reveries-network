@@ -5,26 +5,23 @@ use std::collections::{HashMap, HashSet};
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use colored::Colorize;
 use color_eyre::owo_colors::OwoColorize;
-use crate::types::{AgentName, AgentNonce, CapsuleFragmentMessage, FragmentNumber};
-
-use super::heartbeat_behaviour::heartbeat_handler::TeeAttestation;
+use crate::types::{CapsuleFragmentMessage, FragmentNumber};
+use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 
 
 #[derive(Clone, Debug)]
-pub(crate) struct PeerHeartbeatInfo {
+pub(crate) struct PeerInfo {
     pub peer_id: PeerId,
-    // pub peer_umbral_public_key: Option<umbral_pre::PublicKey>,
     pub heartbeat_data: heartbeat_data::HeartBeatData,
     /// name of the Agent this peer is currently hosting (if any)
-    pub agent_vessel: Option<AgentVessel>,
+    pub agent_vessel: Option<AgentVesselTransferInfo>,
     pub client_version: Option<String>,
 }
 
-impl PeerHeartbeatInfo {
+impl PeerInfo {
     pub fn new(peer_id: PeerId, heartbeat_avg_window: u32) -> Self {
         Self {
             peer_id,
-            // peer_umbral_public_key: None,
             heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
             agent_vessel: None,
             client_version: None,
@@ -33,7 +30,7 @@ impl PeerHeartbeatInfo {
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub struct AgentVessel {
+pub struct AgentVesselTransferInfo {
     pub agent_name_nonce: AgentNameWithNonce,
     pub total_frags: usize,
     pub prev_vessel_peer_id: PeerId,
@@ -51,7 +48,7 @@ pub struct AgentFragment {
 pub(crate) struct PeerManager<'a> {
     pub(crate) node_name: &'a str,
     // Tracks Vessel Nodes
-    pub(crate) peer_info: HashMap<PeerId, PeerHeartbeatInfo>,
+    pub(crate) peer_info: HashMap<PeerId, PeerInfo>,
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
     // pub(crate) peers_holding_kfrags: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Track which Peers are subscribed to whith AgentFragment broadcast channels:
@@ -86,7 +83,7 @@ impl<'a> PeerManager<'a> {
 
     pub fn insert_peer_info(&mut self, peer_id: PeerId) {
         self.peer_info
-            .insert(peer_id, PeerHeartbeatInfo::new(peer_id, self.avg_window));
+            .insert(peer_id, PeerInfo::new(peer_id, self.avg_window));
     }
 
     pub fn remove_peer_info(&mut self, peer_id: &PeerId) {
@@ -108,7 +105,7 @@ impl<'a> PeerManager<'a> {
         match self.peer_info.get_mut(&vessel_peer_id) {
             None => {},
             Some(peer_info) => {
-                peer_info.agent_vessel = Some(AgentVessel {
+                peer_info.agent_vessel = Some(AgentVesselTransferInfo {
                     agent_name_nonce: agent_name_nonce.clone(),
                     total_frags: total_frags.clone(),
                     prev_vessel_peer_id: vessel_peer_id,
@@ -118,7 +115,7 @@ impl<'a> PeerManager<'a> {
         }
     }
 
-    pub fn get_connected_peers(&self) -> &HashMap<PeerId, PeerHeartbeatInfo> {
+    pub fn get_connected_peers(&self) -> &HashMap<PeerId, PeerInfo> {
         &self.peer_info
     }
 
@@ -128,7 +125,7 @@ impl<'a> PeerManager<'a> {
                 peer_info.heartbeat_data.update(heartbeat_payload);
             }
             None => {
-                let mut new_peer_info = PeerHeartbeatInfo::new(peer_id, self.avg_window); // heartbeat_avg_window
+                let mut new_peer_info = PeerInfo::new(peer_id, self.avg_window); // heartbeat_avg_window
                 new_peer_info.heartbeat_data.update(heartbeat_payload);
                 self.peer_info.insert(peer_id, new_peer_info);
             }

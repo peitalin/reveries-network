@@ -14,7 +14,7 @@ pub enum RestartReason {
     Scheduled,
     HealthCheck,
     ResourceExhaustion,
-    HeartbeatFailure,
+    NetworkHeartbeatFailure,
     Error(String),
 }
 
@@ -22,20 +22,22 @@ pub enum RestartReason {
 pub struct ContainerManager {
     shutdown_signal: broadcast::Sender<RestartReason>,
     is_shutting_down: Arc<AtomicBool>,
-    max_shutdown_duration: Duration,
+    max_duration_before_shutdown: Duration,
+    pub simulate_network_failure: bool,
     pub app_state: Arc<RwLock<AppState>>,
 }
 
 impl ContainerManager {
 
-    pub fn new(max_shutdown_duration: Duration) -> Self {
+    pub fn new(max_duration_before_shutdown: Duration) -> Self {
 
         let (shutdown_signal, _) = broadcast::channel(1);
 
         ContainerManager {
             shutdown_signal,
             is_shutting_down: Arc::new(AtomicBool::new(false)),
-            max_shutdown_duration,
+            max_duration_before_shutdown,
+            simulate_network_failure: false,
             app_state: Arc::new(RwLock::new(AppState::default())),
         }
     }
@@ -70,7 +72,7 @@ impl ContainerManager {
         // let start = std::time::Instant::now();
         // let state = self.app_state.clone();
 
-        // while start.elapsed() < self.max_shutdown_duration {
+        // while start.elapsed() < self.max_duration_before_shutdown {
         //     let current_state = state.read().await;
         //     if current_state.pending_operations == 0 && current_state.connections == 0 {
         //         return Ok(());
@@ -94,6 +96,10 @@ impl ContainerManager {
         // Save to an ecrypted persistent volume or on MPC network
         // encrypt and save somewhere threshold decryptable by MPC network
         Ok(())
+    }
+
+    pub(crate) fn set_simulate_network_failure(&mut self, is_network_down: bool) {
+        self.simulate_network_failure = is_network_down;
     }
 
 }

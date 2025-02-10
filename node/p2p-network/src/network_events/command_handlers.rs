@@ -15,10 +15,10 @@ use crate::types::{
 use crate::short_peer_id;
 use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
-use super::EventLoop;
+use super::NetworkEvents;
 
 
-impl<'a> EventLoop<'a> {
+impl<'a> NetworkEvents<'a> {
 
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
@@ -148,6 +148,8 @@ impl<'a> EventLoop<'a> {
                     .collect::<Vec<&PeerId>>();
 
                 for peer_id in public_keys {
+                    // Umbral PKs are derived deterministically from the same seed as PeerId
+                    // So we can store Umbral Pks and PeerIds on kademlia
                     let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
                     let _query_id = self.swarm.behaviour_mut()
                         .kademlia
@@ -224,12 +226,13 @@ impl<'a> EventLoop<'a> {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            NodeCommand::TriggerRestart { sender, reason } => {
-                self.log(format!("Restart Triggered. Reason: {:?}", reason).magenta());
+            NodeCommand::SimulateNodeFailure { sender, reason } => {
+                self.log("Simulating Network Failure".magenta());
+                self.log(format!("Triggering restart in 1s: {:?}", reason).magenta());
                 sender.send(reason.clone()).ok();
                 std::thread::sleep(std::time::Duration::from_millis(1000));
-                // self.handle_internal_heartbeat_failure(heartbeat)
-                self.container_manager.trigger_restart(reason).await.ok();
+
+                self.simulate_network_failure(10).await;
             }
         }
 

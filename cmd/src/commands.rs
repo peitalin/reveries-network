@@ -55,5 +55,5 @@ pub enum CliArgument {
         peer_id: String,
     },
 
-    TriggerRestart
+    TriggerNodeFailure
 }

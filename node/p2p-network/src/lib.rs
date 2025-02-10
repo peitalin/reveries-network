@@ -1,6 +1,6 @@
 pub mod behaviour;
 pub mod create_network;
-mod event_loop;
+mod network_events;
 pub mod node_client;
 pub mod types;
 use libp2p::PeerId;

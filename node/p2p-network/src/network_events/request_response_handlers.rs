@@ -2,20 +2,20 @@ use libp2p::request_response;
 use colored::Colorize;
 use crate::SendError;
 use crate::types::{
-    NetworkLoopEvent,
+    NetworkEvent,
     FragmentRequestEnum,
     FragmentResponseEnum
 };
-use super::EventLoop;
+use super::NetworkEvents;
 
 
 //// Request Response Protocol
-impl<'a> EventLoop<'a> {
+impl<'a> NetworkEvents<'a> {
     pub(super) async fn handle_request_response(
         &mut self,
-        event: request_response::Event<FragmentRequestEnum, FragmentResponseEnum>,
+        reqres_event: request_response::Event<FragmentRequestEnum, FragmentResponseEnum>,
     ) {
-        match event {
+        match reqres_event {
             request_response::Event::Message { message, .. } => {
 
                 match message {
@@ -35,7 +35,7 @@ impl<'a> EventLoop<'a> {
                                 sender_peer_id
                             ) => {
                                 self.network_event_sender
-                                    .send(NetworkLoopEvent::InboundCapsuleFragRequest {
+                                    .send(NetworkEvent::InboundCapsuleFragRequest {
                                         agent_name_nonce,
                                         frag_num,
                                         sender_peer_id,
@@ -50,7 +50,7 @@ impl<'a> EventLoop<'a> {
                                 sender_peer_id
                             ) => {
                                 self.network_event_sender
-                                    .send(NetworkLoopEvent::SaveKfragProviderRequest {
+                                    .send(NetworkEvent::SaveKfragProviderRequest {
                                         agent_name_nonce,
                                         frag_num,
                                         sender_peer_id,
@@ -91,7 +91,8 @@ impl<'a> EventLoop<'a> {
             request_response::Event::OutboundFailure {
                 request_id,
                 error,
-                peer
+                peer,
+                connection_id,
             } => {
                 self.pending.request_fragments
                     .remove(&request_id)

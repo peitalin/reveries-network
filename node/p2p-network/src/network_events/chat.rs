@@ -1,7 +1,7 @@
 use crate::types::ChatMessage;
-use super::EventLoop;
+use super::NetworkEvents;
 
-impl<'a> EventLoop<'a> {
+impl<'a> NetworkEvents<'a> {
 
     pub(super) async fn broadcast_chat_message(&mut self, message: ChatMessage) {
 

@@ -132,12 +132,12 @@ pub async fn run_server<'a: 'static>(
 
     // Topic Switch
     let nc4 = network_client.clone();
-	module.register_async_method("trigger_restart", move |params, _, _| {
+	module.register_async_method("trigger_node_failure", move |params, _, _| {
 
         let mut nc4 = nc4.clone();
         async move {
             let result = nc4
-                .trigger_restart().await
+                .simulate_node_failure().await
                 .map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<RestartReason, RpcError>(result)

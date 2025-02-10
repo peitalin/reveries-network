@@ -20,7 +20,7 @@ colored = { version = "3.0.0" }
 dotenv = "0.15.0"
 futures = "0.3.30"
 hex = "0.4.3"
-libp2p = { version = "0.55", features = [
+libp2p = { version = "0.55.0", features = [
     "tokio",
     "cbor",
     "dns",
@@ -38,7 +38,7 @@ libp2p = { version = "0.55", features = [
     "serde",
     "yamux"
 ] }
-libp2p-kad = { version = "0.46.2" }
+libp2p-kad = { version = "0.47.0" }
 jsonrpsee = { version = "0.24.7", features = ["full"] }
 rand = "0.8.5"
 serde = { version = "1.0", features = ["derive"] }

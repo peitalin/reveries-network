@@ -1,30 +1,26 @@
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use crate::types::{AgentNameWithNonce, FragmentNumber};
 use crate::SendError;
 
 
 #[derive(Debug)]
-pub enum NetworkLoopEvent {
+pub enum NetworkEvent {
     InboundCapsuleFragRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         sender_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
-    RespawnRequiredRequest {
-        agent_name_nonce: AgentNameWithNonce, // with prev agent_nonce
-        total_frags: usize,
-        prev_peer_id: PeerId
-    },
+    RespawnRequiredRequest(AgentVesselTransferInfo),
     SaveKfragProviderRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         sender_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
-    ReBroadcastKfrags(AgentNameWithNonce),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

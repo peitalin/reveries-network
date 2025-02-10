@@ -8,7 +8,6 @@ pub use container_manager::{ContainerManager, RestartReason};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use color_eyre::eyre::eyre;
@@ -18,13 +17,14 @@ use hex;
 use libp2p::{core::Multiaddr, PeerId};
 
 use crate::get_node_name;
+use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use crate::types::{
     AgentNameWithNonce,
     CapsuleFragmentMessage,
     ChatMessage,
     GossipTopic,
     KeyFragmentMessage,
-    NetworkLoopEvent,
+    NetworkEvent,
     NextTopic,
     PrevTopic,
     TopicSwitch,
@@ -48,7 +48,7 @@ pub struct NodeClient<'a> {
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
     // container app state
-    container_manager: Arc<ContainerManager>,
+    container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
     // keep private in TEE
     agent_secrets_json: Option<AgentSecretsJson>,
     umbral_key: UmbralKey,
@@ -63,7 +63,7 @@ impl<'a> NodeClient<'a> {
         command_sender: mpsc::Sender<NodeCommand>,
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
-        container_manager: Arc<ContainerManager>
+        container_manager: Arc<tokio::sync::RwLock<ContainerManager>>
     ) -> Self {
 
         Self {
@@ -101,12 +101,12 @@ impl<'a> NodeClient<'a> {
 
     pub async fn listen_to_network_events(
         &mut self,
-        mut network_event_receiver: mpsc::Receiver<NetworkLoopEvent>
+        mut network_event_receiver: mpsc::Receiver<NetworkEvent>
     ) -> Result<()> {
         loop {
             match network_event_receiver.recv().await {
                 // Reply with the content of the file on incoming requests.
-                Some(NetworkLoopEvent::InboundCapsuleFragRequest {
+                Some(NetworkEvent::InboundCapsuleFragRequest {
                     agent_name_nonce,
                     frag_num,
                     sender_peer_id,
@@ -125,11 +125,14 @@ impl<'a> NodeClient<'a> {
                         .expect("Command receiver not to be dropped.");
                 }
 
-                Some(NetworkLoopEvent::RespawnRequiredRequest {
-                    agent_name_nonce, // previous agent_name_nonce
-                    total_frags,
-                    prev_peer_id
-                }) => {
+                Some(NetworkEvent::RespawnRequiredRequest(
+                    AgentVesselTransferInfo {
+                        agent_name_nonce, // previous agent_name_nonce
+                        total_frags,
+                        next_vessel_peer_id,
+                        prev_vessel_peer_id,
+                    }
+                )) => {
 
                     let next_nonce = agent_name_nonce.1 + 1;
                     let next_agent_name_nonce = AgentNameWithNonce(
@@ -139,7 +142,7 @@ impl<'a> NodeClient<'a> {
 
                     match self.request_respawn(
                         agent_name_nonce.clone(), // prev agent_name_nonce
-                        Some(prev_peer_id)
+                        Some(prev_vessel_peer_id)
                     ).await {
                         Err(e) => {
                             self.log(format!("Error respawning agent in new vessel: {}", e).red());
@@ -157,7 +160,7 @@ impl<'a> NodeClient<'a> {
                                 },
                                 prev_topic: Some(PrevTopic {
                                     agent_name_nonce: agent_name_nonce,
-                                    peer_id: Some(prev_peer_id)
+                                    peer_id: Some(prev_vessel_peer_id)
                                 }),
                             };
                             let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
@@ -188,7 +191,7 @@ impl<'a> NodeClient<'a> {
 
                 // After broadcasting kfrags, peers should identify the vessel node and
                 // let it know this node has a fragment.
-                Some(NetworkLoopEvent::SaveKfragProviderRequest {
+                Some(NetworkEvent::SaveKfragProviderRequest {
                     agent_name_nonce,
                     frag_num,
                     sender_peer_id,
@@ -207,10 +210,6 @@ impl<'a> NodeClient<'a> {
                         })
                         .await
                         .expect("Command receiver not to be dropped.");
-                }
-
-                Some(NetworkLoopEvent::ReBroadcastKfrags(agent_name_nonce)) => {
-                    self.broadcast_kfrags(agent_name_nonce, 3, 2).await.expect("respawn err");
                 }
 
                 e => {
@@ -639,13 +638,13 @@ impl<'a> NodeClient<'a> {
         }
     }
 
-    pub async fn trigger_restart(&mut self) -> Result<RestartReason> {
+    pub async fn simulate_node_failure(&mut self) -> Result<RestartReason> {
 
         let (sender, receiver) = oneshot::channel();
-        // self.container_manager.trigger_restart(RestartReason::Scheduled).await
-        self.command_sender.send(NodeCommand::TriggerRestart {
+
+        self.command_sender.send(NodeCommand::SimulateNodeFailure {
             sender,
-            reason: RestartReason::HeartbeatFailure,
+            reason: RestartReason::NetworkHeartbeatFailure,
         }).await.ok();
 
         receiver.await.map_err(|e| anyhow!(e.to_string()))

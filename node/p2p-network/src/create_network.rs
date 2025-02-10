@@ -14,16 +14,15 @@ use libp2p::{
     gossipsub,
     StreamProtocol,
 };
+use tokio::sync::{mpsc, RwLock};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc;
 
 pub use crate::types::UmbralPeerId;
-use crate::{node_client, SendError};
-use crate::types::NetworkLoopEvent;
+use crate::SendError;
+use crate::types::NetworkEvent;
 use crate::behaviour::Behaviour;
-use crate::event_loop::EventLoop;
-use crate::event_loop::heartbeat_behaviour::{
+use crate::network_events::NetworkEvents;
+use crate::behaviour::heartbeat_behaviour::{
     HeartbeatBehaviour,
     HeartbeatConfig
 };
@@ -42,8 +41,8 @@ thread_local! {
 /// - The network task driving the network itself.
 pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
     NodeClient<'a>,
-    mpsc::Receiver<NetworkLoopEvent>,
-    EventLoop<'a>
+    mpsc::Receiver<NetworkEvent>,
+    NetworkEvents<'a>
 )> {
 
     // Create a public/private key pair, either random or based on a seed.
@@ -66,11 +65,11 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default
-        )?
+        // .with_tcp(
+        //     tcp::Config::default(),
+        //     noise::Config::new,
+        //     yamux::Config::default
+        // )?
         // QUIC has it's own connection timeout.
         .with_quic()
         .with_behaviour(|key| {
@@ -145,11 +144,11 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
         .set_mode(Some(kad::Mode::Server));
 
 
-    let container_manager = std::sync::Arc::new(
+    let container_manager = Arc::new(RwLock::new(
         ContainerManager::new(
             std::time::Duration::from_secs(30),
         )
-    );
+    ));
 
     let node_client = NodeClient::new(
         peer_id,
@@ -163,7 +162,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
     Ok((
         node_client,
         network_events_receiver,
-        EventLoop::new(
+        NetworkEvents::new(
             seed,
             swarm,
             peer_id,

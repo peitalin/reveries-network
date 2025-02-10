@@ -2,11 +2,13 @@ mod commands;
 
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ord;
+use futures::TryFutureExt;
 use itertools::Itertools;
 use commands::{Cmd, CliArgument};
 use clap::Parser;
 use colored::Colorize;
-use color_eyre::Result;
+use color_eyre::{Result, eyre};
+use jsonrpsee::core::params;
 use jsonrpsee::{
     rpc_params,
     core::client::ClientT
@@ -123,12 +125,16 @@ async fn main() -> Result<()> {
             log(format!("Topic switched: {:?}", response).green());
         }
 
-        CliArgument::TriggerRestart => {
-            let response: RestartReason = client.request(
-                "trigger_restart",
+        CliArgument::TriggerNodeFailure => {
+            match client.request::<RestartReason, params::ArrayParams>(
+                "trigger_node_failure",
                 rpc_params![]
-            ).await?;
-            log(format!("Triggered restart: {:?}", response).green());
+            ).await {
+                Ok(r) => panic!("Program should have exited."),
+                Err(e) => {
+                    log(format!("Triggered node failure: {:?}", e).green());
+                }
+            }
         }
     }
 

@@ -1,9 +1,11 @@
 pub(crate) mod heartbeat_handler;
 mod config;
+mod tee_quote_parser;
 
 pub use config::HeartbeatConfig;
-use heartbeat_handler::TeeAttestation;
+pub use tee_quote_parser::TeeAttestation;
 
+use core::num;
 use std::{
     collections::VecDeque,
     task::Poll,
@@ -49,6 +51,8 @@ pub struct HeartbeatBehaviour {
     pending_events: VecDeque<HeartbeatAction>,
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
+
+    pub(crate) internal_fail_count: std::sync::Arc<tokio::sync::Mutex<u32>>,
 }
 
 impl HeartbeatBehaviour {
@@ -61,6 +65,7 @@ impl HeartbeatBehaviour {
             internal_heartbeat_fail_sender,
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
+            internal_fail_count: std::sync::Arc::new(tokio::sync::Mutex::new(0)),
         }
     }
 
@@ -79,11 +84,16 @@ impl HeartbeatBehaviour {
         self.current_heartbeat_payload.block_height += 1;
     }
 
+    pub(crate) async fn increment_network_fail_count(&mut self, num_failures: u32) {
+        let mut n = self.internal_fail_count.lock().await;
+        *n = n.saturating_add(num_failures);
+    }
+
     fn surface_shutdown_signal(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<()>> {
         // Surfaces shutdown signal to the heartbeat_fail_receiver channel in EventLoop
         async {
             self.internal_heartbeat_fail_sender
-                .send("FailedToSendHeartbeat count too high! shutting down LLM runtime!".to_string())
+                .send("FailedToSendHeartbeat count too high! shutting down runtime!".to_string())
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))
         }
@@ -103,7 +113,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(HeartbeatHandler::new(self.config.clone()))
+        Ok(HeartbeatHandler::new(self.config.clone(), self.internal_fail_count.clone()))
     }
 
     fn handle_established_outbound_connection(
@@ -114,7 +124,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _role_override: Endpoint,
         _port_use: PortUse
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(HeartbeatHandler::new(self.config.clone()))
+        Ok(HeartbeatHandler::new(self.config.clone(), self.internal_fail_count.clone()))
     }
 
     fn on_swarm_event(&mut self, _event: FromSwarm) {}
@@ -149,7 +159,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     })
             }
             HeartbeatOutEvent::FailedToSendHeartbeat => {
-                // bubble up some command to EventLoop to shut the LLM Runtime down
+                // bubble up some command to EventLoop to shut the Runtime down
                 // push FailedToSendHeartbeat to pending events for async processing
                 self.pending_events
                     .push_back(HeartbeatAction::FailedToSendHeartbeat)

@@ -136,7 +136,7 @@ dockerup:
     docker compose up
 
 
-trigger-restart:
+trigger-node-failure:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
-        trigger-restart \
+        trigger-node-failure \
