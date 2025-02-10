@@ -9,7 +9,7 @@ run-runtime:
 
 
 # Runs node 1
-run-node1:
+node1:
     echo 'Running Node 1';
     cargo run --bin rpc -- \
         --secret-key-seed 1 \
@@ -18,7 +18,7 @@ run-node1:
         --rpc-port 8001
 
 # Runs node 2
-run-node2:
+node2:
     @echo 'Running Node 2';
     cargo run --bin rpc -- \
         --secret-key-seed 2 \
@@ -26,7 +26,7 @@ run-node2:
         --rpc-port 8002
 
 # Runs node 3
-run-node3:
+node3:
     @echo 'Running Node 3';
     cargo run --bin rpc -- \
         --secret-key-seed 3 \
@@ -34,7 +34,7 @@ run-node3:
         --rpc-port 8003
 
 # Runs node 4
-run-node4:
+node4:
     @echo 'Running Node 4';
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
@@ -42,7 +42,7 @@ run-node4:
         --rpc-port 8004
 
 # Runs node 5
-run-node5:
+node5:
     @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \

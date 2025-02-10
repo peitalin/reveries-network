@@ -22,7 +22,7 @@ services:
     tty: true
     restart: always
     command: >
-      sh -c "ls && just run-node1"
+      sh -c "ls && just node1"
 
 
   node2:
@@ -36,7 +36,7 @@ services:
     tty: true
     restart: always
     command: >
-      sh -c "ls && just run-node2"
+      sh -c "ls && just node2"
 
 
   # node3:
@@ -49,7 +49,7 @@ services:
   #   stdin_open: true
   #   tty: true
   #   command: >
-  #     sh -c "ls && just run-node3"
+  #     sh -c "ls && just node3"
 
 
   # node4:
@@ -62,4 +62,4 @@ services:
   #   stdin_open: true
   #   tty: true
   #   command: >
-  #     sh -c "ls && just run-node4"
+  #     sh -c "ls && just node4"
