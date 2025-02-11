@@ -303,18 +303,18 @@ impl<'a> NetworkEvents<'a> {
     async fn handle_internal_heartbeat_failure(&mut self, heartbeat: String) {
         // Internal heartbeat failure is when this node fails to send heartbeats to external
         // nodes. It realizes it is no longer connected to the network.
-        self.log(format!("{}", heartbeat));
-        self.log(format!("\tTodo: initiating LLM runtime shutdown...").red());
-        self.log(format!("\tTodo: attempt to broadcast agent_secrets reencryption fragments...").red());
-        self.log(format!("\tTodo: Delete agent secrets, to prevent duplicate agents.").red());
+        self.log(format!("{}", heartbeat).red());
+        self.log(format!("Initiating recovery...").green());
+        self.log(format!("Todo: attempting to broadcast/save last good agent_secrets reencryption fragments.").green());
+        self.log(format!("Todo: Delete agent secrets, to prevent duplicated agents.").green());
 
-        self.swarm.behaviour_mut().heartbeat.increment_network_fail_count(10);
-
-        // self.container_manager
-        //     .write()
-        //     .await
-        //     .trigger_restart(RestartReason::NetworkHeartbeatFailure)
-        //     .await.ok();
+        self.log(format!("Shutting down container housing LLM runtime.").green());
+        // heartbeat protocol failure then triggers ContainerManager to shutdown/reboot container
+        self.container_manager
+            .write()
+            .await
+            .trigger_restart(RestartReason::ScheduledHeartbeatFailure)
+            .await.ok();
 
         // TODO
         // Shutdown the LLM runtime (if in Vessel Mode), but
@@ -352,11 +352,11 @@ impl<'a> NetworkEvents<'a> {
         self.peer_manager.insert_peer_info(sender_peer_id.clone());
     }
 
-    pub(crate) async fn simulate_network_failure(&mut self, num_failures: u32) {
+    pub(crate) async fn simulate_heartbeat_failure(&mut self) {
 
         self.swarm.behaviour_mut()
             .heartbeat
-            .increment_network_fail_count(num_failures);
+            .trigger_heartbeat_failure().await;
     }
 
 }

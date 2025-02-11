@@ -130,9 +130,11 @@ async fn main() -> Result<()> {
                 "trigger_node_failure",
                 rpc_params![]
             ).await {
-                Ok(r) => panic!("Program should have exited."),
+                Ok(r) => {
+                    log(format!("Scheduled node shutdown with reason: {:?} shortly...", r).green());
+                }
                 Err(e) => {
-                    log(format!("Triggered node failure: {:?}", e).green());
+                    log(format!("Node failed, but with unexpected error: {:?}", e).yellow());
                 }
             }
         }

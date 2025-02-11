@@ -5,6 +5,7 @@ use std::{
     task::Poll,
     time::Duration,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use color_eyre::{Result, eyre::Error};
 use futures::{
     future::BoxFuture,
@@ -45,7 +46,8 @@ pub enum HeartbeatInEvent {
 pub enum HeartbeatOutEvent {
     HeartbeatPayload(TeeAttestation),
     RequestHeartbeat,
-    FailedToSendHeartbeat,
+    ResetFailureCount,
+    IncrementFailureCount(u32),
     GenerateTeeAttestation
 }
 
@@ -73,21 +75,29 @@ pub struct HeartbeatHandler {
     // Internal failure count for the node to keep track of when it should shutdown it's runtime.
     // It is not related to the PRE re-incarnation protocol--that is determined by external nodes
     // after they don't hear from this node for a while.
-    internal_fail_count: u32,
+    internal_fail_count: std::sync::Arc<u32>,
+    // Flag for simulating heartbeat protocol failure
+    simulate_heartbeat_failure: std::sync::Arc<AtomicBool>,
 }
 
 impl HeartbeatHandler {
     pub fn new(
         config: HeartbeatConfig,
-        internal_fail_count: std::sync::Arc<tokio::sync::Mutex<u32>>
+        internal_fail_count: std::sync::Arc<u32>,
+        simulate_heartbeat_failure: std::sync::Arc<AtomicBool>
     ) -> Self {
         Self {
             config,
             inbound: None,
             outbound: None,
             timer: Box::pin(sleep(Duration::new(0, 0))),
-            internal_fail_count: 0,
+            internal_fail_count,
+            simulate_heartbeat_failure,
         }
+    }
+
+    pub fn is_test_environment(&self) -> bool {
+        std::env::var("ENV").unwrap_or("".to_string()) != "production".to_string()
     }
 }
 
@@ -138,19 +148,9 @@ impl ConnectionHandler for HeartbeatHandler {
         }
 
         loop {
-            // `ConnectionHandlerEvent::Close` was removed.
-            // To close a connection, use ToSwarm::CloseConnection or Swarm::close_connection.
-            // See https://github.com/libp2p/rust-libp2p/issues/3591
-            if self.internal_fail_count >= self.config.max_failures.into() {
-                // Unable to send HB out to other peers.
-                // Dispatch message to on_connection_handler_event handler to reboot
-                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HeartbeatOutEvent::FailedToSendHeartbeat
-                ))
-            }
-
             match self.outbound.take() {
 
+                // Requesting TEE Heartbeat
                 Some(OutboundState::RequestingTeeHeartbeat { requested, stream }) => {
                     self.outbound = Some(OutboundState::RequestingTeeHeartbeat {
                         stream,
@@ -166,21 +166,23 @@ impl ConnectionHandler for HeartbeatHandler {
                     break
                 }
 
+                // Sending TEE heartbeat
                 Some(OutboundState::SendingTeeAttestation(
                     mut outbound_block_height
                 )) => {
                     match outbound_block_height.poll_unpin(cx) {
                         Poll::Pending => {
                             if self.timer.poll_unpin(cx).is_ready() {
-                                // Time for successful send expired!
-
-                                self.internal_fail_count = self.internal_fail_count.saturating_add(1);
+                                // Time for successful send expired
                                 debug!(
-                                    target: "1up",
+                                    target: "heartbeat",
                                     "Sending Heartbeat timed out, failed {} time(s) with this connection",
-                                    self.internal_fail_count
-
+                                    (*self.internal_fail_count + 1)
                                 );
+                                // increment failure count
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                    HeartbeatOutEvent::IncrementFailureCount(1),
+                                ))
                             } else {
                                 self.outbound = Some(OutboundState::SendingTeeAttestation(
                                     outbound_block_height,
@@ -189,25 +191,38 @@ impl ConnectionHandler for HeartbeatHandler {
                             }
                         }
                         Poll::Ready(Ok(stream)) => {
-                            // reset failure count
-                            self.internal_fail_count = 0;
-
-                            // start new idle timeout until next request & send
+                            // start new idle timeout until next request and send
                             self.timer = Box::pin(sleep(self.config.idle_timeout));
                             self.outbound = Some(OutboundState::Idle(stream));
+
+                            // check if simulating heartbeat network failure
+                            if self.simulate_heartbeat_failure.load(Ordering::SeqCst)
+                                && self.is_test_environment()
+                            {
+                                debug!("HeartbeatHandler: simulate_heartbeat_failure: {:?}",
+                                    self.simulate_heartbeat_failure);
+
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                    HeartbeatOutEvent::IncrementFailureCount(10_000),
+                                    // Adjust this to 1 to increment failure count slowly.
+                                ))
+
+                            } else {
+                                // reset failure count
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                    HeartbeatOutEvent::ResetFailureCount,
+                                ))
+                            }
                         }
                         Poll::Ready(Err(_)) => {
-                            self.internal_fail_count = self.internal_fail_count.saturating_add(1);
-                            debug!(
-                                target: "1up", "Sending Heartbeat failed, {}/{} failures for this connection",
-                                self.internal_fail_count,
-                                self.config.max_failures
-                            );
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                HeartbeatOutEvent::IncrementFailureCount(1),
+                            ))
                         }
                     }
                 }
 
-                // Poll timer to see if we can make the next TEE Heartbeat Request
+                // Idle: Poll timer to see if we can make the next TEE Heartbeat Request
                 Some(OutboundState::Idle(stream)) => match self.timer.poll_unpin(cx) {
                     Poll::Pending => {
                         self.outbound = Some(OutboundState::Idle(stream));
@@ -234,12 +249,9 @@ impl ConnectionHandler for HeartbeatHandler {
                     // Request new stream
                     self.outbound = Some(OutboundState::NegotiatingStream);
 
-                    let protocol =
-                        SubstreamProtocol::new(ReadyUpgrade::new(HEARTBEAT_PROTOCOL), ())
-                            .with_timeout(self.config.send_timeout);
-
                     return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                        protocol,
+                        protocol: SubstreamProtocol::new(ReadyUpgrade::new(HEARTBEAT_PROTOCOL), ())
+                            .with_timeout(self.config.send_timeout)
                     })
                 }
             }
@@ -294,7 +306,7 @@ impl ConnectionHandler for HeartbeatHandler {
             }
             ConnectionEvent::DialUpgradeError(_) => {
                 self.outbound = None;
-                self.internal_fail_count = self.internal_fail_count.saturating_add(1);
+                // self.internal_fail_count = self.internal_fail_count.saturating_add(1);
             }
             _ => {}
         }

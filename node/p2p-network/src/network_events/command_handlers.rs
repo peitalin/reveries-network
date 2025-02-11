@@ -227,12 +227,11 @@ impl<'a> NetworkEvents<'a> {
                 };
             }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
-                self.log("Simulating Network Failure".magenta());
-                self.log(format!("Triggering restart in 1s: {:?}", reason).magenta());
+                self.log("Simulating network failure:".yellow());
+                self.log(format!("Triggering heartbeat failure in 500ms: {:?}", reason).yellow());
                 sender.send(reason.clone()).ok();
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-
-                self.simulate_network_failure(10).await;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                self.simulate_heartbeat_failure().await;
             }
         }
 

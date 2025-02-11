@@ -1,5 +1,4 @@
 use std::time::Duration;
-use std::num::NonZeroU32;
 
 #[derive(Debug, Clone)]
 pub struct HeartbeatConfig {
@@ -9,14 +8,14 @@ pub struct HeartbeatConfig {
     pub(crate) idle_timeout: Duration,
     /// Max failures allowed.
     /// If reached `HeartbeatHandler` will request closing of the connection.
-    pub(crate) max_failures: NonZeroU32,
+    pub(crate) max_failures: u32,
 }
 
 impl HeartbeatConfig {
     pub fn new(
         send_timeout: Duration,
         idle_timeout: Duration,
-        max_failures: NonZeroU32,
+        max_failures: u32,
     ) -> Self {
         Self {
             send_timeout,
@@ -35,7 +34,7 @@ impl Default for HeartbeatConfig {
         Self {
             send_timeout: Duration::from_secs(60),
             idle_timeout: Duration::from_secs(1),
-            max_failures: NonZeroU32::new(5).expect("5 != 0"),
+            max_failures: 5,
         }
     }
 }

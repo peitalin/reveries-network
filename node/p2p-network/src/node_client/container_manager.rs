@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// Represents different reasons for restart
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RestartReason {
-    Scheduled,
+    ScheduledHeartbeatFailure,
     HealthCheck,
     ResourceExhaustion,
     NetworkHeartbeatFailure,
@@ -53,7 +53,7 @@ impl ContainerManager {
         if self.is_shutting_down.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        println!("Initiating graceful shutdown due to: {:?}", reason);
+        println!("ContainerManager: Initiating graceful shutdown due to: {:?}", reason);
 
         // Broadcast shutdown signal to all subsystems
         self.shutdown_signal.send(reason.clone()).ok();

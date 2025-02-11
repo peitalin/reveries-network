@@ -7,7 +7,7 @@ impl<'a> NetworkEvents<'a> {
 
         self.log(format!("Broadcasting message: {:?}", message));
 
-        /// testing TEE
+        // testing TEE
         let (
             _tee_quote ,
             _tee_quote_bytes

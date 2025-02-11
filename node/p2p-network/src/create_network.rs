@@ -117,7 +117,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                         // Idle time before sending next `TeeAttestationBytes`
                         idle_timeout: Duration::from_millis(8_000),
                         // Max failures allowed. Requests disconnection if reached
-                        max_failures: std::num::NonZeroU32::new(1).unwrap(),
+                        max_failures: 5,
                     },
                     heartbeat_failure_sender,
                 ),

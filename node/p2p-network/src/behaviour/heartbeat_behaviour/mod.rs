@@ -2,25 +2,14 @@ pub(crate) mod heartbeat_handler;
 mod config;
 mod tee_quote_parser;
 
-pub use config::HeartbeatConfig;
-pub use tee_quote_parser::TeeAttestation;
-
-use core::num;
-use std::{
-    collections::VecDeque,
-    task::Poll,
-};
+use std::collections::VecDeque;
+use std::task::Poll;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use color_eyre::{Result, eyre};
-use tokio::sync::mpsc;
+use colored::Colorize;
 use futures::FutureExt;
-use heartbeat_handler::{
-    HeartbeatHandler,
-    HeartbeatInEvent,
-    HeartbeatOutEvent,
-};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
-    Multiaddr,
     swarm::{
         derive_prelude::ConnectionId,
         ConnectionDenied,
@@ -32,14 +21,41 @@ use libp2p::{
         THandlerOutEvent,
         ToSwarm,
     },
+    Multiaddr,
     PeerId,
+};
+use tokio::sync::mpsc;
+use tracing::debug;
+
+pub use config::HeartbeatConfig;
+use heartbeat_handler::{
+    HeartbeatHandler,
+    HeartbeatInEvent,
+    HeartbeatOutEvent,
 };
 use runtime::tee_attestation;
 use runtime::tee_attestation::QuoteV4;
+pub use tee_quote_parser::TeeAttestation;
 
 
 pub const HEARTBEAT_PROTOCOL: &str = "/1up/heartbeat/0.0.1";
 
+#[derive(Debug, Clone)]
+enum HeartbeatAction {
+    HeartbeatEvent(TeePayloadOutEvent),
+    HeartbeatRequest {
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        in_event: HeartbeatInEvent,
+    },
+    ShutdownIfMaxFailuresExceeded
+}
+
+#[derive(Debug, Clone)]
+pub struct TeePayloadOutEvent {
+    pub peer_id: PeerId,
+    pub latest_tee_attestation: TeeAttestation,
+}
 
 #[derive(Debug)]
 pub struct HeartbeatBehaviour {
@@ -51,8 +67,10 @@ pub struct HeartbeatBehaviour {
     pending_events: VecDeque<HeartbeatAction>,
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
-
-    pub(crate) internal_fail_count: std::sync::Arc<tokio::sync::Mutex<u32>>,
+    /// internal heartbeat fail count to know when to shutdown runtime and reboot container
+    pub(crate) internal_fail_count: std::sync::Arc<u32>,
+    /// Simulate network failure flag for testing
+    pub(crate) simulate_heartbeat_failure: std::sync::Arc<AtomicBool>,
 }
 
 impl HeartbeatBehaviour {
@@ -65,7 +83,8 @@ impl HeartbeatBehaviour {
             internal_heartbeat_fail_sender,
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
-            internal_fail_count: std::sync::Arc::new(tokio::sync::Mutex::new(0)),
+            internal_fail_count: std::sync::Arc::new(0),
+            simulate_heartbeat_failure: std::sync::Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -84,16 +103,21 @@ impl HeartbeatBehaviour {
         self.current_heartbeat_payload.block_height += 1;
     }
 
-    pub(crate) async fn increment_network_fail_count(&mut self, num_failures: u32) {
-        let mut n = self.internal_fail_count.lock().await;
-        *n = n.saturating_add(num_failures);
+    pub(crate) async fn trigger_heartbeat_failure(&mut self) {
+        self.simulate_heartbeat_failure.store(true, Ordering::SeqCst);
+        debug!("trigger_heartbeat_failure().simulate_heartbeat_failure: {:?}",
+            self.simulate_heartbeat_failure);
     }
 
-    fn surface_shutdown_signal(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<()>> {
-        // Surfaces shutdown signal to the heartbeat_fail_receiver channel in EventLoop
+    fn surface_shutdown_signal_to_container_manager(
+        &mut self,
+        cx: &mut std::task::Context<'_>
+    ) -> Poll<Result<()>> {
+        debug!("surface_shutdown_signal() to heartbeat_fail_receiver in NetworkEvents");
+        // Surfaces shutdown signal to the heartbeat_fail_receiver channel in NetworkEvents
         async {
             self.internal_heartbeat_fail_sender
-                .send("FailedToSendHeartbeat count too high! shutting down runtime!".to_string())
+                .send("ShutdownIfMaxFailuresExceeded = true. Shutting down runtime!".to_string())
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))
         }
@@ -113,7 +137,11 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(HeartbeatHandler::new(self.config.clone(), self.internal_fail_count.clone()))
+        Ok(HeartbeatHandler::new(
+            self.config.clone(),
+            Arc::clone(&self.internal_fail_count),
+            Arc::clone(&self.simulate_heartbeat_failure),
+        ))
     }
 
     fn handle_established_outbound_connection(
@@ -124,7 +152,11 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _role_override: Endpoint,
         _port_use: PortUse
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(HeartbeatHandler::new(self.config.clone(), self.internal_fail_count.clone()))
+        Ok(HeartbeatHandler::new(
+            self.config.clone(),
+            Arc::clone(&self.internal_fail_count),
+            Arc::clone(&self.simulate_heartbeat_failure),
+        ))
     }
 
     fn on_swarm_event(&mut self, _event: FromSwarm) {}
@@ -146,6 +178,9 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                         latest_tee_attestation
                     }))
             }
+            HeartbeatOutEvent::ResetFailureCount => {
+                self.internal_fail_count = 0.into();
+            }
             // Dispatch request for a Heartbeat from other Peers
             HeartbeatOutEvent::RequestHeartbeat => {
                 // push onto pending_events, which will be poll()'d and executed
@@ -158,11 +193,18 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                         ),
                     })
             }
-            HeartbeatOutEvent::FailedToSendHeartbeat => {
+            HeartbeatOutEvent::IncrementFailureCount(n) => {
                 // bubble up some command to EventLoop to shut the Runtime down
-                // push FailedToSendHeartbeat to pending events for async processing
+                // push ShutdownIfMaxFailuresExceeded to pending events for async processing
+                self.internal_fail_count = (self.internal_fail_count.saturating_add(n)).into();
+
                 self.pending_events
-                    .push_back(HeartbeatAction::FailedToSendHeartbeat)
+                    .push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
+
+                debug!(target: "heartbeat", "Sending Heartbeat failed, {}/{} failures for this connection",
+                    self.internal_fail_count,
+                    self.config.max_failures
+                );
             }
             HeartbeatOutEvent::GenerateTeeAttestation => {
 
@@ -170,7 +212,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     _tee_quote ,
                     tee_quote_bytes
                 ) = tee_attestation::generate_tee_attestation(false)
-                    .expect("tee attestation generation err");
+                    .expect("TEE attestation generation error");
 
                 self.set_tee_attestation(tee_quote_bytes);
             }
@@ -201,13 +243,22 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     })
                 }
 
-                HeartbeatAction::FailedToSendHeartbeat => {
-                    // Send shutdown signal to EventLoop. Only this node knows
+                HeartbeatAction::ShutdownIfMaxFailuresExceeded => {
+                    // Send shutdown signal to NetworkEvents. Only this node knows
                     // it's run into an error. Peers will have to wait until hearbeats
-                    // start to timeout before intiating reincarnation process
-                    let _ = self.surface_shutdown_signal(cx);
+                    // start to timeout before initiating reincarnation process
+                    println!("{}{}",
+                        format!("ShutdownIfMaxFailuresExceeded: ").red(),
+                        format!("internal_fail_count({}) > max_failures({})",
+                            self.internal_fail_count,
+                            self.config.max_failures
+                        ).red()
+                    );
 
-                    // // return pending to async runtime and continue
+                    if self.internal_fail_count.as_ref() > &self.config.max_failures {
+                        let _ = self.surface_shutdown_signal_to_container_manager(cx);
+                    }
+                    // return pending to async runtime and continue
                     return Poll::Pending
                 }
             }
@@ -218,20 +269,3 @@ impl NetworkBehaviour for HeartbeatBehaviour {
 
 }
 
-
-#[derive(Debug, Clone)]
-enum HeartbeatAction {
-    HeartbeatEvent(TeePayloadOutEvent),
-    HeartbeatRequest {
-        peer_id: PeerId,
-        connection_id: ConnectionId,
-        in_event: HeartbeatInEvent,
-    },
-    FailedToSendHeartbeat
-}
-
-#[derive(Debug, Clone)]
-pub struct TeePayloadOutEvent {
-    pub peer_id: PeerId,
-    pub latest_tee_attestation: TeeAttestation,
-}
