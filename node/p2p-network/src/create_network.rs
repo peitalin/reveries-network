@@ -65,11 +65,11 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
-        // .with_tcp(
-        //     tcp::Config::default(),
-        //     noise::Config::new,
-        //     yamux::Config::default
-        // )?
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default
+        )?
         // QUIC has it's own connection timeout.
         .with_quic()
         .with_behaviour(|key| {

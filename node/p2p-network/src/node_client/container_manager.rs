@@ -23,7 +23,6 @@ pub struct ContainerManager {
     shutdown_signal: broadcast::Sender<RestartReason>,
     is_shutting_down: Arc<AtomicBool>,
     max_duration_before_shutdown: Duration,
-    pub simulate_network_failure: bool,
     pub app_state: Arc<RwLock<AppState>>,
 }
 
@@ -37,7 +36,6 @@ impl ContainerManager {
             shutdown_signal,
             is_shutting_down: Arc::new(AtomicBool::new(false)),
             max_duration_before_shutdown,
-            simulate_network_failure: false,
             app_state: Arc::new(RwLock::new(AppState::default())),
         }
     }
@@ -97,11 +95,6 @@ impl ContainerManager {
         // encrypt and save somewhere threshold decryptable by MPC network
         Ok(())
     }
-
-    pub(crate) fn set_simulate_network_failure(&mut self, is_network_down: bool) {
-        self.simulate_network_failure = is_network_down;
-    }
-
 }
 
 

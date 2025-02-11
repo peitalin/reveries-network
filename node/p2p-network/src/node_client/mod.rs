@@ -317,6 +317,7 @@ impl<'a> NodeClient<'a> {
                 ).to_string()
             }).collect::<Vec<String>>();
 
+        // Subscribe to broadcast kfrag topics temporarily
         self.subscribe_topics(topics.clone()).await.ok();
 
         let umbral_public_keys = self.get_peer_umbral_pks(
@@ -377,7 +378,7 @@ impl<'a> NodeClient<'a> {
                     new_vessel_pk.umbral_public_key,
                 ).yellow());
 
-                // unsubscribe from the topics
+                // unsubscribe from the kfrag broadcast topics
                 self.unsubscribe_topics(topics).await.ok();
                 Ok(new_vessel_pk.to_owned())
             }

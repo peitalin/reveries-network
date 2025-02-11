@@ -132,7 +132,7 @@ impl<'a> PeerManager<'a> {
         };
     }
 
-    pub fn log_heartbeat_tee(&self, peer_id: PeerId) -> Option<String> {
+    pub fn make_heartbeat_tee_log(&self, peer_id: PeerId) -> Option<String> {
         if let Some(peer_info) = self.peer_info.get(&peer_id) {
             match &peer_info.heartbeat_data.payload.tee_attestation {
                 Some(quote) => {

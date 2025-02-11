@@ -39,27 +39,40 @@ services:
       sh -c "ls && just node2"
 
 
-  # node3:
-  #   image: 1up
-  #   expose:
-  #     - "8003"
-  #     - "80"
-  #   ports:
-  #     - "8003:8003"
-  #   stdin_open: true
-  #   tty: true
-  #   command: >
-  #     sh -c "ls && just node3"
+  node3:
+    image: 1up
+    expose:
+      - "8003"
+      - "80"
+    ports:
+      - "8003:8003"
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just node3"
 
 
-  # node4:
-  #   image: 1up
-  #   expose:
-  #     - "8004"
-  #     - "80"
-  #   ports:
-  #     - "8004:8004"
-  #   stdin_open: true
-  #   tty: true
-  #   command: >
-  #     sh -c "ls && just node4"
+  node4:
+    image: 1up
+    expose:
+      - "8004"
+      - "80"
+    ports:
+      - "8004:8004"
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just node4"
+
+
+  node5:
+    image: 1up
+    expose:
+      - "8005"
+      - "80"
+    ports:
+      - "8005:8005"
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just node5"

@@ -164,7 +164,6 @@ impl<'a> NetworkEvents<'a> {
                 sender_peer_id,
                 channel
             } => {
-
                 self.log(format!("RespondCfrags for: {agent_name_nonce}"));
                 match self.peer_manager.get_cfrags(&agent_name_nonce) {
                     None => {},

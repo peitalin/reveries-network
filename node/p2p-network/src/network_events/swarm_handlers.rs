@@ -1,3 +1,4 @@
+use color_eyre::owo_colors::OwoColorize;
 use libp2p::{
     mdns,
     swarm::SwarmEvent
@@ -10,30 +11,27 @@ impl<'a> NetworkEvents<'a> {
     pub(super) async fn handle_swarm_event(&mut self, swarm_event: SwarmEvent<BehaviourEvent>) {
         match swarm_event {
 
-            //// Kademlia
+            //// Kademlia for storing Umbral PRE pubkeys
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad_event)) => {
-                self.handle_kademlia_event(kad_event);
+                self.handle_kademlia_event(kad_event).await;
             }
 
-            //// Request Response Protocol
+            //// Request Response Protocol for transferring frags
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                 request_response_event
             )) => {
                 self.handle_request_response(request_response_event).await
             },
 
-
-            //////////////////////////////////
-            //// GossipSub protocol for PRE
-            //////////////////////////////////
+            //// GossipSub protocol for PRE broadcasts
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gevent)) => {
                 self.handle_gossipsub_event(gevent).await;
             }
 
             SwarmEvent::Behaviour(BehaviourEvent::Heartbeat(tee_event)) => {
                 self.peer_manager.update_peer_heartbeat(tee_event.peer_id, tee_event.latest_tee_attestation);
-                if let Some(tee_str) = self.peer_manager.log_heartbeat_tee(tee_event.peer_id) {
-                    self.log(tee_str);
+                if let Some(tee_log_str) = self.peer_manager.make_heartbeat_tee_log(tee_event.peer_id) {
+                    self.log(tee_log_str);
                 }
             }
 
@@ -44,7 +42,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::ConnectionEstablished { .. } => { }
             SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                println!(">>> ConnectionClosed with peer: {:?}", peer_id);
+                self.log(format!("ConnectionClosed with peer: {:?}", peer_id));
                 self.remove_peer(&peer_id);
             }
             SwarmEvent::IncomingConnectionError { .. } => { }
@@ -52,12 +50,8 @@ impl<'a> NetworkEvents<'a> {
             //// mDNS Protocol
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
-                    if !self.container_manager.read().await.simulate_network_failure {
-                        self.log(format!("mDNS adding peer {:?}", peer_id));
-                        self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                    } else {
-                        self.log("Simulating network failure: blocking mDNS peer adding attempt");
-                    }
+                    self.log(format!("mDNS adding peer {:?}", peer_id));
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                 }
             }
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(list))) => {

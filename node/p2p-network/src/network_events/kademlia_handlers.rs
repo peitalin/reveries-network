@@ -44,7 +44,7 @@ impl<'a> NetworkEvents<'a> {
                     if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_peer_id_key) {
                         match serde_json::from_slice::<UmbralPublicKeyResponse>(&value) {
                             Ok(umbral_pk_response) => {
-                                let _ = sender.send(umbral_pk_response).await;
+                                sender.send(umbral_pk_response).await.ok();
                             }
                             Err(_e) => println!("Err deserializing UmbralPublicKeyResponse"),
                         }

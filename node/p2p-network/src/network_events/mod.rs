@@ -353,7 +353,6 @@ impl<'a> NetworkEvents<'a> {
     }
 
     pub(crate) async fn simulate_heartbeat_failure(&mut self) {
-
         self.swarm.behaviour_mut()
             .heartbeat
             .trigger_heartbeat_failure().await;
