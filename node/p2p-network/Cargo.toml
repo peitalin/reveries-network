@@ -7,8 +7,6 @@ edition = "2021"
 
 runtime = { path = "../runtime" }
 
-rand = { version = "0.8.5" }
-regex = { version = "1.11.1" }
 bincode = { version = "1.3.3" }
 nanoid = { version = "0.4.0" }
 lazy_static = { version = "1.5.0" }
@@ -20,6 +18,8 @@ futures = { workspace = true }
 hex = { workspace = true }
 libp2p = { workspace = true }
 libp2p-kad = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

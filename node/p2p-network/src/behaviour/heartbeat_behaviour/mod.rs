@@ -203,6 +203,11 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                 // push ShutdownIfMaxFailuresExceeded to pending events for async processing
                 self.internal_fail_count = (self.internal_fail_count.saturating_add(n)).into();
 
+                debug!(target: "heartbeat",
+                    "Sending Heartbeat timed out, failed {} time(s) with this connection",
+                    self.internal_fail_count
+                );
+
                 self.pending_events
                     .push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
 

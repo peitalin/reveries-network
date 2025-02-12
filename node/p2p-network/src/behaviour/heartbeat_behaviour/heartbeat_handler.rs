@@ -104,7 +104,6 @@ impl ConnectionHandler for HeartbeatHandler {
 
     fn connection_keep_alive(&self) -> bool {
         // Heartbeat protocol wants to keep the connection alive
-        // if self.is_simulating_failure() { false } else { true }
         true
     }
 
@@ -154,13 +153,7 @@ impl ConnectionHandler for HeartbeatHandler {
                     match outbound_block_height.poll_unpin(cx) {
                         Poll::Pending => {
                             if self.timer.poll_unpin(cx).is_ready() {
-                                // Time for successful send expired
-                                debug!(
-                                    target: "heartbeat",
-                                    "Sending Heartbeat timed out, failed {} time(s) with this connection",
-                                    (*self.internal_fail_count + 1)
-                                );
-                                // increment failure count
+                                // Time for successful send expired, increment failure count
                                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                     HeartbeatOutEvent::IncrementFailureCount(1),
                                 ))
@@ -247,10 +240,7 @@ impl ConnectionHandler for HeartbeatHandler {
 
     fn on_connection_event(
         &mut self,
-        event: ConnectionEvent<
-            Self::InboundProtocol,
-            Self::OutboundProtocol
-        >,
+        event: ConnectionEvent<Self::InboundProtocol, Self::OutboundProtocol>,
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {

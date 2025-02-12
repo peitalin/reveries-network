@@ -17,6 +17,7 @@ use libp2p::{
     kad,
     request_response,
     swarm::Swarm,
+    swarm::ToSwarm,
     PeerId
 };
 use runtime::reencrypt::UmbralKey;
@@ -318,16 +319,27 @@ impl<'a> NetworkEvents<'a> {
         self.log(format!("Todo: attempting to broadcast/save last good agent_secrets reencryption fragments.").green());
         self.log(format!("Todo: Delete agent secrets, to prevent duplicated agents.").green());
 
-        for peer_id in self.swarm.connected_peers() {
-            //
-            // self.swarm.behaviour_mut().send_event(ToSwarm::CloseConnection {
-            //     peer_id: *peer_id,
-            //     connection: ConnectionId::new_unchecked(0), // You might need to handle actual connection IDs
-            // });
+        let peers: Vec<PeerId> = self.swarm.connected_peers().cloned().collect();
+        let total_peers = peers.len();
+        self.log(format!("Disconnecting from {} peers", total_peers).yellow());
+        for peer_id in peers {
+            self.swarm.disconnect_peer_id(peer_id).ok();
         }
 
-        self.log(format!("Shutting down container housing LLM runtime.").green());
+        let time_before_respawn = self.swarm.behaviour()
+            .heartbeat
+            .config
+            .max_time_before_rotation()
+            .as_secs();
+
         // heartbeat protocol failure then triggers ContainerManager to shutdown/reboot container
+        for second in 0..time_before_respawn {
+            let countdown = time_before_respawn - second;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            println!("{}", format!("Rebooting container in {} seconds", countdown).yellow());
+        };
+
+
         self.container_manager
             .write()
             .await

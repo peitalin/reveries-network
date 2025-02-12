@@ -113,8 +113,11 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                     // send_timeout should be larger than idle_timeout
                     HeartbeatConfig {
                         // Sending of `TeeAttestationBytes` should not take longer than this
-                        send_timeout: Duration::from_millis(10_000),
+                        // This is the delay before ContainerManager reboots node.
+                        send_timeout: Duration::from_millis(16_000),
                         // Idle time before sending next `TeeAttestationBytes`
+                        // This is the delay before Vessels attempt to reincarnate a unresponsive vessel
+                        // In production, set this much higher
                         idle_timeout: Duration::from_millis(8_000),
                         // Max failures allowed. Requests disconnection if reached
                         max_failures: 1,
