@@ -90,6 +90,14 @@ impl<'a> PeerManager<'a> {
         self.peer_info.remove(peer_id);
     }
 
+    pub fn peer_info_contains_agent(&mut self, peer_id: &PeerId) -> bool {
+        if let Some(pinfo) = self.peer_info.get(peer_id) {
+            pinfo.agent_vessel.is_some()
+        } else {
+            false
+        }
+    }
+
     pub fn set_peer_info_agent_vessel(
         &mut self,
         agent_name_nonce: &AgentNameWithNonce,
@@ -97,7 +105,6 @@ impl<'a> PeerManager<'a> {
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-
         self.log(format!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow()));
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}\n", get_node_name(&next_vessel_peer_id).bright_blue()));

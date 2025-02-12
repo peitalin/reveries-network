@@ -2,12 +2,12 @@ mod commands;
 
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ord;
-use futures::TryFutureExt;
 use itertools::Itertools;
 use commands::{Cmd, CliArgument};
 use clap::Parser;
 use colored::Colorize;
 use color_eyre::{Result, eyre};
+use hex;
 use jsonrpsee::core::params;
 use jsonrpsee::{
     rpc_params,
@@ -92,7 +92,6 @@ async fn main() -> Result<()> {
 
             log(format!("Peers subscribed to '{}-{}' kfrag broadcasts:", agent_name, agent_nonce).green());
             for (frag_num, peers) in peers_sorted_by_fragments {
-
                 let peer_names = peers.iter()
                     .map(|peer_id| get_node_name(peer_id))
                     .collect::<Vec<String>>();
@@ -100,29 +99,39 @@ async fn main() -> Result<()> {
                 log(format!("Fragment({}): {:?}", format!("{}", frag_num).green(), peer_names));
             }
         }
-        CliArgument::TopicSwitch {
-            next_agent_name,
-            next_agent_nonce,
+        CliArgument::SpawnAgent {
             total_frags,
             threshold,
-            prev_agent_name,
-            prev_agent_nonce,
-            peer_id
+            secret_key_seed,
         } => {
-            let response: usize = client.request(
-                "topic_switch",
+
+            // Read local AgentSecretJson file and send to node over a secure channel/TLS.
+            // TODO: user will send this over a secure channel and commit the hash onchain
+            // along with some payment.
+            let agent_secrets_json = runtime::llm::read_agent_secrets(
+                secret_key_seed
+            );
+
+            let UmbralPublicKeyResponse {
+                umbral_peer_id,
+                umbral_public_key,
+            } = client.request(
+                "spawn_agent",
                 rpc_params![
-                    next_agent_name,
-                    next_agent_nonce,
+                    agent_secrets_json,
                     total_frags,
-                    threshold,
-                    prev_agent_name,
-                    prev_agent_nonce,
-                    peer_id
+                    threshold
                 ]
             ).await?;
 
-            log(format!("Topic switched: {:?}", response).green());
+            log("Spawned Agent");
+            log(format!("Next Vessel: {} {}",
+                short_peer_id(&umbral_peer_id.clone().into()),
+                get_node_name(&umbral_peer_id.into())
+            ).yellow());
+            log(format!("Umbral PublicKey: {}",
+                hex::encode(umbral_public_key.to_uncompressed_bytes())
+            ));
         }
 
         CliArgument::TriggerNodeFailure => {

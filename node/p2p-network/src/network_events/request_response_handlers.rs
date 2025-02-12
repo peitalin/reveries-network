@@ -81,7 +81,6 @@ impl<'a> NetworkEvents<'a> {
                             FragmentResponseEnum::KfragProviderAck => {
                                 self.log(format!("\nVessel acknowledged fragment provider\n").green());
                             }
-                            _ => {}
                         }
                     }
                 }

@@ -49,16 +49,6 @@ impl<'a> NetworkEvents<'a> {
                                 Some(&k.bob_pk)
                             ).expect("err verifying kfrag");
 
-                            // if receiver is next vessel, insert peer kfrags
-                            if !self.peer_manager.peer_info.contains_key(&k.vessel_peer_id) {
-                                self.peer_manager.set_peer_info_agent_vessel(
-                                    &agent_name_nonce,
-                                    &total_frags,
-                                    k.vessel_peer_id,
-                                    k.next_vessel_peer_id,
-                                );
-                            }
-
                             // all nodes store cfrags locally
                             // nodes should also inform the vessel_node that they hold a fragment
                             self.peer_manager.insert_cfrags(
@@ -79,6 +69,28 @@ impl<'a> NetworkEvents<'a> {
                             );
                             self.print_stored_cfrags(&self.peer_manager.cfrags);
 
+                            // Track agent vessel: current and next vessel (peer_ids)
+                            println!("\n\npeer_info:");
+                            for (pid, peer_info) in &self.peer_manager.peer_info {
+                                println!("{} agent_vessel: {:?}", get_node_name(pid), peer_info.agent_vessel);
+                            }
+
+                            if !self.peer_manager.peer_info_contains_agent(&k.vessel_peer_id) {
+                                println!("SAVING AGENT VESSEL");
+                                self.peer_manager.set_peer_info_agent_vessel(
+                                    &agent_name_nonce,
+                                    &total_frags,
+                                    k.vessel_peer_id,
+                                    k.next_vessel_peer_id,
+                                );
+                            }
+
+                            println!("\n\npeer_info after:");
+                            for (pid, peer_info) in &self.peer_manager.peer_info {
+                                println!("{} agent_vessel: {:?}", get_node_name(pid), peer_info.agent_vessel);
+                            }
+
+                            // If node is not next vessel, let vessel node know it holds a fragment
                             if self.peer_id != k.next_vessel_peer_id {
                                 // request-response: let vessel know this peer received a fragment
                                 let request_id = self

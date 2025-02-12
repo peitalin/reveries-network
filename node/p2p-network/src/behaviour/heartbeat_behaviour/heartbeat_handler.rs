@@ -5,7 +5,7 @@ use std::{
     task::Poll,
     time::Duration,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use color_eyre::{Result, eyre::Error};
 use futures::{
     future::BoxFuture,
@@ -31,10 +31,7 @@ use tokio::time::{
 };
 use tracing::debug;
 use super::{HeartbeatConfig, TeeAttestation};
-use super::tee_quote_parser::{
-    receive_heartbeat_payload,
-    send_heartbeat_payload
-};
+use super::tee_quote_parser;
 
 
 #[derive(Debug, Clone)]
@@ -76,15 +73,12 @@ pub struct HeartbeatHandler {
     // It is not related to the PRE re-incarnation protocol--that is determined by external nodes
     // after they don't hear from this node for a while.
     internal_fail_count: std::sync::Arc<u32>,
-    // Flag for simulating heartbeat protocol failure
-    simulate_heartbeat_failure: std::sync::Arc<AtomicBool>,
 }
 
 impl HeartbeatHandler {
     pub fn new(
         config: HeartbeatConfig,
         internal_fail_count: std::sync::Arc<u32>,
-        simulate_heartbeat_failure: std::sync::Arc<AtomicBool>
     ) -> Self {
         Self {
             config,
@@ -92,12 +86,7 @@ impl HeartbeatHandler {
             outbound: None,
             timer: Box::pin(sleep(Duration::new(0, 0))),
             internal_fail_count,
-            simulate_heartbeat_failure,
         }
-    }
-
-    pub fn is_test_environment(&self) -> bool {
-        std::env::var("ENV").unwrap_or("".to_string()) != "production".to_string()
     }
 }
 
@@ -115,19 +104,14 @@ impl ConnectionHandler for HeartbeatHandler {
 
     fn connection_keep_alive(&self) -> bool {
         // Heartbeat protocol wants to keep the connection alive
+        // if self.is_simulating_failure() { false } else { true }
         true
     }
 
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::ToBehaviour,
-        >,
-    > {
+    ) -> Poll<ConnectionHandlerEvent<Self::OutboundProtocol, (), Self::ToBehaviour>> {
         if let Some(inbound_stream_and_block_height) = self.inbound.as_mut() {
             match inbound_stream_and_block_height.poll_unpin(cx) {
                 Poll::Ready(Err(_)) => {
@@ -136,8 +120,7 @@ impl ConnectionHandler for HeartbeatHandler {
                 }
                 Poll::Ready(Ok((stream, tee_attestation))) => {
                     // start waiting for the next `TeeAttestation`
-                    self.inbound = Some(receive_heartbeat_payload(stream).boxed());
-
+                    self.inbound = Some(tee_quote_parser::receive_heartbeat_payload(stream).boxed());
                     // report newly received `TeeAttestation` to the Behaviour
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         HeartbeatOutEvent::HeartbeatPayload(tee_attestation),
@@ -156,13 +139,11 @@ impl ConnectionHandler for HeartbeatHandler {
                         stream,
                         requested: true,
                     });
-
                     if !requested {
                         return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                             HeartbeatOutEvent::RequestHeartbeat,
                         ))
                     }
-
                     break
                 }
 
@@ -194,25 +175,10 @@ impl ConnectionHandler for HeartbeatHandler {
                             // start new idle timeout until next request and send
                             self.timer = Box::pin(sleep(self.config.idle_timeout));
                             self.outbound = Some(OutboundState::Idle(stream));
-
-                            // check if simulating heartbeat network failure
-                            if self.simulate_heartbeat_failure.load(Ordering::SeqCst)
-                                && self.is_test_environment()
-                            {
-                                debug!("HeartbeatHandler: simulate_heartbeat_failure: {:?}",
-                                    self.simulate_heartbeat_failure);
-
-                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                    HeartbeatOutEvent::IncrementFailureCount(10_000),
-                                    // Adjust this to 1 to increment failure count slowly.
-                                ))
-
-                            } else {
-                                // reset failure count
-                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                    HeartbeatOutEvent::ResetFailureCount,
-                                ))
-                            }
+                            // reset failure count
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                HeartbeatOutEvent::ResetFailureCount,
+                            ))
                         }
                         Poll::Ready(Err(_)) => {
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
@@ -272,7 +238,7 @@ impl ConnectionHandler for HeartbeatHandler {
                 self.timer = Box::pin(sleep(self.config.send_timeout));
                 // send latest `TeeAttestation`
                 self.outbound = Some(OutboundState::SendingTeeAttestation(
-                    send_heartbeat_payload(stream, heartbeat_payload).boxed()
+                    tee_quote_parser::send_heartbeat_payload(stream, heartbeat_payload).boxed()
                 ))
             }
             other_state => self.outbound = other_state,
@@ -283,21 +249,17 @@ impl ConnectionHandler for HeartbeatHandler {
         &mut self,
         event: ConnectionEvent<
             Self::InboundProtocol,
-            Self::OutboundProtocol,
-            Self::InboundOpenInfo,
-            Self::OutboundOpenInfo,
+            Self::OutboundProtocol
         >,
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
-                protocol: stream,
-                ..
+                protocol: stream, ..
             }) => {
-                self.inbound = Some(receive_heartbeat_payload(stream).boxed());
+                self.inbound = Some(tee_quote_parser::receive_heartbeat_payload(stream).boxed());
             }
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
-                protocol: stream,
-                ..
+                protocol: stream, ..
             }) => {
                 self.outbound = Some(OutboundState::RequestingTeeHeartbeat {
                     stream,
@@ -306,6 +268,7 @@ impl ConnectionHandler for HeartbeatHandler {
             }
             ConnectionEvent::DialUpgradeError(_) => {
                 self.outbound = None;
+                // TODO: surface fail to heartbeat behaviour
                 // self.internal_fail_count = self.internal_fail_count.saturating_add(1);
             }
             _ => {}

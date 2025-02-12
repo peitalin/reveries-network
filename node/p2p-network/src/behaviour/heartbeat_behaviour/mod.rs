@@ -63,20 +63,18 @@ pub struct HeartbeatBehaviour {
     pub(crate) config: HeartbeatConfig,
     /// for Heartbeat Behaviour to communicate with upper level EventLoop
     /// and disconnect from Swarm, or shutdown the LLM runtime.
-    pub(crate) internal_heartbeat_fail_sender: mpsc::Sender<String>,
+    pub(crate) internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
     pending_events: VecDeque<HeartbeatAction>,
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
     /// internal heartbeat fail count to know when to shutdown runtime and reboot container
     pub(crate) internal_fail_count: std::sync::Arc<u32>,
-    /// Simulate network failure flag for testing
-    pub(crate) simulate_heartbeat_failure: std::sync::Arc<AtomicBool>,
 }
 
 impl HeartbeatBehaviour {
     pub fn new(
         config: HeartbeatConfig,
-        internal_heartbeat_fail_sender: mpsc::Sender<String>,
+        internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
     ) -> Self {
         Self {
             config,
@@ -84,7 +82,6 @@ impl HeartbeatBehaviour {
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
             internal_fail_count: std::sync::Arc::new(0),
-            simulate_heartbeat_failure: std::sync::Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -103,10 +100,18 @@ impl HeartbeatBehaviour {
         self.current_heartbeat_payload.block_height += 1;
     }
 
+    pub fn is_non_production_environment(&self) -> bool {
+        std::env::var("ENV").unwrap_or("".to_string()) != "production".to_string()
+    }
+
     pub(crate) async fn trigger_heartbeat_failure(&mut self) {
-        self.simulate_heartbeat_failure.store(true, Ordering::SeqCst);
-        debug!("trigger_heartbeat_failure().simulate_heartbeat_failure: {:?}",
-            self.simulate_heartbeat_failure);
+        if self.is_non_production_environment() {
+            self.internal_fail_count = 10_000.into();
+            self.pending_events
+                .push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
+        } else {
+            println!("Trigger heartbeat failure only works in non production environments");
+        }
     }
 
     fn surface_shutdown_signal_to_container_manager(
@@ -117,7 +122,9 @@ impl HeartbeatBehaviour {
         // Surfaces shutdown signal to the heartbeat_fail_receiver channel in NetworkEvents
         async {
             self.internal_heartbeat_fail_sender
-                .send("ShutdownIfMaxFailuresExceeded = true. Shutting down runtime!".to_string())
+                .send(
+                    self.config.clone()
+                )
                 .await
                 .map_err(|e| eyre::anyhow!(e.to_string()))
         }
@@ -140,7 +147,6 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         Ok(HeartbeatHandler::new(
             self.config.clone(),
             Arc::clone(&self.internal_fail_count),
-            Arc::clone(&self.simulate_heartbeat_failure),
         ))
     }
 
@@ -155,7 +161,6 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         Ok(HeartbeatHandler::new(
             self.config.clone(),
             Arc::clone(&self.internal_fail_count),
-            Arc::clone(&self.simulate_heartbeat_failure),
         ))
     }
 

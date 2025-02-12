@@ -38,21 +38,13 @@ pub enum CliArgument {
         #[clap(long)]
         agent_nonce: usize,
     },
-    TopicSwitch {
-        #[clap(long)]
-        next_agent_name: String,
-        #[clap(long)]
-        next_agent_nonce: usize,
+    SpawnAgent {
         #[clap(long)]
         total_frags: usize,
         #[clap(long)]
         threshold: usize,
         #[clap(long)]
-        prev_agent_name: String,
-        #[clap(long)]
-        prev_agent_nonce: usize,
-        #[clap(long)]
-        peer_id: String,
+        secret_key_seed: usize,
     },
 
     TriggerNodeFailure

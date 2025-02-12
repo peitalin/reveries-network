@@ -6,7 +6,6 @@ use color_eyre::Result;
 use clap::Parser;
 
 use p2p_network::create_network;
-use p2p_network::node_client::ContainerManager;
 use commands::Opt;
 use rpc_server::run_server;
 
@@ -16,9 +15,10 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-	let _ = tracing_subscriber::FmtSubscriber::builder()
+	tracing_subscriber::FmtSubscriber::builder()
 		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-		.try_init();
+		.try_init()
+        .ok();
 
     let opt = Opt::parse();
 
@@ -32,7 +32,6 @@ async fn main() -> Result<()> {
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
 
-
     node_client
         .start_listening_to_network(opt.listen_address)
         .await?;
@@ -42,18 +41,9 @@ async fn main() -> Result<()> {
         node_client.subscribe_topics(chat_topics).await?;
     }
 
-    // Encrypt PRE plaintext and store it in client
-    let agent_secrets = runtime::llm::read_agent_secrets(
-        opt.secret_key_seed.or(Some(0)).unwrap() as i32
-    );
-
-    if let Some(true) = opt.generate_agent_secret {
-        node_client.encrypt_secret(agent_secrets.clone()).ok();
-    };
-
     let mut nc = node_client.clone();
     tokio::spawn(async move {
-        let _ = nc.listen_to_network_events(network_events_receiver).await;
+        nc.listen_to_network_events(network_events_receiver).await.ok();
     });
 
     // Run RPC server if provided an RPC port,

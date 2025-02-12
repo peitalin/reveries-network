@@ -76,67 +76,63 @@ get-kfrag-peers:
         --agent-nonce 0
 
 
-topic-switch:
-    @echo 'Topic Switch to Node 1';
+spawn-agent:
+    @echo 'Spawn Agent to Node 1';
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
-        topic-switch \
-        --next-agent-name beatrix \
-        --next-agent-nonce 0 \
+        spawn-agent \
+        --secret-key-seed 1 \
         --total-frags 3 \
-        --threshold 2 \
-        --prev-agent-name beatrix \
-        --prev-agent-nonce  0 \
-        --peer-id 12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X
+        --threshold 2
+
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
 
 
 
-
-peers1:
+peers1 agent_nonce:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 0
+        --agent-nonce {{agent_nonce}}
 
-peers2:
+peers2 agent_nonce:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8002 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 0
+        --agent-nonce {{agent_nonce}}
 
 
-peers3:
+peers3 agent_nonce:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8003 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 0
+        --agent-nonce {{agent_nonce}}
 
-peers4:
+peers4 agent_nonce:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8004 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 1
+        --agent-nonce {{agent_nonce}}
 
-peers5:
+peers5 agent_nonce:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8005 \
         get-kfrag-broadcast-peers \
         --agent-name beatrix \
-        --agent-nonce 1
+        --agent-nonce {{agent_nonce}}
 
 
 dockerup:
     docker compose up
 
 
-trigger-node-failure:
+trigger-node-failure node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         trigger-node-failure \

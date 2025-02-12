@@ -14,7 +14,7 @@ impl<'a> NetworkEvents<'a> {
             // GetProviders event
             kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
                 kad::QueryResult::GetProviders(p) => match p {
-                    Ok(kad::GetProvidersOk::FoundProviders { key, providers }) => {
+                    Ok(kad::GetProvidersOk::FoundProviders { providers, .. }) => {
                         if let Some(sender) = self.pending.get_providers.remove(&id) {
                             // send providers back
                             sender.send(providers).expect("Receiver not to be dropped");
@@ -91,7 +91,7 @@ impl<'a> NetworkEvents<'a> {
                 qresult => println!("<NetworkEvent>: {:?}", qresult)
             }
             // ignore other Kademlia events
-            k => {}
+            _kad_event => {}
         }
     }
 }

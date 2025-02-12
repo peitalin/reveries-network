@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
-use p2p_network::types::{AgentNameWithNonce, NextTopic, PrevTopic, TopicSwitch};
+use p2p_network::types::{AgentNameWithNonce, NextTopic, PrevTopic, TopicSwitch, UmbralPublicKeyResponse};
+use runtime::llm::AgentSecretsJson;
 use serde::{Deserialize, Serialize};
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server};
@@ -94,39 +95,26 @@ pub async fn run_server<'a: 'static>(
         }
     })?;
 
-    // Topic Switch
+    // Spawn Agent
     let nc4 = network_client.clone();
-	module.register_async_method("topic_switch", move |params, _, _| {
+	module.register_async_method("spawn_agent", move |params, _, _| {
 
         let (
-            next_agent_name,
-            next_agent_nonce,
+            agent_secrets_json,
             total_frags,
             threshold,
-            prev_agent_name,
-            prev_agent_nonce,
-            peer_id,
-        ) = params.parse::<(
-            String, usize, usize, usize,
-            String, usize, String
-        )>().expect("error parsing param");
+        ) = params.parse::<(AgentSecretsJson, usize, usize)>().expect("error parsing param");
 
         let mut nc4 = nc4.clone();
         async move {
             let result = nc4
-                .broadcast_switch_topic_nc(TopicSwitch {
-                    next_topic: NextTopic {
-                        agent_name_nonce: AgentNameWithNonce(next_agent_name, next_agent_nonce),
-                        total_frags: total_frags,
-                        threshold: threshold,
-                    },
-                    prev_topic: Some(PrevTopic {
-                        agent_name_nonce: AgentNameWithNonce(prev_agent_name, prev_agent_nonce),
-                        peer_id: PeerId::from_str(&peer_id).ok(),
-                    })
-                }).await.map_err(|e| RpcError(e.to_string()))?;
+                .spawn_agent(
+                    agent_secrets_json,
+                    total_frags,
+                    threshold,
+                ).await.map_err(|e| RpcError(e.to_string()))?;
 
-            Ok::<usize, RpcError>(result)
+            Ok::<UmbralPublicKeyResponse, RpcError>(result)
         }
     })?;
 

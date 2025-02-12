@@ -16,7 +16,7 @@ use rig::{
 
 
 
-pub fn read_agent_secrets(seed: i32) -> AgentSecretsJson {
+pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
 
     let agent_name = match seed {
         0 => "auron".to_string(),

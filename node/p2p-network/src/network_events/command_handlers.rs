@@ -19,7 +19,6 @@ use super::NetworkEvents;
 
 
 impl<'a> NetworkEvents<'a> {
-
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
             NodeCommand::SubscribeTopics { topics, sender } => {
@@ -31,7 +30,6 @@ impl<'a> NetworkEvents<'a> {
                 sender.send(unsubscribed_topics).ok();
             }
             NodeCommand::BroadcastKfrags(key_fragment_message) => {
-
                 let message = key_fragment_message;
 
                 let agent_name_nonce = match message.topic.clone() {
@@ -104,7 +102,6 @@ impl<'a> NetworkEvents<'a> {
                 self.pending.request_fragments.insert(request_id, sender);
             }
             NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
-
                 let query_id = self
                     .swarm
                     .behaviour_mut()
@@ -191,25 +188,21 @@ impl<'a> NetworkEvents<'a> {
 
                 self.broadcast_topic_switch(&ts).await;
 
-                let agent_name_nonce = ts.next_topic.agent_name_nonce;
-                let total_frags = ts.next_topic.total_frags;
-
                 // get all peers subscribe to topic
                 let all_peers = self.swarm
                     .behaviour_mut().gossipsub.all_peers()
                     .collect::<Vec<(&PeerId, Vec<&TopicHash>)>>();
 
+                let topic_compare: TopicHash = GossipTopic::BroadcastKfrag(
+                    ts.next_topic.agent_name_nonce,
+                    ts.next_topic.total_frags,
+                    0
+                ).into();
+
                 let peers = all_peers
                     .into_iter()
                     .filter_map(|(peer_id, peers_topics)| {
-
-                        let topic1: TopicHash = GossipTopic::BroadcastKfrag(
-                            agent_name_nonce.clone(),
-                            total_frags,
-                            0
-                        ).into();
-
-                        if peers_topics.contains(&&topic1.into()) {
+                        if peers_topics.contains(&&topic_compare) {
                             Some(peer_id)
                         } else {
                             None

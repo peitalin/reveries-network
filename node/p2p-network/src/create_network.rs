@@ -75,7 +75,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
         .with_behaviour(|key| {
 
             // To content-address message, we can take the hash of message and use it as an ID.
-            let message_id_fn = |message: &gossipsub::Message| {
+            let _message_id_fn = |message: &gossipsub::Message| {
                 let mut s = DefaultHasher::new();
                 message.data.hash(&mut s);
                 gossipsub::MessageId::from(s.finish().to_string())
@@ -117,7 +117,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                         // Idle time before sending next `TeeAttestationBytes`
                         idle_timeout: Duration::from_millis(8_000),
                         // Max failures allowed. Requests disconnection if reached
-                        max_failures: 5,
+                        max_failures: 1,
                     },
                     heartbeat_failure_sender,
                 ),

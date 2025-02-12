@@ -1,11 +1,9 @@
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use tokio::time::sleep;
-use tokio::sync::broadcast;
-use tokio::sync::RwLock;
-use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 
 
 /// Represents different reasons for restart
@@ -69,7 +67,6 @@ impl ContainerManager {
     async fn wait_for_graceful_shutdown(&self) -> Result<(), Box<dyn Error>> {
         // let start = std::time::Instant::now();
         // let state = self.app_state.clone();
-
         // while start.elapsed() < self.max_duration_before_shutdown {
         //     let current_state = state.read().await;
         //     if current_state.pending_operations == 0 && current_state.connections == 0 {
@@ -81,7 +78,6 @@ impl ContainerManager {
         //     );
         //     sleep(Duration::from_secs(1)).await;
         // }
-
         // println!("Shutdown timeout reached, forcing restart");
         Ok(())
     }
@@ -89,14 +85,12 @@ impl ContainerManager {
     async fn save_state(&self) -> Result<(), Box<dyn Error>> {
         // let state = self.app_state.clone();
         // let save_state = state.read().await;
-
         // TODO
         // Save to an ecrypted persistent volume or on MPC network
         // encrypt and save somewhere threshold decryptable by MPC network
         Ok(())
     }
 }
-
 
 
 #[derive(Clone)]

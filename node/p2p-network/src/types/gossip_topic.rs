@@ -88,6 +88,24 @@ pub struct TopicSwitch {
     // unsubscribe from prev_topic
     pub prev_topic: Option<PrevTopic>,
 }
+impl TopicSwitch {
+    pub fn new(
+        next_agent_name_nonce: AgentNameWithNonce,
+        total_frags: usize,
+        threshold: usize,
+        prev_topic: Option<PrevTopic>,
+    ) -> Self {
+        Self {
+            next_topic: NextTopic {
+                agent_name_nonce: next_agent_name_nonce,
+                total_frags: total_frags,
+                threshold: threshold
+            },
+            prev_topic: prev_topic
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextTopic {
     pub agent_name_nonce: AgentNameWithNonce,
@@ -97,6 +115,7 @@ pub struct NextTopic {
     pub total_frags: usize,
     pub threshold: usize,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrevTopic {
     pub agent_name_nonce: AgentNameWithNonce,
