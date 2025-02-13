@@ -21,6 +21,72 @@ use super::NetworkEvents;
 impl<'a> NetworkEvents<'a> {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
+            NodeCommand::GetPeerUmbralPublicKeys { sender, agent_name_nonce } => {
+
+                let public_keys = self.peer_manager
+                    .get_connected_peers()
+                    .iter()
+                    .map(|(peer_id, _peer_info)| peer_id)
+                    .collect::<Vec<&PeerId>>();
+
+                for peer_id in public_keys {
+                    // Umbral PKs are derived deterministically from the same seed as PeerId
+                    // So we can store Umbral Pks and PeerIds on kademlia
+                    let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
+                    let _query_id = self.swarm.behaviour_mut()
+                        .kademlia
+                        .get_record(kad::RecordKey::new(&umbral_pk_kademlia_key.to_string()));
+
+                    self.pending.get_umbral_pks.insert(umbral_pk_kademlia_key, sender.clone());
+                };
+            }
+            NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
+                match self.peer_manager.get_all_kfrag_peers(&agent_name_nonce) {
+                    None => {
+                        println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
+                        sender.send(std::collections::HashMap::new()).ok();
+                    }
+                    Some(peers) => {
+                        // unsorted
+                        sender.send(peers.clone()).ok();
+                    }
+                }
+            }
+            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
+                let query_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .get_providers(agent_name_nonce.to_string().into_bytes().into());
+
+                self.pending.get_providers.insert(query_id, sender);
+            }
+            NodeCommand::SaveKfragProvider {
+                agent_name_nonce,
+                frag_num,
+                sender_peer_id,
+                channel
+            } => {
+
+                self.log(format!(
+                    "\nAdding peer to kfrags_peers({}, {}, {})",
+                    agent_name_nonce,
+                    frag_num,
+                    short_peer_id(&sender_peer_id)
+                ).bright_green());
+
+                self.save_peer(&sender_peer_id, agent_name_nonce, frag_num);
+
+                // confirm saved kfrag peer
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(
+                        channel,
+                        FragmentResponseEnum::KfragProviderAck
+                    )
+                    .expect("Connection to peer to be still open.");
+            }
             NodeCommand::SubscribeTopics { topics, sender } => {
                 let subscribed_topics = self.subscribe_topics(&topics);
                 sender.send(subscribed_topics).ok();
@@ -71,18 +137,6 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }
-            NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
-                match self.peer_manager.get_all_kfrag_peers(&agent_name_nonce) {
-                    None => {
-                        println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
-                        sender.send(std::collections::HashMap::new()).ok();
-                    }
-                    Some(peers) => {
-                        // unsorted
-                        sender.send(peers.clone()).ok();
-                    }
-                }
-            }
             NodeCommand::RequestFragment {
                 agent_name_nonce,
                 frag_num,
@@ -101,61 +155,7 @@ impl<'a> NetworkEvents<'a> {
 
                 self.pending.request_fragments.insert(request_id, sender);
             }
-            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_providers(agent_name_nonce.to_string().into_bytes().into());
-
-                self.pending.get_providers.insert(query_id, sender);
-            }
-            NodeCommand::SaveKfragProvider {
-                agent_name_nonce,
-                frag_num,
-                sender_peer_id,
-                channel
-            } => {
-
-                self.log(format!(
-                    "\nAdding peer to kfrags_peers({}, {}, {})",
-                    agent_name_nonce,
-                    frag_num,
-                    short_peer_id(&sender_peer_id)
-                ).bright_green());
-
-                self.save_peer(&sender_peer_id, agent_name_nonce, frag_num);
-
-                // confirm saved kfrag peer
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(
-                        channel,
-                        FragmentResponseEnum::KfragProviderAck
-                    )
-                    .expect("Connection to peer to be still open.");
-            }
-            NodeCommand::GetPeerUmbralPublicKeys { sender, agent_name_nonce } => {
-
-                let public_keys = self.peer_manager
-                    .get_connected_peers()
-                    .iter()
-                    .map(|(peer_id, _peer_info)| peer_id)
-                    .collect::<Vec<&PeerId>>();
-
-                for peer_id in public_keys {
-                    // Umbral PKs are derived deterministically from the same seed as PeerId
-                    // So we can store Umbral Pks and PeerIds on kademlia
-                    let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
-                    let _query_id = self.swarm.behaviour_mut()
-                        .kademlia
-                        .get_record(kad::RecordKey::new(&umbral_pk_kademlia_key.to_string()));
-
-                    self.pending.get_umbral_pks.insert(umbral_pk_kademlia_key, sender.clone());
-                };
-            }
-            NodeCommand::RespondCfrag {
+            NodeCommand::RespondCapsuleFrag {
                 agent_name_nonce,
                 frag_num,
                 sender_peer_id,
@@ -184,7 +184,7 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }
-            NodeCommand::SwitchTopic(ts, sender) => {
+            NodeCommand::BroadcastSwitchTopic(ts, sender) => {
 
                 self.broadcast_topic_switch(&ts).await;
 
@@ -202,10 +202,9 @@ impl<'a> NetworkEvents<'a> {
                 let peers = all_peers
                     .into_iter()
                     .filter_map(|(peer_id, peers_topics)| {
-                        if peers_topics.contains(&&topic_compare) {
-                            Some(peer_id)
-                        } else {
-                            None
+                        match peers_topics.contains(&&topic_compare) {
+                            true => Some(peer_id),
+                            false => None
                         }
                     }).collect::<Vec<&PeerId>>();
 

@@ -43,25 +43,40 @@ pub enum NodeCommand {
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
 
-    /// Broadcasts Kfrags to peers (multicasts to specific fragment channels)
-    BroadcastKfrags(KeyFragmentMessage),
-
-    RespondCfrag {
-        agent_name_nonce: AgentNameWithNonce,
-        frag_num: usize,
-        sender_peer_id: PeerId, // peer who sends cfrag back
-        channel: ResponseChannel<FragmentResponseEnum>,
-    },
-    SwitchTopic(
-        TopicSwitch,
-        oneshot::Sender<usize>,
-    ),
     SaveKfragProvider {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         sender_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
     },
+
+    /// Broadcasts to peers to listen to a new kfrag broadcast channel
+    /// when spawning a new agent, or reincarnating a agent with a new nonce.
+    /// Protocol usually broadcasts a topic switch before broadcasting kfrags.
+    BroadcastSwitchTopic(
+        TopicSwitch,
+        oneshot::Sender<usize>,
+    ),
+
+    /// Broadcasts Kfrags to peers (multicasts to specific fragment channels)
+    /// Kfrags are verified then encrypted
+    BroadcastKfrags(KeyFragmentMessage),
+
+    /// Request Capsule Fragments for threshold decryption
+    RequestFragment {
+        agent_name_nonce: AgentNameWithNonce,
+        frag_num: FragmentNumber,
+        peer: PeerId, // peer to request fragment from
+        sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
+    },
+
+    RespondCapsuleFrag {
+        agent_name_nonce: AgentNameWithNonce,
+        frag_num: usize,
+        sender_peer_id: PeerId, // peer who sends cfrag back
+        channel: ResponseChannel<FragmentResponseEnum>,
+    },
+
     StartListening {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
@@ -73,13 +88,6 @@ pub enum NodeCommand {
     UnsubscribeTopics {
         topics: Vec<String>,
         sender: oneshot::Sender<Vec<String>>,
-    },
-    /// Request Capsule Fragments for threshold decryption
-    RequestFragment {
-        agent_name_nonce: AgentNameWithNonce,
-        frag_num: FragmentNumber,
-        peer: PeerId, // peer to request fragment from
-        sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
     SimulateNodeFailure {
         sender: oneshot::Sender<RestartReason>,

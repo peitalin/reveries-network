@@ -91,11 +91,11 @@ pub struct KeyFragmentMessage {
 pub struct CapsuleFragmentMessage {
     pub frag_num: usize,
     pub threshold: usize,
-    pub alice_pk: umbral_pre::PublicKey,
-    pub bob_pk: umbral_pre::PublicKey,
-    pub verifying_pk: umbral_pre::PublicKey,
+    pub alice_pk: umbral_pre::PublicKey, // delegator
+    pub bob_pk: umbral_pre::PublicKey, // delegatee (receiver)
+    pub verifying_pk: umbral_pre::PublicKey, // key for anyone to verify the PRE capsules
 
-    pub sender_peer_id: PeerId, // peer which holds/send the kfrags
+    pub sender_peer_id: PeerId, // peer which holds and sends the kfrags
     pub vessel_peer_id: PeerId, // peer which houses the agent
     pub next_vessel_peer_id: PeerId, // next peer which houses the agent
 

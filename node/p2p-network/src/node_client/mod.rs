@@ -31,10 +31,7 @@ use crate::types::{
     UmbralPublicKeyResponse
 };
 use umbral_pre::VerifiedCapsuleFrag;
-use runtime::reencrypt::{
-    UmbralKey,
-    generate_pre_kfrags,
-};
+use runtime::reencrypt::UmbralKey;
 use runtime::llm::{test_claude_query, AgentSecretsJson};
 
 
@@ -43,8 +40,6 @@ use runtime::llm::{test_claude_query, AgentSecretsJson};
 pub struct NodeClient<'a> {
     pub peer_id: PeerId,
     pub node_name: &'a str,
-    pub hosting_agent_name: Option<String>,
-    pub counter: u32,
     pub command_sender: mpsc::Sender<NodeCommand>,
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
     // container app state
@@ -68,8 +63,6 @@ impl<'a> NodeClient<'a> {
         Self {
             peer_id: peer_id,
             node_name: node_name,
-            hosting_agent_name: None,
-            counter: 0,
             command_sender: command_sender,
             chat_cmd_sender: chat_cmd_sender,
             // manages container reboot
@@ -114,7 +107,7 @@ impl<'a> NodeClient<'a> {
                     // check if vessel node for the agent_name is still alive.
                     // if so, then reject request.
                     self.command_sender
-                        .send(NodeCommand::RespondCfrag {
+                        .send(NodeCommand::RespondCapsuleFrag {
                             agent_name_nonce,
                             frag_num,
                             sender_peer_id,
@@ -213,25 +206,21 @@ impl<'a> NodeClient<'a> {
 
     pub fn encrypt_secret_and_store(&mut self, agent_secrets: AgentSecretsJson) -> Result<()> {
 
-        self.hosting_agent_name = Some(agent_secrets.agent_name.clone());
-        let agent_secrets_bytes = &serde_json::to_vec(&agent_secrets)?;
+        let (
+            capsule,
+            ciphertext
+        ) = self.umbral_key.encrypt_bytes(&serde_json::to_vec(&agent_secrets)?)?;
 
-        let (capsule, ciphertext) = umbral_pre::encrypt(
-            &self.umbral_key.public_key,
-            &agent_secrets_bytes
-        ).unwrap();
-
-        // check agent_secrest are decryptable and parsable
+        // check agent_secrets are decryptable and parsable
         let agent_secrets_json: AgentSecretsJson = serde_json::from_slice(
-            &umbral_pre::decrypt_original(
-                &self.umbral_key.secret_key,
+            &self.umbral_key.decrypt_original(
                 &capsule,
                 &ciphertext
-            ).expect("Should be able to decrypt own ciphertext")
-        ).expect("error marshalling decrypted plaintext to JSON data");
+            )?
+        )?;
 
-        // self.log(format!("Decryptable JSON data: {}", decrypted_data));
-        self.log(format!("Encrypted AgentSecretsJson data: {:?}", hex::encode(ciphertext.clone())).black());
+        self.log(format!("Encrypted AgentSecretsJson data: \n{:?}",
+            hex::encode(ciphertext.clone())).black());
 
         self.agent_secrets_json = Some(agent_secrets_json);
         self.umbral_capsule = Some(capsule);
@@ -284,7 +273,7 @@ impl<'a> NodeClient<'a> {
         // prove node has TEE attestation
         // prove node has re-encrypted AgentSecret
         let (sender, receiver) = oneshot::channel();
-        self.command_sender.send(NodeCommand::SwitchTopic(
+        self.command_sender.send(NodeCommand::BroadcastSwitchTopic(
             topic_switch,
             sender
         )).await.expect("Command receiver not to be dropped");
@@ -362,11 +351,9 @@ impl<'a> NodeClient<'a> {
                 let bob_pk = new_vessel_pk.umbral_public_key;
 
                 // Alice generates reencryption key fragments for Ursulas (MPC nodes)
-                self.log(format!("Generating share fragments: ({total_frags},{threshold})"));
-                let kfrags = generate_pre_kfrags(
-                    &self.umbral_key.secret_key, // alice_sk
+                self.log(format!("Generating share fragments for new vessel: ({total_frags},{threshold})"));
+                let kfrags = self.umbral_key.generate_pre_kfrags(
                     &bob_pk, // bob_pk
-                    &self.umbral_key.signer, // alice
                     threshold,
                     total_frags
                 );
@@ -592,14 +579,13 @@ impl<'a> NodeClient<'a> {
         let threshold = new_vessel_pk.threshold as usize;
         self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));
 
-        // Bob opens the capsule by using at least `threshold` cfrags,
-        // and then decrypts the re-encrypted ciphertext.
-        match umbral_pre::decrypt_reencrypted(
-            &self.umbral_key.secret_key, // bob
-            &new_vessel_pk.alice_pk, // alice
-            &new_vessel_pk.capsule.as_mut().unwrap(),
-            verified_cfrags,
-            new_vessel_pk.ciphertext.as_mut().unwrap()
+        // Bob (next vessel) uses his umbral_key to open the capsule by using at
+        // least `threshold` cfrags, then decrypts the re-encrypted ciphertext.
+        match self.umbral_key.decrypt_reencrypted(
+            &new_vessel_pk.alice_pk, // delegator_pubkey
+            &new_vessel_pk.capsule.unwrap(), // capsule,
+            verified_cfrags, // verified capsule fragments
+            new_vessel_pk.ciphertext.unwrap()
         ) {
             Ok(plaintext_bob) => {
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
