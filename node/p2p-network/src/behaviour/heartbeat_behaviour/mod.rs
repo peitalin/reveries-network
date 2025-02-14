@@ -107,8 +107,7 @@ impl HeartbeatBehaviour {
     pub(crate) async fn trigger_heartbeat_failure(&mut self) {
         if self.is_non_production_environment() {
             self.internal_fail_count = 10_000.into();
-            self.pending_events
-                .push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
+            self.pending_events.push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
         } else {
             println!("Trigger heartbeat failure only works in non production environments");
         }
@@ -177,11 +176,12 @@ impl NetworkBehaviour for HeartbeatBehaviour {
             // Incoming Heartbeats from other Peers
             HeartbeatOutEvent::HeartbeatPayload(latest_tee_attestation) => {
                 // push onto pending_events, which will be poll()'d and executed
-                self.pending_events
-                    .push_back(HeartbeatAction::HeartbeatEvent(TeePayloadOutEvent {
+                self.pending_events.push_back(
+                    HeartbeatAction::HeartbeatEvent(TeePayloadOutEvent {
                         peer_id,
                         latest_tee_attestation
-                    }))
+                    })
+                )
             }
             HeartbeatOutEvent::ResetFailureCount => {
                 self.internal_fail_count = 0.into();
@@ -189,14 +189,15 @@ impl NetworkBehaviour for HeartbeatBehaviour {
             // Dispatch request for a Heartbeat from other Peers
             HeartbeatOutEvent::RequestHeartbeat => {
                 // push onto pending_events, which will be poll()'d and executed
-                self.pending_events
-                    .push_back(HeartbeatAction::HeartbeatRequest  {
+                self.pending_events.push_back(
+                    HeartbeatAction::HeartbeatRequest  {
                         peer_id,
                         connection_id,
                         in_event: HeartbeatInEvent::LatestHeartbeat(
                             self.current_heartbeat_payload.clone(),
                         ),
-                    })
+                    }
+                )
             }
             HeartbeatOutEvent::IncrementFailureCount(n) => {
                 // bubble up some command to EventLoop to shut the Runtime down
@@ -208,8 +209,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     self.internal_fail_count
                 );
 
-                self.pending_events
-                    .push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
+                self.pending_events.push_back(HeartbeatAction::ShutdownIfMaxFailuresExceeded);
 
                 debug!(target: "heartbeat", "Sending Heartbeat failed, {}/{} failures for this connection",
                     self.internal_fail_count,

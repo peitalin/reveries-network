@@ -1,10 +1,12 @@
 mod heartbeat_data;
 
-use libp2p::PeerId;
-use std::collections::{HashMap, HashSet};
-use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use colored::Colorize;
 use color_eyre::owo_colors::OwoColorize;
+use libp2p::PeerId;
+use serde::{Serialize, Deserialize};
+use std::collections::{HashMap, HashSet};
+
+use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use crate::types::{CapsuleFragmentMessage, FragmentNumber};
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 
@@ -29,7 +31,7 @@ impl PeerInfo {
     }
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AgentVesselTransferInfo {
     pub agent_name_nonce: AgentNameWithNonce,
     pub total_frags: usize,
@@ -105,9 +107,9 @@ impl<'a> PeerManager<'a> {
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        self.log(format!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow()));
+        self.log(format!("Setting vessel for Agent: {}", agent_name_nonce.yellow()));
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&vessel_peer_id).bright_blue()));
-        println!("{}", format!("\tNext vessel:\t{}\n", get_node_name(&next_vessel_peer_id).bright_blue()));
+        println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
         match self.peer_info.get_mut(&vessel_peer_id) {
             None => {},
@@ -126,14 +128,14 @@ impl<'a> PeerManager<'a> {
         &self.peer_info
     }
 
-    pub fn update_peer_heartbeat(&mut self, peer_id: PeerId, heartbeat_payload: TeeAttestation) {
+    pub fn update_peer_heartbeat(&mut self, peer_id: PeerId, tee_payload: TeeAttestation) {
         match self.peer_info.get_mut(&peer_id) {
             Some(peer_info) => {
-                peer_info.heartbeat_data.update(heartbeat_payload);
+                peer_info.heartbeat_data.update(tee_payload);
             }
             None => {
                 let mut new_peer_info = PeerInfo::new(peer_id, self.avg_window); // heartbeat_avg_window
-                new_peer_info.heartbeat_data.update(heartbeat_payload);
+                new_peer_info.heartbeat_data.update(tee_payload);
                 self.peer_info.insert(peer_id, new_peer_info);
             }
         };
@@ -141,28 +143,28 @@ impl<'a> PeerManager<'a> {
 
     pub fn make_heartbeat_tee_log(&self, peer_id: PeerId) -> Option<String> {
         if let Some(peer_info) = self.peer_info.get(&peer_id) {
-            match &peer_info.heartbeat_data.payload.tee_attestation {
+            match &peer_info.heartbeat_data.tee_payload.tee_attestation {
                 Some(quote) => {
                     return Some(format!(
                         "{} {} {} {} {}",
                         short_peer_id(&peer_id).black(),
                         "HeartBeat Block".black(),
-                        peer_info.heartbeat_data.payload.block_height.black(),
+                        peer_info.heartbeat_data.tee_payload.block_height.black(),
                         "TEE ESCDA attestation pubkey:".bright_black(),
                         format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
                     ))
                     // format!(
                     //     "{} HeartbeatData: Block: {}",
                     //     short_peer_id(peer_id),
-                    //     peer_info.heartbeat_data.payload.block_height,
+                    //     peer_info.heartbeat_data.tee_payload.block_height,
                     // );
                 },
                 None => {
                     // format!(
-                    //     "{} HeartbeatData: Block: {}\n\t{:?}",
+                    //     "{} HeartbeatData: Block: {}\t{:?}",
                     //     short_peer_id(peer_id),
-                    //     peer_info.heartbeat_data.payload.block_height,
-                    //     peer_info.heartbeat_data.payload
+                    //     peer_info.heartbeat_data.tee_payload.block_height,
+                    //     peer_info.heartbeat_data.tee_payload
                     // );
                 }
             }
@@ -233,7 +235,7 @@ impl<'a> PeerManager<'a> {
     pub fn remove_kfrags_broadcast_peer(&mut self, peer_id: &PeerId) {
 
         // lookup all the agents and fragments Peer holds
-        println!("\nRemoving kfrag_broadcast_peers for {}", short_peer_id(peer_id));
+        println!("Removing kfrag_broadcast_peers for {}", short_peer_id(peer_id));
         let opt_agent_fragments = self.peers_to_agent_frags.get(&peer_id);
         self.log(format!("peer holds agent_fragments: {:?}", opt_agent_fragments));
 
@@ -262,8 +264,10 @@ impl<'a> PeerManager<'a> {
         }
     }
 
-    // Returns all fragment holding peers
-    pub fn get_all_kfrag_peers(
+    // Returns kfrag broadcast peers (peers subscribed to kfrag broadcast channels)
+    // These are not necesssarily peers who actually hold a kfrag
+    // (they could have just joined the network)
+    pub fn get_kfrag_broadcast_peers(
         &self,
         agent_name_nonce: &AgentNameWithNonce,
     ) -> Option<&HashMap<usize, HashSet<PeerId>>> {
@@ -333,6 +337,25 @@ impl<'a> PeerManager<'a> {
         self.cfrags
             .entry(agent_name_nonce.clone())
             .insert_entry(cfrag_indexed);
+    }
+
+    pub(crate) fn held_cfrags_summary(&self) -> Vec<serde_json::Value> {
+        self.cfrags.iter().map(|(agent_name_nonce, cfrag)| {
+            serde_json::json!({
+                "agent_name_nonce": agent_name_nonce.to_string(),
+                "cfrag": {
+                    "frag_num": cfrag.frag_num,
+                    "threshold": cfrag.threshold,
+                    "alice_pk": cfrag.alice_pk,
+                    "bob_pk": cfrag.bob_pk,
+                    "verifying_pk": cfrag.verifying_pk,
+                    "sender_peer_id": cfrag.sender_peer_id,
+                    "vessel_peer_id": cfrag.vessel_peer_id,
+                    "next_vessel_peer_id": cfrag.next_vessel_peer_id,
+                    "cfrag": format!("{:?}", cfrag.cfrag.to_bytes_simple())[..128],
+                }
+            })
+        }).collect::<>()
     }
 
     fn log<S: std::fmt::Display>(&self, message: S) {

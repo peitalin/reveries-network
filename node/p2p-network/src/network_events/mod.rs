@@ -4,6 +4,7 @@ mod command_handlers;
 mod gossipsub_handlers;
 mod kademlia_handlers;
 mod request_response_handlers;
+mod query_node_state;
 pub(crate) mod peer_manager;
 
 use std::collections::{HashMap, HashSet};
@@ -17,14 +18,12 @@ use libp2p::{
     kad,
     request_response,
     swarm::Swarm,
-    swarm::ToSwarm,
     PeerId
 };
 use runtime::reencrypt::UmbralKey;
 use crate::{
     SendError,
     get_node_name,
-    short_peer_id
 };
 use crate::behaviour::heartbeat_behaviour::HeartbeatConfig;
 use crate::node_client::NodeCommand;
@@ -45,25 +44,25 @@ use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
-use runtime::llm::{AgentSecretsJson, test_claude_query};
+// use runtime::llm::test_claude_query;
 
 pub struct NetworkEvents<'a> {
     seed: usize,
     swarm: Swarm<Behaviour>,
     peer_id: PeerId, // This node's PeerId
     node_name: &'a str,
+    // Umbral fragments
+    umbral_key: UmbralKey,
+
     command_receiver: mpsc::Receiver<NodeCommand>,
     chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
     network_event_sender: mpsc::Sender<NetworkEvent>,
 
-    // Umbral fragments
-    umbral_key: UmbralKey,
-
+    // tracks own heartbeat status
     internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
 
-    interval: time::Interval,
-
     // tracks peer heartbeats status
+    peer_heartbeat_checker: time::Interval,
     peer_manager: PeerManager<'a>,
 
     // pending P2p network requests
@@ -108,10 +107,10 @@ impl<'a> NetworkEvents<'a> {
         swarm: Swarm<Behaviour>,
         peer_id: PeerId,
         node_name: &'a str,
+        umbral_key: UmbralKey,
         command_receiver: mpsc::Receiver<NodeCommand>,
         chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
         network_event_sender: mpsc::Sender<NetworkEvent>,
-        umbral_key: UmbralKey,
         internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
         container_manager: Arc<RwLock<ContainerManager>>
     ) -> Self {
@@ -121,12 +120,12 @@ impl<'a> NetworkEvents<'a> {
             swarm,
             peer_id,
             node_name: &node_name,
+            umbral_key: umbral_key,
             command_receiver,
             chat_cmd_receiver,
             network_event_sender,
-            umbral_key: umbral_key,
             internal_heartbeat_fail_receiver,
-            interval: tokio::time::interval(Duration::from_secs(1)),
+            peer_heartbeat_checker: tokio::time::interval(Duration::from_secs(1)),
             peer_manager: PeerManager::new(&node_name),
             pending: PendingRequests::new(),
             topics: HashMap::new(),
@@ -144,7 +143,7 @@ impl<'a> NetworkEvents<'a> {
     pub async fn listen_for_network_events(mut self) {
         loop {
             tokio::select! {
-                _instant = self.interval.tick() => {
+                _ = self.peer_heartbeat_checker.tick() => {
 
                     self.swarm.behaviour_mut().heartbeat.increment_block_height();
                     // Replace interval/block_height with a consensus (BFT) and
@@ -156,9 +155,9 @@ impl<'a> NetworkEvents<'a> {
                 swarm_event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(swarm_event).await;
                 },
-                heartbeat_fail = self.internal_heartbeat_fail_receiver.recv() => match heartbeat_fail {
+                hb = self.internal_heartbeat_fail_receiver.recv() => match hb {
                     // internal Heartbeat failure
-                    Some(hb) => self.handle_internal_heartbeat_failure(hb).await,
+                    Some(hb_config) => self.handle_internal_heartbeat_failure(hb_config).await,
                     None => break // channel closed, shutting down the network event loop.
                 },
                 command = self.command_receiver.recv() => match command {
@@ -242,7 +241,7 @@ impl<'a> NetworkEvents<'a> {
 
                             // Dispatch a Respawn(agent_name) event to NetworkEvents
                             let _ = self.network_event_sender
-                                .send(NetworkEvent::RespawnRequiredRequest(
+                                .send(NetworkEvent::RespawnRequest(
                                     AgentVesselTransferInfo {
                                         agent_name_nonce: prev_agent.clone(),
                                         total_frags: *total_frags,

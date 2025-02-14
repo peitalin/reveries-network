@@ -1883,6 +1883,7 @@ dependencies = [
  "rpc",
  "runtime",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

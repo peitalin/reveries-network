@@ -12,7 +12,7 @@ use crate::types::{
     TopicHash,
     UmbralPeerId
 };
-use crate::short_peer_id;
+use crate::{short_peer_id, get_node_name};
 use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
 use super::NetworkEvents;
@@ -41,7 +41,7 @@ impl<'a> NetworkEvents<'a> {
                 };
             }
             NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
-                match self.peer_manager.get_all_kfrag_peers(&agent_name_nonce) {
+                match self.peer_manager.get_kfrag_broadcast_peers(&agent_name_nonce) {
                     None => {
                         println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
                         sender.send(std::collections::HashMap::new()).ok();
@@ -67,7 +67,6 @@ impl<'a> NetworkEvents<'a> {
                 sender_peer_id,
                 channel
             } => {
-
                 self.log(format!(
                     "\nAdding peer to kfrags_peers({}, {}, {})",
                     agent_name_nonce,
@@ -86,103 +85,6 @@ impl<'a> NetworkEvents<'a> {
                         FragmentResponseEnum::KfragProviderAck
                     )
                     .expect("Connection to peer to be still open.");
-            }
-            NodeCommand::SubscribeTopics { topics, sender } => {
-                let subscribed_topics = self.subscribe_topics(&topics);
-                sender.send(subscribed_topics).ok();
-            }
-            NodeCommand::UnsubscribeTopics { topics, sender } => {
-                let unsubscribed_topics = self.unsubscribe_topics(&topics);
-                sender.send(unsubscribed_topics).ok();
-            }
-            NodeCommand::BroadcastKfrags(key_fragment_message) => {
-                let message = key_fragment_message;
-
-                let agent_name_nonce = match message.topic.clone() {
-                    GossipTopic::BroadcastKfrag(agent_name_nonce, _, _) => {
-                        agent_name_nonce
-                    }
-                    _ => {
-                        panic!("Message type must be GossipTopic::BroadcastKfrag, received: {}", message.topic);
-                    }
-                };
-                // set broadcaster's peer info
-                self.peer_manager.set_peer_info_agent_vessel(
-                    &agent_name_nonce,
-                    // &message.threshold,
-                    &message.total_frags,
-                    message.vessel_peer_id, // vessel_peer_id
-                    message.next_vessel_peer_id // next_vessel_peer_id
-                );
-
-                self.log(format!("Broadcasting KeyFrag topic: {}", message.topic));
-                let match_topic = message.topic.to_string();
-
-                let kfrag_indexed: KeyFragmentMessage = message.into();
-                let kfrag_indexed_bytes = serde_json::to_vec(&kfrag_indexed)
-                    .expect("serde err");
-
-                match self.topics.get(&match_topic) {
-                    Some(topic) => {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .publish(topic.clone(), kfrag_indexed_bytes)
-                            .map_err(|e| anyhow!(e.to_string()))
-                            .ok();
-                    }
-                    None => {
-                        self.log(format!("Topic '{}' not found in subscribed topics.", match_topic));
-                        self.print_subscribed_topics();
-                    }
-                }
-            }
-            NodeCommand::RequestFragment {
-                agent_name_nonce,
-                frag_num,
-                peer,
-                sender,
-            } => {
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer, FragmentRequestEnum::FragmentRequest(
-                        agent_name_nonce,
-                        frag_num,
-                        self.peer_id
-                    ));
-
-                self.pending.request_fragments.insert(request_id, sender);
-            }
-            NodeCommand::RespondCapsuleFrag {
-                agent_name_nonce,
-                frag_num,
-                sender_peer_id,
-                channel
-            } => {
-                self.log(format!("RespondCfrags for: {agent_name_nonce}"));
-                match self.peer_manager.get_cfrags(&agent_name_nonce) {
-                    None => {},
-                    // Do not send if no cfrag found, fastest successful futures returns
-                    // with futures::future:select_ok()
-                    Some(cfrag) => {
-                        self.log(format!("RespondCfrags: found cfrag: {:?}", cfrag.verifying_pk));
-
-                        let cfrag_indexed_bytes =
-                            serde_json::to_vec::<Option<CapsuleFragmentMessage>>(&Some(cfrag.clone()))
-                                .map_err(|e| SendError(e.to_string()));
-
-                        self.swarm
-                            .behaviour_mut()
-                            .request_response
-                            .send_response(
-                                channel,
-                                FragmentResponseEnum::FragmentResponse(cfrag_indexed_bytes)
-                            )
-                            .expect("Connection to peer to be still open.");
-                    }
-                }
             }
             NodeCommand::BroadcastSwitchTopic(ts, sender) => {
 
@@ -211,11 +113,101 @@ impl<'a> NetworkEvents<'a> {
                 // send peer len and fragment info so we know if we can broadcast fragments
                 sender.send(peers.len()).ok();
             }
+            NodeCommand::BroadcastKfrags(msg) => {
+
+                let topic_kfrag = msg.topic.to_string();
+                let agent_name_nonce = match msg.topic.clone() {
+                    GossipTopic::BroadcastKfrag(agent_name_nonce, _, _) => {
+                        agent_name_nonce
+                    }
+                    _ => {
+                        panic!("Message must be GossipTopic::BroadcastKfrag, got: {}", msg.topic);
+                    }
+                };
+                // set broadcaster's peer info
+                self.peer_manager.set_peer_info_agent_vessel(
+                    &agent_name_nonce,
+                    &msg.total_frags,
+                    msg.vessel_peer_id, // vessel_peer_id
+                    msg.next_vessel_peer_id // next_vessel_peer_id
+                );
+
+                let kfrag_msg = serde_json::to_vec(&KeyFragmentMessage::from(msg))
+                    .expect("serde err");
+
+                match self.topics.get(&topic_kfrag) {
+                    Some(topic) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .publish(topic.clone(), kfrag_msg)
+                            .map_err(|e| anyhow!(e.to_string()))
+                            .ok();
+                    }
+                    None => {
+                        self.log(format!("Topic '{}' not found in subscribed topics.", topic_kfrag));
+                        self.print_subscribed_topics();
+                    }
+                }
+            }
+            NodeCommand::RequestCapsuleFragment {
+                agent_name_nonce,
+                frag_num,
+                peer,
+                sender,
+            } => {
+                let request_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&peer, FragmentRequestEnum::FragmentRequest(
+                        agent_name_nonce,
+                        frag_num,
+                        self.peer_id
+                    ));
+
+                self.pending.request_fragments.insert(request_id, sender);
+            }
+            NodeCommand::RespondCapsuleFragment {
+                agent_name_nonce,
+                frag_num,
+                sender_peer_id,
+                channel
+            } => {
+                self.log(format!("RespondCapsuleFragment for {agent_name_nonce} frag_num: {frag_num}"));
+                match self.peer_manager.get_cfrags(&agent_name_nonce) {
+                    None => {},
+                    // Do not send if no cfrag found, fastest successful futures returns
+                    // with futures::future:select_ok()
+                    Some(cfrag) => {
+                        let cfrag_indexed_bytes =
+                            serde_json::to_vec::<Option<CapsuleFragmentMessage>>(&Some(cfrag.clone()))
+                                .map_err(|e| SendError(e.to_string()));
+
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_response(
+                                channel,
+                                FragmentResponseEnum::FragmentResponse(cfrag_indexed_bytes)
+                            )
+                            .expect("Connection to peer to be still open.");
+                    }
+                }
+            }
             NodeCommand::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
                     Ok(_) => sender.send(Ok(())),
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
+            }
+            NodeCommand::SubscribeTopics { topics, sender } => {
+                let subscribed_topics = self.subscribe_topics(&topics);
+                sender.send(subscribed_topics).ok();
+            }
+            NodeCommand::UnsubscribeTopics { topics, sender } => {
+                let unsubscribed_topics = self.unsubscribe_topics(&topics);
+                sender.send(unsubscribed_topics).ok();
             }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
                 self.log("Simulating network failure:".yellow());
@@ -223,6 +215,10 @@ impl<'a> NetworkEvents<'a> {
                 sender.send(reason.clone()).ok();
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.simulate_heartbeat_failure().await;
+            }
+            NodeCommand::GetNodeState { sender } => {
+                let node_state = self.query_node_state();
+                sender.send(node_state).ok();
             }
         }
 

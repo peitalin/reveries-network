@@ -1,0 +1,83 @@
+use crate::{short_peer_id, get_node_name};
+use super::NetworkEvents;
+
+impl<'a> NetworkEvents<'a> {
+    pub(super) fn query_node_state(&self) -> serde_json::Value {
+
+        // self.peer_manager.peer_info
+        let peer_info = self.peer_manager.peer_info
+            .iter()
+            .map(|(peer_id, peer_info)| {
+
+                let last_hb = peer_info.heartbeat_data.duration_since_last_heartbeat();
+                // let avg_hb = peer_info.heartbeat_data.average_time_between_heartbeats();
+                let tee_byte_len = match &peer_info.heartbeat_data.tee_payload.tee_attestation_bytes {
+                    None => 0,
+                    Some(bytes) => bytes.len()
+                };
+
+                match &peer_info.agent_vessel {
+                    None => {
+                        serde_json::json!({
+                            "peer_id": short_peer_id(peer_id),
+                            "node_name": get_node_name(peer_id),
+                            "agent_vessel": None as Option<serde_json::Value>,
+                            "heartbeat_data": {
+                                "last_hb": last_hb,
+                                "tee_byte_len": tee_byte_len
+                            }
+                        })
+                    }
+                    Some(av) => {
+                        serde_json::json!({
+                            "peer_id": short_peer_id(peer_id),
+                            "node_name": get_node_name(peer_id),
+                            "agent_vessel": {
+                                "agent_name": av.agent_name_nonce.to_string(),
+                                "next_vessel": get_node_name(&av.next_vessel_peer_id),
+                                "prev_vessel": get_node_name(&av.prev_vessel_peer_id),
+                                "total_frags": av.total_frags,
+                            },
+                            "heartbeat_data": {
+                                "last_hb": last_hb,
+                                "tee_byte_len": tee_byte_len
+                            }
+                        })
+                    }
+                }
+            }).collect::<Vec<serde_json::Value>>();
+
+        // self.peer_manager.kfrag_broadcast_peers
+        let broadcast_peers = self.peer_manager.kfrag_broadcast_peers
+            .iter()
+            .map(|(agent_name, hmap)| {
+                serde_json::json!({
+                    "agent_name_nonce": agent_name.to_string(),
+                    "kfrag_broadcast_peers": hmap.iter().map(|(frag_num, peers)| {
+                        serde_json::json!({
+                            "frag_num": frag_num,
+                            "peers": peers.iter()
+                                .map(|peer_id| short_peer_id(peer_id))
+                                .collect::<Vec<String>>()
+                        })
+                    }).collect::<Vec<serde_json::Value>>()
+                })
+            }).collect::<Vec<serde_json::Value>>();
+
+        let node_state = serde_json::json!({
+            "_node_name": self.node_name,
+            "_peer_id": self.peer_id,
+            "_umbral_public_key": self.umbral_key.public_key,
+            "peer_manager": {
+                // get all held agent cfrags
+                "1_cfrags_summary": self.peer_manager.held_cfrags_summary(),
+                // get all kfrag broadcast peers
+                "2_kfrag_broadcast_peers": broadcast_peers,
+                // peer_info with hb data
+                "3_peer_info": peer_info,
+            }
+        });
+
+        node_state
+    }
+}

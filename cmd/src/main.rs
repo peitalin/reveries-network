@@ -6,21 +6,28 @@ use itertools::Itertools;
 use commands::{Cmd, CliArgument};
 use clap::Parser;
 use colored::Colorize;
-use color_eyre::{Result, eyre};
+use color_eyre::Result;
 use hex;
-use jsonrpsee::core::params;
+use jsonrpsee::core::params::ArrayParams;
 use jsonrpsee::{
     rpc_params,
-    core::client::ClientT
+    core::client::ClientT,
+    core::client::Client,
+};
+use jsonrpsee::ws_client::{
+    WsClient,
+    WsClientBuilder,
 };
 use libp2p::PeerId;
-use p2p_network::node_client::RestartReason;
+use serde_json::Value;
+
 use rpc::rpc_client::create_rpc_client;
 use p2p_network::{
+    node_client::RestartReason,
+    types::UmbralPublicKeyResponse,
     get_node_name,
     short_peer_id,
 };
-use p2p_network::types::UmbralPublicKeyResponse;
 use runtime::llm::AgentSecretsJson;
 
 
@@ -34,7 +41,6 @@ async fn main() -> Result<()> {
 		.try_init();
 
     let cmd = Cmd::parse();
-    log(format!("Querying RPC address: {}", cmd.rpc_server_address).green());
     let port = cmd.rpc_server_address;
     let client = create_rpc_client(port.port()).await?;
 
@@ -65,16 +71,6 @@ async fn main() -> Result<()> {
                 short_peer_id(&response.umbral_peer_id.into()).green(),
                 format!("{}", &response.umbral_public_key).red()
             ));
-        }
-        CliArgument::Respawn { agent_name, agent_nonce } => {
-            let response2: AgentSecretsJson = client.request(
-                "request",
-                rpc_params![
-                    agent_name,
-                    agent_nonce
-                ]
-            ).await?;
-            log(format!("Decrypted Agent Secrets:\n{:?}\n", response2));
         }
         CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
@@ -135,7 +131,7 @@ async fn main() -> Result<()> {
         }
 
         CliArgument::TriggerNodeFailure => {
-            match client.request::<RestartReason, params::ArrayParams>(
+            match client.request::<RestartReason, ArrayParams>(
                 "trigger_node_failure",
                 rpc_params![]
             ).await {
@@ -145,6 +141,40 @@ async fn main() -> Result<()> {
                 Err(e) => {
                     log(format!("Node failed, but with unexpected error: {:?}", e).yellow());
                 }
+            }
+        }
+
+        CliArgument::GetNodeStates { ports } => {
+
+            let mut clients: Vec<(u16, Client)> = vec![];
+
+            for port_str in ports {
+                let port = port_str.parse::<u16>().unwrap();
+                match create_rpc_client(port).await {
+                    Ok(c) => clients.push((port, c)),
+                    Err(_) => println!("Cannot connect to port {}, skipping.", port_str),
+                }
+            }
+
+            let mut promises = vec![];
+            for (port, client) in clients.iter() {
+                let promise = client.request::<Value, ArrayParams>(
+                    "get_node_state",
+                    rpc_params![]
+                );
+                promises.push(promise);
+            }
+
+            let results = futures::future::join_all(promises)
+                .await
+                .into_iter()
+                .filter_map(|res| match res {
+                    Ok(r) => Some(r),
+                    Err(_) => None
+                }).collect::<Vec<Value>>();
+
+            for r in results.iter() {
+                log(format!("\n{}", serde_json::to_string_pretty(r).unwrap()));
             }
         }
     }

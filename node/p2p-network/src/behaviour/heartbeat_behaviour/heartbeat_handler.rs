@@ -5,7 +5,6 @@ use std::{
     task::Poll,
     time::Duration,
 };
-use std::sync::atomic::AtomicBool;
 use color_eyre::{Result, eyre::Error};
 use futures::{
     future::BoxFuture,
@@ -111,8 +110,10 @@ impl ConnectionHandler for HeartbeatHandler {
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<ConnectionHandlerEvent<Self::OutboundProtocol, (), Self::ToBehaviour>> {
-        if let Some(inbound_stream_and_block_height) = self.inbound.as_mut() {
-            match inbound_stream_and_block_height.poll_unpin(cx) {
+
+        //// Inbound Events
+        if let Some(inbound_stream) = self.inbound.as_mut() {
+            match inbound_stream.poll_unpin(cx) {
                 Poll::Ready(Err(_)) => {
                     debug!(target: "1up", "Incoming heartbeat errored");
                     self.inbound = None;
@@ -120,7 +121,7 @@ impl ConnectionHandler for HeartbeatHandler {
                 Poll::Ready(Ok((stream, tee_attestation))) => {
                     // start waiting for the next `TeeAttestation`
                     self.inbound = Some(tee_quote_parser::receive_heartbeat_payload(stream).boxed());
-                    // report newly received `TeeAttestation` to the Behaviour
+                    // report newly received peer `TeeAttestation` to heartbeat_behaviour/mod.rs
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         HeartbeatOutEvent::HeartbeatPayload(tee_attestation),
                     ))
@@ -129,9 +130,9 @@ impl ConnectionHandler for HeartbeatHandler {
             }
         }
 
+        //// Outbound Events
         loop {
             match self.outbound.take() {
-
                 // Requesting TEE Heartbeat
                 Some(OutboundState::RequestingTeeHeartbeat { requested, stream }) => {
                     self.outbound = Some(OutboundState::RequestingTeeHeartbeat {
@@ -215,6 +216,7 @@ impl ConnectionHandler for HeartbeatHandler {
                 }
             }
         }
+        // Otherwise return Pending
         Poll::Pending
     }
 

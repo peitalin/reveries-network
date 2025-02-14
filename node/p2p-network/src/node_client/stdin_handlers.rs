@@ -2,7 +2,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 
-use crate::types::{AgentNameWithNonce, ChatMessage, PrevTopic, TOPIC_DELIMITER};
+use crate::types::{ChatMessage, TOPIC_DELIMITER};
 use super::NodeClient;
 
 
@@ -31,7 +31,7 @@ impl<'a> NodeClient<'a> {
             match cmd.to_string().into() {
                 StdInputCommand::UnknownCmd(s) => {
                     self.log(format!("Unknown command: '{}'", s));
-                    println!("Command must begin with 'topic_switch/', 'broadcast/', 'request/', etc");
+                    println!("Input must begin with 'chat' or 'llm'");
                 }
                 StdInputCommand::ChatCmd => {
                     if line_split.len() < 2 {
@@ -77,42 +77,16 @@ impl Display for StdInputCommand {
     }
 }
 
-
+// Temporary way to issue chat commands to the node and test features in development
+// which will later be replaced with automated heartbeats, protocols, etc;
 impl From<String> for StdInputCommand {
     fn from(s: String) -> Self {
-        let (
-            topic,
-            agent_name,
-            agent_nonce,
-            nshare_threshold,
-            prev_topic
-        ) = parse_stdin_cmd(&s);
-        let agent_name = agent_name.to_string();
-        let agent_nonce = agent_nonce.unwrap_or(0);
-        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
-        match topic {
+        let mut tsplit = s.splitn(2, TOPIC_DELIMITER);
+        let cmd = tsplit.next().unwrap_or("unknown");
+        match cmd {
             "chat" => Self::ChatCmd,
             "llm" => Self::LLM,
             _ => Self::UnknownCmd(s)
         }
-    }
-}
-
-
-// Temporary way to issue chat commands to the node and test features in development
-// which will later be replaced with automated heartbeats, protocols, etc;
-pub(crate) fn parse_stdin_cmd(topic_str: &str) -> (
-    &str,                   // command
-    String,                 // agent name
-    Option<usize>,          // agent nonce
-    Option<(usize, usize)>, // (n,t)
-    Option<PrevTopic>,      // prev topic
-) {
-    let mut tsplit = topic_str.splitn(2, TOPIC_DELIMITER);
-    let cmd = tsplit.next().unwrap_or("unknown");
-    match cmd {
-        "chat" => ("chat", "".to_string(), None, None, None),
-        "llm" => ("llm", "".to_string(), None, None, None),
-        _ => ("unknown", "".to_string(), None, None, None),
     }
 }

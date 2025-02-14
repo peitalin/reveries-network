@@ -15,11 +15,13 @@ use crate::types::{
     TopicSwitch,
     UmbralPublicKeyResponse
 };
+use crate::network_events::peer_manager::AgentVesselTransferInfo;
 
 use super::container_manager::RestartReason;
 
 
 pub enum NodeCommand {
+
     /// Gets Umbral PublicKey(s) of peers that hold Agent fragments from Kademlia
     /// Looks up which peers hold an AgentNameWithNonce's fragments, then retrieves their
     /// PRE key from Kademlia
@@ -27,6 +29,7 @@ pub enum NodeCommand {
         agent_name_nonce: AgentNameWithNonce,
         sender: mpsc::Sender<UmbralPublicKeyResponse>,
     },
+
     /// Gets Peers that are subscribed to the Kfrag Broadcast channel for an agent
     /// Note: Just because peers are subscribed to the same broadcast,
     /// doesnt meant that peer has the fragments yet. Need to use GetKfragProviders.
@@ -35,6 +38,7 @@ pub enum NodeCommand {
         // returns: {frag_num: [peer_id]}
         sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
     },
+
     /// Gets Peers that hold the Kfrags for an agent.
     /// KfragProviders = kfrag holders
     /// KfragBroadcastPeers = peers subscribed to a Kfrag broadcast channel
@@ -43,6 +47,7 @@ pub enum NodeCommand {
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
 
+    /// Saves the provider of the kfrag for retrieval later
     SaveKfragProvider {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
@@ -63,14 +68,14 @@ pub enum NodeCommand {
     BroadcastKfrags(KeyFragmentMessage),
 
     /// Request Capsule Fragments for threshold decryption
-    RequestFragment {
+    RequestCapsuleFragment {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: FragmentNumber,
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 
-    RespondCapsuleFrag {
+    RespondCapsuleFragment {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         sender_peer_id: PeerId, // peer who sends cfrag back
@@ -92,5 +97,12 @@ pub enum NodeCommand {
     SimulateNodeFailure {
         sender: oneshot::Sender<RestartReason>,
         reason: RestartReason,
-    }
+    },
+
+    // PeerManager data
+    // Connected Peers
+    // NodeState
+    GetNodeState {
+        sender: oneshot::Sender<serde_json::Value>,
+    },
 }

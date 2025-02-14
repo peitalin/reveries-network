@@ -14,7 +14,7 @@ pub enum NetworkEvent {
         sender_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
-    RespawnRequiredRequest(AgentVesselTransferInfo),
+    RespawnRequest(AgentVesselTransferInfo),
     SaveKfragProviderRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,

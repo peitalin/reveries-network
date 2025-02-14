@@ -37,9 +37,10 @@ async fn main() -> Result<()> {
         .await?;
 
     // Subscribe and listen to gossip network for messages
-    if let Some(chat_topics) = opt.topics {
-        node_client.subscribe_topics(chat_topics).await?;
-    }
+    node_client.subscribe_topics(vec![
+        "chat".to_string(),
+        "topic_switch".to_string(),
+    ]).await?;
 
     let mut nc = node_client.clone();
     tokio::spawn(async move {

@@ -13,8 +13,6 @@ node1:
     echo 'Running Node 1';
     cargo run --bin rpc -- \
         --secret-key-seed 1 \
-        --generate-agent-secret true \
-        --topics chat,topic_switch \
         --rpc-port 8001
 
 # Runs node 2
@@ -22,7 +20,6 @@ node2:
     @echo 'Running Node 2';
     cargo run --bin rpc -- \
         --secret-key-seed 2 \
-        --topics chat,topic_switch \
         --rpc-port 8002
 
 # Runs node 3
@@ -30,7 +27,6 @@ node3:
     @echo 'Running Node 3';
     cargo run --bin rpc -- \
         --secret-key-seed 3 \
-        --topics chat,topic_switch \
         --rpc-port 8003
 
 # Runs node 4
@@ -38,7 +34,6 @@ node4:
     @echo 'Running Node 4';
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --topics chat,topic_switch \
         --rpc-port 8004
 
 # Runs node 5
@@ -46,7 +41,6 @@ node5:
     @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --topics chat,topic_switch \
         --rpc-port 8005
 
 broadcast:
@@ -128,11 +122,20 @@ peers5 agent_nonce:
         --agent-nonce {{agent_nonce}}
 
 
-dockerup:
-    docker compose up
-
 
 trigger-node-failure node_port:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:{{node_port}} \
         trigger-node-failure \
+
+get-node-states:
+    cargo run --bin cmd -- \
+        --rpc-server-address 0.0.0.0:8001 \
+        get-node-states \
+        --ports 8001,8002,8003,8004
+
+
+test-rpc node_port:
+    curl -X POST http://0.0.0.0:{{node_port}} \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"get_node_state","params":[],"id":1}'

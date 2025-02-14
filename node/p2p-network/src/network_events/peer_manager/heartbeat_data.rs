@@ -8,7 +8,7 @@ use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 
 #[derive(Debug, Clone)]
 pub struct HeartBeatData {
-    pub payload: TeeAttestation,
+    pub tee_payload: TeeAttestation,
     pub last_heartbeat: Instant,
     pub last_heartbeat_sys: SystemTime,
     pub size_moving_window: u32,
@@ -18,7 +18,7 @@ pub struct HeartBeatData {
 impl HeartBeatData {
     pub fn new(window: u32) -> Self {
         Self {
-            payload: TeeAttestation::default(),
+            tee_payload: TeeAttestation::default(),
             last_heartbeat: Instant::now(),
             last_heartbeat_sys: SystemTime::now(),
             size_moving_window: window,
@@ -52,8 +52,8 @@ impl HeartBeatData {
         self.durations.push_front(new_duration);
     }
 
-    pub fn update(&mut self, payload: TeeAttestation) {
-        self.payload = payload;
+    pub fn update(&mut self, tee_payload: TeeAttestation) {
+        self.tee_payload = tee_payload;
         let old_heartbeat = self.last_heartbeat;
         self.last_heartbeat = Instant::now();
         self.last_heartbeat_sys = SystemTime::now();
@@ -63,38 +63,47 @@ impl HeartBeatData {
 }
 
 
-// #[allow(non_snake_case)]
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[allow(non_snake_case)]
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[tokio::test(start_paused = true)]
-//     async fn duration_since_last_heartbeat__reads_correctly() {
-//         let heartbeat_data = HeartBeatData::new(10);
-//         tokio::time::advance(Duration::from_secs(10)).await;
-//         assert_eq!(
-//             heartbeat_data.duration_since_last_heartbeat(),
-//             Duration::from_secs(10)
-//         );
-//     }
+    #[tokio::test(start_paused = true)]
+    async fn duration_since_last_heartbeat__reads_correctly() {
+        let heartbeat_data = HeartBeatData::new(10);
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert_eq!(
+            heartbeat_data.duration_since_last_heartbeat(),
+            Duration::from_secs(10)
+        );
+    }
 
-//     #[tokio::test(start_paused = true)]
-//     async fn update__works_with_many() {
-//         let intervals: Vec<u64> =
-//             vec![5, 40, 19, 400, 23, 36, 33, 22, 11, 10, 9, 8, 72, 16, 5, 4];
-//         let mut heartbeat_data = HeartBeatData::new(10);
-//         for (i, interval) in intervals.clone().into_iter().enumerate() {
-//             tokio::time::advance(Duration::from_secs(interval)).await;
-//             heartbeat_data.update(1.into());
-//             let bottom = if i < 10 { 0 } else { i - 9 };
-//             let range = &intervals[bottom..=i];
-//             let expected = range
-//                 .iter()
-//                 .map(|x| Duration::from_secs(*x))
-//                 .sum::<Duration>()
-//                 / range.len() as u32;
-//             let actual = heartbeat_data.average_time_between_heartbeats();
-//             assert_eq!(actual, expected);
-//         }
-//     }
-// }
+    #[tokio::test(start_paused = true)]
+    async fn update__works_with_many() {
+
+        let intervals: Vec<u64> = vec![
+            1, 67, 77, 111, 230, 36, 633, 11,
+            42, 7, 19, 23, 450, 98, 15, 32
+        ];
+        let mut heartbeat_data = HeartBeatData::new(10);
+
+        for (i, interval) in intervals.clone().into_iter().enumerate() {
+
+            tokio::time::advance(Duration::from_secs(interval)).await;
+
+            heartbeat_data.update(TeeAttestation::default());
+
+            let bottom = if i < 10 { 0 } else { i - 9 };
+            let range = &intervals[bottom..=i];
+
+            let expected = range
+                .iter()
+                .map(|x| Duration::from_secs(*x))
+                .sum::<Duration>()
+                / range.len() as u32;
+
+            let actual = heartbeat_data.average_time_between_heartbeats();
+            assert_eq!(actual, expected);
+        }
+    }
+}

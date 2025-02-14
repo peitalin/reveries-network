@@ -90,7 +90,7 @@ pub(super) async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, Te
     match serde_json::from_slice::<TeeAttestationBytes>(&payload) {
         Err(e) => {
             let payload_str = std::str::from_utf8(&payload)?;
-            panic!("\npayload_str: {}\n\n>>> {}\n\tpayload_str.len(): {}\n\tpayload.len(): {}\n\tmsg_len: {}\n\tnum_bytes read: {}\n",
+            panic!("payload_str: {}\n>>> {}\n\tpayload_str.len(): {}\n\tpayload.len(): {}\n\tmsg_len: {}\n\tnum_bytes read: {}\n",
                 payload_str,
                 e,
                 payload_str.len(),

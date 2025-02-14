@@ -107,7 +107,7 @@ impl<'a> NodeClient<'a> {
                     // check if vessel node for the agent_name is still alive.
                     // if so, then reject request.
                     self.command_sender
-                        .send(NodeCommand::RespondCapsuleFrag {
+                        .send(NodeCommand::RespondCapsuleFragment {
                             agent_name_nonce,
                             frag_num,
                             sender_peer_id,
@@ -116,7 +116,7 @@ impl<'a> NodeClient<'a> {
                         .await
                         .expect("Command receiver not to be dropped.");
                 }
-                Some(NetworkEvent::RespawnRequiredRequest(
+                Some(NetworkEvent::RespawnRequest(
                     AgentVesselTransferInfo {
                         agent_name_nonce, // previous agent_name_nonce
                         total_frags,
@@ -481,7 +481,7 @@ impl<'a> NodeClient<'a> {
                     let (sender, receiver) = oneshot::channel();
 
                     nc.command_sender
-                        .send(NodeCommand::RequestFragment {
+                        .send(NodeCommand::RequestCapsuleFragment {
                             agent_name_nonce,
                             frag_num: frag_num,
                             peer: peer_id,
@@ -659,5 +659,18 @@ impl<'a> NodeClient<'a> {
         }).await.ok();
 
         receiver.await.map_err(|e| anyhow!(e.to_string()))
+    }
+
+    pub async fn get_node_state(&mut self) -> Result<serde_json::Value> {
+
+        let (sender, receiver) = oneshot::channel();
+        self.command_sender.send(NodeCommand::GetNodeState {
+            sender: sender,
+        }).await.ok();
+
+        let node_info = receiver.await
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        Ok(node_info)
     }
 }

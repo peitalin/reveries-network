@@ -26,12 +26,6 @@ pub enum CliArgument {
         #[clap(long)]
         threshold: usize,
     },
-    Respawn {
-        #[clap(long)]
-        agent_name: String,
-        #[clap(long)]
-        agent_nonce: usize,
-    },
     GetKfragBroadcastPeers {
         #[clap(long)]
         agent_name: String,
@@ -47,5 +41,10 @@ pub enum CliArgument {
         secret_key_seed: usize,
     },
 
-    TriggerNodeFailure
+    TriggerNodeFailure,
+
+    GetNodeStates {
+        #[clap(long, value_parser, num_args = 1.., value_delimiter = ',')]
+        ports: Vec<String>,
+    },
 }

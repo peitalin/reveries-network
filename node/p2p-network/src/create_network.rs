@@ -170,10 +170,10 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
             swarm,
             peer_id,
             &node_name,
+            umbral_key,
             command_receiver,
             chat_cmd_receiver,
             network_events_sender,
-            umbral_key,
             heartbeat_failure_receiver,
             container_manager
         ),
