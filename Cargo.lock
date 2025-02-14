@@ -5326,7 +5326,6 @@ name = "p2p-network"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.3.1",
- "async-stream",
  "bincode",
  "clap 4.5.28",
  "color-eyre",
@@ -5343,7 +5342,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "umbral-pre",

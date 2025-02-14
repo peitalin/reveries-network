@@ -7,6 +7,8 @@ edition = "2021"
 
 p2p-network = { path = "../p2p-network" }
 runtime = { path = "../runtime" }
+tokio-stream = { version = "0.1.17" }
+async-stream = { version = "0.3.6" }
 
 color-eyre = { workspace = true }
 clap = { workspace = true }

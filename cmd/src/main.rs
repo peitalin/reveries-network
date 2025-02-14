@@ -11,17 +11,18 @@ use hex;
 use jsonrpsee::core::params::ArrayParams;
 use jsonrpsee::{
     rpc_params,
-    core::client::ClientT,
-    core::client::Client,
-};
-use jsonrpsee::ws_client::{
-    WsClient,
-    WsClientBuilder,
+    core::client::{
+        Client,
+        ClientT,
+        Subscription,
+        SubscriptionClientT
+    },
+    ws_client::WsClientBuilder,
 };
 use libp2p::PeerId;
 use serde_json::Value;
 
-use rpc::rpc_client::create_rpc_client;
+use rpc::rpc_client::{parse_url, create_rpc_client};
 use p2p_network::{
     node_client::RestartReason,
     types::UmbralPublicKeyResponse,
@@ -41,13 +42,13 @@ async fn main() -> Result<()> {
 		.try_init();
 
     let cmd = Cmd::parse();
-    let port = cmd.rpc_server_address;
-    let client = create_rpc_client(port.port()).await?;
+    let port = cmd.rpc_server_address.port();
 
     match cmd.argument {
         CliArgument::Broadcast { agent_name, agent_nonce, shares, threshold } => {
 
-            log(format!("Requesting network to proxy re-encrypt agent: {}/{}'s secrets and broadcast fragments(n={}, t={})",
+            let client = create_rpc_client(port).await?;
+            log(format!("Broadcasting agent: {}/{}'s re-encryption fragments(n={}, t={})",
                 agent_name,
                 agent_nonce,
                 shares,
@@ -73,6 +74,7 @@ async fn main() -> Result<()> {
             ));
         }
         CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
+            let client = create_rpc_client(port).await?;
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
                 "get_kfrag_broadcast_peers",
                 rpc_params![
@@ -101,6 +103,7 @@ async fn main() -> Result<()> {
             secret_key_seed,
         } => {
 
+            let client = create_rpc_client(port).await?;
             // Read local AgentSecretJson file and send to node over a secure channel/TLS.
             // TODO: user will send this over a secure channel and commit the hash onchain
             // along with some payment.
@@ -131,6 +134,7 @@ async fn main() -> Result<()> {
         }
 
         CliArgument::TriggerNodeFailure => {
+            let client = create_rpc_client(port).await?;
             match client.request::<RestartReason, ArrayParams>(
                 "trigger_node_failure",
                 rpc_params![]
@@ -175,6 +179,51 @@ async fn main() -> Result<()> {
 
             for r in results.iter() {
                 log(format!("\n{}", serde_json::to_string_pretty(r).unwrap()));
+            }
+        }
+
+        CliArgument::Websocket => {
+
+            let url = parse_url(port)?;
+            let ws_client = WsClientBuilder::default().build(&url).await?;
+
+            // Subscription with multiple parameters
+            let mut sub_params_two: Subscription<String> = ws_client
+                .subscribe(
+                    "subscribe_letter_stream",
+                    rpc_params![6],
+                    "unsubscribe_letter_stream"
+                ).await?;
+
+
+            while let Some(a) = sub_params_two.next().await {
+                println!("another letter!: {:?}", a);
+            }
+            println!("none: {:?}", sub_params_two.next().await);
+        }
+
+        CliArgument::SubscribeHeartbeat => {
+
+            let url = parse_url(port)?;
+            let ws_client = WsClientBuilder::default().build(&url).await?;
+            println!("SubscribeHeartbeat to: {:?}", url);
+
+            let mut hb_subscription: Subscription<Option<serde_json::Value>> = ws_client
+                .subscribe(
+                    "subscribe_hb",
+                    rpc_params![0],
+                    "unsubscribe_hb"
+                ).await?;
+
+            while let Some(hb) = hb_subscription.next().await {
+                if let Ok(Some(b)) = hb {
+                    println!("\n{}\nnode_state: {}\ntee_attestation: {}\ntime: {}\n",
+                        "Heartbeat:".green(),
+                        format!("{:?}", b.get("node_state").unwrap()).bright_blue(),
+                        format!("{:?}", b.get("tee_attestation").unwrap()).bright_black(),
+                        format!("{:?}", b.get("time").unwrap()).bright_green(),
+                    );
+                }
             }
         }
     }

@@ -47,4 +47,8 @@ pub enum CliArgument {
         #[clap(long, value_parser, num_args = 1.., value_delimiter = ',')]
         ports: Vec<String>,
     },
+
+    Websocket,
+
+    SubscribeHeartbeat,
 }

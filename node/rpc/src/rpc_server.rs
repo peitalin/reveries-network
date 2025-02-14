@@ -1,15 +1,19 @@
 use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
-use libp2p::PeerId;
+
+use color_eyre::eyre::{Error, anyhow};
+use futures::{Stream, StreamExt, pin_mut};
+
+use jsonrpsee::PendingSubscriptionSink;
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
-use jsonrpsee::server::{RpcModule, Server};
+use jsonrpsee::server::{RpcModule, Server, SubscriptionMessage, TrySendError};
+
 use serde::{Deserialize, Serialize};
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
     AgentNameWithNonce,
-    NextTopic,
-    PrevTopic,
-    TopicSwitch,
     UmbralPublicKeyResponse
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
@@ -43,14 +47,19 @@ pub async fn run_server<'a: 'static>(
     network_client: NodeClient<'a>
 ) -> color_eyre::Result<SocketAddr> {
 
-	let server = Server::builder().build(format!("0.0.0.0:{}", rpc_port)).await?;
-	let mut module = RpcModule::new(());
+	let server = Server::builder()
+        .set_message_buffer_capacity(10)
+        .build(format!("0.0.0.0:{}", rpc_port))
+        .await?;
+
+	let addr = server.local_addr()?;
+	let mut rpc_module = RpcModule::new(());
 
     ////// register RPC endpoints //////
 
     // Broadcast
-    let nc1 = network_client.clone();
-	module.register_async_method("broadcast", move |params, _, _| {
+    let nc = network_client.clone();
+	rpc_module.register_async_method("broadcast", move |params, _, _| {
 
         let (
             agent_name,
@@ -60,33 +69,33 @@ pub async fn run_server<'a: 'static>(
         ) = params.parse::<(String, usize, usize, usize)>().expect("error parsing params");
         let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
 
-        let mut nc1 = nc1.clone();
+        let mut nc = nc.clone();
         async move {
-            nc1
+            nc
                 .broadcast_kfrags(agent_name_nonce, shares, threshold)
                 .await
                 .map_err(|e| RpcError(e.to_string()))
         }
     })?;
 
-    let nc2 = network_client.clone();
-	module.register_async_method("get_kfrag_broadcast_peers", move |params, _, _| {
+    let nc = network_client.clone();
+	rpc_module.register_async_method("get_kfrag_broadcast_peers", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>()
             .expect("error parsing params");
         let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
 
-        let mut nc = nc2.clone();
+        let mut nc = nc.clone();
         async move {
-            let peers: HashMap<usize, HashSet<PeerId>> = nc
+            let peers: HashMap<usize, HashSet<libp2p::PeerId>> = nc
                 .get_kfrag_broadcast_peers(agent_name_nonce).await;
 
-            Ok::<HashMap<usize, HashSet<PeerId>>, RpcError>(peers)
+            Ok::<HashMap<usize, HashSet<libp2p::PeerId>>, RpcError>(peers)
         }
     })?;
 
-    let nc3 = network_client.clone();
-	module.register_async_method("spawn_agent", move |params, _, _| {
+    let nc = network_client.clone();
+    rpc_module.register_async_method("spawn_agent", move |params, _, _| {
 
         let (
             agent_secrets_json,
@@ -94,7 +103,7 @@ pub async fn run_server<'a: 'static>(
             threshold,
         ) = params.parse::<(AgentSecretsJson, usize, usize)>().expect("error parsing params");
 
-        let mut nc = nc3.clone();
+        let mut nc = nc.clone();
         async move {
             let result = nc
                 .spawn_agent(
@@ -107,12 +116,11 @@ pub async fn run_server<'a: 'static>(
         }
     })?;
 
-    let nc4 = network_client.clone();
-	module.register_async_method("trigger_node_failure", move |_params, _, _| {
-
-        let mut nc4 = nc4.clone();
+    let nc = network_client.clone();
+	rpc_module.register_async_method("trigger_node_failure", move |_params, _, _| {
+        let mut nc = nc.clone();
         async move {
-            let result = nc4
+            let result = nc
                 .simulate_node_failure().await
                 .map_err(|e| RpcError(e.to_string()))?;
 
@@ -120,10 +128,9 @@ pub async fn run_server<'a: 'static>(
         }
     })?;
 
-    let nc5 = network_client.clone();
-	module.register_async_method("get_node_state", move |_params, _, _| {
-
-        let mut nc = nc5.clone();
+    let nc = network_client.clone();
+	rpc_module.register_async_method("get_node_state", move |_params, _, _| {
+        let nc = nc.clone();
         async move {
             let result = nc
                 .get_node_state()
@@ -134,12 +141,107 @@ pub async fn run_server<'a: 'static>(
         }
     })?;
 
-	let addr = server.local_addr()?;
-	let handle = server.start(module);
+    rpc_module.register_subscription(
+        "subscribe_letter_stream",
+        "params_letter_stream",
+        "unsubscribe_letter_stream",
+        // "subscribe_node_state", // subscribe_method_name
+        // "notify_node_state",    // notif_method_name
+        // "unsubscribe_node_state", // unsubscribe_method_name
+        |params, pending_sink, _, _| async move {
+
+			let n = params.parse::<usize>().expect("params err");
+            const LETTERS: &str = "abcdefghijklmnopqrstuvxyz";
+
+			let stream = IntervalStream::new(
+                interval(std::time::Duration::from_millis(400))
+            )
+            .take(n)
+            .enumerate()
+            .map(move |(i, _instant)| &LETTERS[i..i+1]);
+
+			pipe_from_stream_and_drop(pending_sink, stream).await.map_err(Into::into)
+        }
+    )?;
+
+
+    let nc = network_client.clone();
+    rpc_module.register_subscription(
+        "subscribe_hb", // subscribe_method_name
+        "notify_hb",    // notif_method_name
+        "unsubscribe_hb", // unsubscribe_method_name
+        move |params, pending_sink, _, _| {
+
+			// let one = params.parse::<usize>().expect("params err");
+            let heartbeat_receiver = nc.get_hb_channel();
+            let nc2 = nc.clone();
+            async move {
+                let stream = async_stream::stream! {
+                    while let Ok(some_item) = heartbeat_receiver.recv().await {
+
+                        let node_state_result = nc2
+                            .get_node_state()
+                            .await
+                            .unwrap();
+
+                        let now = get_time();
+
+                        if let (Some(tee_bytes)) = some_item {
+                            let tee_attestation = parse_tee_attestation_bytes(tee_bytes);
+                            let json_payload = serde_json::json!({
+                                "tee_attestation": tee_attestation,
+                                "node_state": node_state_result,
+                                "time": now,
+                            });
+                            yield Some(json_payload)
+                        } else {
+                            yield None
+                        }
+                    }
+                };
+
+                pin_mut!(stream);
+
+                pipe_from_stream_and_drop(pending_sink, stream).await.map_err(Into::into)
+            }
+        }
+    )?;
+
+    ////////////////////////////////////////////////////
+	let handle = server.start(rpc_module);
 	// In this example we don't care about doing shutdown so let's run it forever.
 	// You may use the `ServerHandle` to shut it down
 	tokio::spawn(handle.stopped()).await?;
 	Ok(addr)
+}
+
+
+pub async fn pipe_from_stream_and_drop<T: Serialize>(
+	pending_sink: PendingSubscriptionSink,
+	mut stream: impl Stream<Item = T> + Unpin,
+) -> Result<(), Error> {
+
+	let mut sink = pending_sink.accept().await?;
+
+	loop {
+		tokio::select! {
+			maybe_item = stream.next() => {
+				let item = match maybe_item {
+					Some(item) => item,
+					None => break Err(anyhow!("Subscription closed")),
+				};
+				let msg = SubscriptionMessage::from_json(&item)?;
+				match sink.try_send(msg) {
+					Ok(_) => {},
+					Err(TrySendError::Closed(e)) => {
+                        break Err(anyhow!("Subscription closed {:?}", e))
+                    },
+					// channel is full, let's be naive and just drop the message.
+					Err(TrySendError::Full(_)) => {},
+				}
+			}
+		}
+	}
 }
 
 
@@ -149,4 +251,24 @@ pub async fn run_server<'a: 'static>(
 
 
 
+pub fn get_time() -> std::time::Duration {
+    let start = std::time::SystemTime::now();
+    let now = start
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards");
+    now
+}
 
+pub fn parse_tee_attestation_bytes(ta_bytes: Vec<u8>) -> serde_json::Value {
+
+    let quote = runtime::tee_attestation::QuoteV4::from_bytes(&ta_bytes);
+    let now = get_time();
+
+    serde_json::json!({
+        "header": &format!("{:?}", &quote.header),
+        // "signature": &format!("{:?}", &quote.signature),
+        "signature_len": &format!("{:?}", &quote.signature_len),
+        // "quote_body": &format!("{:?}", &quote.quote_body),
+        "time": now,
+    })
+}
