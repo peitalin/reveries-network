@@ -10,6 +10,7 @@ runtime = { path = "../runtime" }
 bincode = { version = "1.3.3" }
 nanoid = { version = "0.4.0" }
 lazy_static = { version = "1.5.0" }
+async-channel = { version = "2.3.1" }
 
 color-eyre = { workspace = true }
 colored = { workspace = true }

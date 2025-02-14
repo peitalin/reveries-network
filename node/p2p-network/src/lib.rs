@@ -3,7 +3,7 @@ pub mod create_network;
 mod network_events;
 pub mod node_client;
 pub mod types;
-use libp2p::PeerId;
+
 use serde::{Deserialize, Serialize};
 
 
@@ -35,7 +35,7 @@ pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
         .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
 }
 
-pub fn get_node_name(peer_id: &PeerId) -> String {
+pub fn get_node_name(peer_id: &libp2p::PeerId) -> String {
     match peer_id.to_base58().as_str() {
         "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ALICE".to_string(),
         "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BELLA".to_string(),

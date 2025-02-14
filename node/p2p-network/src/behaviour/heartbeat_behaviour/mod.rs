@@ -4,7 +4,7 @@ mod tee_quote_parser;
 
 use std::collections::VecDeque;
 use std::task::Poll;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::Arc;
 use color_eyre::{Result, eyre};
 use colored::Colorize;
 use futures::FutureExt;
@@ -61,12 +61,18 @@ pub struct TeePayloadOutEvent {
 pub struct HeartbeatBehaviour {
     /// Config timers and max failure counts for Heartbeat
     pub(crate) config: HeartbeatConfig,
+
     /// for Heartbeat Behaviour to communicate with upper level EventLoop
     /// and disconnect from Swarm, or shutdown the LLM runtime.
     pub(crate) internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
+
+    pub(crate) heartbeat_sender: async_channel::Sender<Option<Vec<u8>>>,
+
     pending_events: VecDeque<HeartbeatAction>,
+
     /// This node's current heartbeat payload which will be broadcasted
     pub(crate) current_heartbeat_payload: TeeAttestation,
+
     /// internal heartbeat fail count to know when to shutdown runtime and reboot container
     pub(crate) internal_fail_count: std::sync::Arc<u32>,
 }
@@ -75,10 +81,12 @@ impl HeartbeatBehaviour {
     pub fn new(
         config: HeartbeatConfig,
         internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
+        heartbeat_sender: async_channel::Sender<Option<Vec<u8>>>,
     ) -> Self {
         Self {
             config,
             internal_heartbeat_fail_sender,
+            heartbeat_sender,
             pending_events: VecDeque::default(),
             current_heartbeat_payload: TeeAttestation::default(),
             internal_fail_count: std::sync::Arc::new(0),
@@ -181,7 +189,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                         peer_id,
                         latest_tee_attestation
                     })
-                )
+                );
             }
             HeartbeatOutEvent::ResetFailureCount => {
                 self.internal_fail_count = 0.into();
@@ -238,6 +246,16 @@ impl NetworkBehaviour for HeartbeatBehaviour {
             match action {
 
                 HeartbeatAction::HeartbeatEvent(event) => {
+
+                    // send to NodeClient, expose stream to subscribers
+                    let _ = async {
+                        self.heartbeat_sender.send(
+                            event.latest_tee_attestation.tee_attestation_bytes.clone()
+                        ).await
+                    }
+                    .boxed()
+                    .poll_unpin(cx);
+
                     return Poll::Ready(ToSwarm::GenerateEvent(event))
                 },
 

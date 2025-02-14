@@ -11,8 +11,8 @@ use std::sync::Arc;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use color_eyre::eyre::eyre;
-use futures::FutureExt;
-use tokio::sync::{mpsc, oneshot};
+use futures::{StreamExt, FutureExt};
+use tokio::sync::{mpsc, oneshot, };
 use hex;
 use libp2p::{core::Multiaddr, PeerId};
 
@@ -44,6 +44,8 @@ pub struct NodeClient<'a> {
     pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
     // container app state
     container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
+    // hb subscriptions for rpc clients
+    pub heartbeat_receiver: async_channel::Receiver<Option<Vec<u8>>>,
     // keep private in TEE
     agent_secrets_json: Option<AgentSecretsJson>,
     umbral_key: UmbralKey,
@@ -58,7 +60,8 @@ impl<'a> NodeClient<'a> {
         command_sender: mpsc::Sender<NodeCommand>,
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
-        container_manager: Arc<tokio::sync::RwLock<ContainerManager>>
+        container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
+        heartbeat_receiver: async_channel::Receiver<Option<Vec<u8>>>,
     ) -> Self {
         Self {
             peer_id: peer_id,
@@ -67,6 +70,8 @@ impl<'a> NodeClient<'a> {
             chat_cmd_sender: chat_cmd_sender,
             // manages container reboot
             container_manager: container_manager,
+            // hb subscriptions for rpc clients
+            heartbeat_receiver: heartbeat_receiver,
             // keep private in TEE
             agent_secrets_json: None,
             umbral_key: umbral_key,
@@ -96,109 +101,115 @@ impl<'a> NodeClient<'a> {
         mut network_event_receiver: mpsc::Receiver<NetworkEvent>
     ) -> Result<()> {
         loop {
-            match network_event_receiver.recv().await {
-                // Reply with the content of the file on incoming requests.
-                Some(NetworkEvent::InboundCapsuleFragRequest {
-                    agent_name_nonce,
-                    frag_num,
-                    sender_peer_id,
-                    channel
-                }) => {
-                    // check if vessel node for the agent_name is still alive.
-                    // if so, then reject request.
-                    self.command_sender
-                        .send(NodeCommand::RespondCapsuleFragment {
-                            agent_name_nonce,
-                            frag_num,
-                            sender_peer_id,
-                            channel
-                        })
-                        .await
-                        .expect("Command receiver not to be dropped.");
-                }
-                Some(NetworkEvent::RespawnRequest(
-                    AgentVesselTransferInfo {
-                        agent_name_nonce, // previous agent_name_nonce
-                        total_frags,
-                        next_vessel_peer_id,
-                        prev_vessel_peer_id,
+            tokio::select! {
+                // hb = self.heartbeat_receiver.recv() => match hb {
+                //     Ok(r) => println!("hb: {:?}", r),
+                //     Err(e) => println!("err: {:?}", e),
+                // },
+                e = network_event_receiver.recv() => match e {
+                    // Reply with the content of the file on incoming requests.
+                    Some(NetworkEvent::InboundCapsuleFragRequest {
+                        agent_name_nonce,
+                        frag_num,
+                        sender_peer_id,
+                        channel
+                    }) => {
+                        // check if vessel node for the agent_name is still alive.
+                        // if so, then reject request.
+                        self.command_sender
+                            .send(NodeCommand::RespondCapsuleFragment {
+                                agent_name_nonce,
+                                frag_num,
+                                sender_peer_id,
+                                channel
+                            })
+                            .await
+                            .expect("Command receiver not to be dropped.");
                     }
-                )) => {
-                    let next_nonce = agent_name_nonce.1 + 1;
-                    let next_agent_name_nonce = AgentNameWithNonce(
-                        agent_name_nonce.0.clone(),
-                        next_nonce
-                    );
-
-                    match self.request_respawn(
-                        agent_name_nonce.clone(), // prev agent_name_nonce
-                        Some(prev_vessel_peer_id)
-                    ).await {
-                        Err(e) => {
-                            self.log(format!("Error respawning agent in new vessel: {}", e).red());
+                    Some(NetworkEvent::RespawnRequest(
+                        AgentVesselTransferInfo {
+                            agent_name_nonce, // previous agent_name_nonce
+                            total_frags,
+                            next_vessel_peer_id,
+                            prev_vessel_peer_id,
                         }
-                        Ok(mut agent_secrets_json) => {
-                            agent_secrets_json.agent_nonce = next_nonce;
-                            self.agent_secrets_json = Some(agent_secrets_json.clone());
+                    )) => {
+                        let next_nonce = agent_name_nonce.1 + 1;
+                        let next_agent_name_nonce = AgentNameWithNonce(
+                            agent_name_nonce.0.clone(),
+                            next_nonce
+                        );
 
-                            let topic_switch = TopicSwitch {
-                                next_topic: NextTopic {
-                                    agent_name_nonce: next_agent_name_nonce.clone(),
-                                    total_frags,
-                                    threshold: 2
-                                },
-                                prev_topic: Some(PrevTopic {
-                                    agent_name_nonce: agent_name_nonce,
-                                    peer_id: Some(prev_vessel_peer_id)
-                                }),
-                            };
-                            let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
-                            println!("num_subscribed: {:?}", num_subscribed);
-
-                            self.encrypt_secret_and_store(agent_secrets_json.clone()).ok();
-                            // TODO
-                            // 1. test LLM API works
-                            // 2. re-encrypt secrets + provide TEE attestation of it
-                            // 3. confirm shutdown of old vessel
-                            // 4. then broadcast topic switch to new Agent with new nonce
-
-                            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                                self.log(format!("Decrypted LLM API keys, querying LLM (paused)"));
-                                // let response = test_claude_query(
-                                //     anthropic_api_key,
-                                //     "What is your name and what do you do?",
-                                //     &agent_secrets_json.context
-                                // ).await.unwrap();
-                                // println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                        match self.request_respawn(
+                            agent_name_nonce.clone(), // prev agent_name_nonce
+                            Some(prev_vessel_peer_id)
+                        ).await {
+                            Err(e) => {
+                                self.log(format!("Error respawning agent in new vessel: {}", e).red());
                             }
+                            Ok(mut agent_secrets_json) => {
+                                agent_secrets_json.agent_nonce = next_nonce;
+                                self.agent_secrets_json = Some(agent_secrets_json.clone());
 
-                            self.broadcast_kfrags(next_agent_name_nonce, 3, 2).await.expect("respawn err");
-                        }
-                    };
-                }
-                // After broadcasting kfrags, peers should identify the vessel node and
-                // let it know this node has a fragment.
-                Some(NetworkEvent::SaveKfragProviderRequest {
-                    agent_name_nonce,
-                    frag_num,
-                    sender_peer_id,
-                    channel
-                }) => {
-                    self.log(format!("Saving provider {} to peer_manager", sender_peer_id));
-                    // Only the broadcast and vessel need to know which nodes have which fragments.
-                    // Not necessary for other nodes to keep track of this.
-                    self.command_sender
-                        .send(NodeCommand::SaveKfragProvider {
-                            agent_name_nonce,
-                            frag_num,
-                            sender_peer_id,
-                            channel
-                        })
-                        .await
-                        .expect("Command receiver not to be dropped.");
-                }
-                e => {
-                    panic!("Error <network_event_receiver>: {:?}", e);
+                                let topic_switch = TopicSwitch {
+                                    next_topic: NextTopic {
+                                        agent_name_nonce: next_agent_name_nonce.clone(),
+                                        total_frags,
+                                        threshold: 2
+                                    },
+                                    prev_topic: Some(PrevTopic {
+                                        agent_name_nonce: agent_name_nonce,
+                                        peer_id: Some(prev_vessel_peer_id)
+                                    }),
+                                };
+                                let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
+                                println!("num_subscribed: {:?}", num_subscribed);
+
+                                self.encrypt_secret_and_store(agent_secrets_json.clone()).ok();
+                                // TODO
+                                // 1. test LLM API works
+                                // 2. re-encrypt secrets + provide TEE attestation of it
+                                // 3. confirm shutdown of old vessel
+                                // 4. then broadcast topic switch to new Agent with new nonce
+
+                                if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
+                                    self.log(format!("Decrypted LLM API keys, querying LLM (paused)"));
+                                    // let response = test_claude_query(
+                                    //     anthropic_api_key,
+                                    //     "What is your name and what do you do?",
+                                    //     &agent_secrets_json.context
+                                    // ).await.unwrap();
+                                    // println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                                }
+
+                                self.broadcast_kfrags(next_agent_name_nonce, 3, 2).await.expect("respawn err");
+                            }
+                        };
+                    }
+                    // After broadcasting kfrags, peers should identify the vessel node and
+                    // let it know this node has a fragment.
+                    Some(NetworkEvent::SaveKfragProviderRequest {
+                        agent_name_nonce,
+                        frag_num,
+                        sender_peer_id,
+                        channel
+                    }) => {
+                        self.log(format!("Saving provider {} to peer_manager", sender_peer_id));
+                        // Only the broadcast and vessel need to know which nodes have which fragments.
+                        // Not necessary for other nodes to keep track of this.
+                        self.command_sender
+                            .send(NodeCommand::SaveKfragProvider {
+                                agent_name_nonce,
+                                frag_num,
+                                sender_peer_id,
+                                channel
+                            })
+                            .await
+                            .expect("Command receiver not to be dropped.");
+                    }
+                    e => {
+                        panic!("Error <network_event_receiver>: {:?}", e);
+                    }
                 }
             }
         }
@@ -661,7 +672,7 @@ impl<'a> NodeClient<'a> {
         receiver.await.map_err(|e| anyhow!(e.to_string()))
     }
 
-    pub async fn get_node_state(&mut self) -> Result<serde_json::Value> {
+    pub async fn get_node_state(&self) -> Result<serde_json::Value> {
 
         let (sender, receiver) = oneshot::channel();
         self.command_sender.send(NodeCommand::GetNodeState {
@@ -672,5 +683,9 @@ impl<'a> NodeClient<'a> {
             .map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(node_info)
+    }
+
+    pub fn get_hb_channel(&self) -> async_channel::Receiver<Option<Vec<u8>>> {
+        self.heartbeat_receiver.clone()
     }
 }

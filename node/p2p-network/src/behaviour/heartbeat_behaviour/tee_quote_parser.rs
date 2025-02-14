@@ -1,4 +1,6 @@
-use color_eyre::Result;
+use std::time::Instant;
+
+use color_eyre::{owo_colors::OwoColorize, Result};
 use futures::{
     AsyncRead,
     AsyncReadExt,

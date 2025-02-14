@@ -5325,6 +5325,8 @@ dependencies = [
 name = "p2p-network"
 version = "0.1.0"
 dependencies = [
+ "async-channel 2.3.1",
+ "async-stream",
  "bincode",
  "clap 4.5.28",
  "color-eyre",
@@ -5341,6 +5343,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "umbral-pre",
@@ -6383,6 +6386,7 @@ checksum = "afab94fb28594581f62d981211a9a4d53cc8130bbcbbb89a0440d9b8e81a7746"
 name = "rpc"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "clap 4.5.28",
  "color-eyre",
  "futures",
@@ -6393,6 +6397,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
 ]

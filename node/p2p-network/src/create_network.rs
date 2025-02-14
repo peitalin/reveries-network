@@ -58,6 +58,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
 
     // Channels
     let (heartbeat_failure_sender, heartbeat_failure_receiver) = tokio::sync::mpsc::channel(100);
+    let (heartbeat_sender, heartbeat_receiver) = async_channel::bounded(100);
     let (command_sender, command_receiver) = mpsc::channel(100);
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
     let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
@@ -123,6 +124,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                         max_failures: 1,
                     },
                     heartbeat_failure_sender,
+                    heartbeat_sender,
                 ),
                 mdns: mdns,
                 gossipsub: gossipsub,
@@ -159,7 +161,8 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
         command_sender,
         chat_cmd_sender,
         umbral_key.clone(),
-        container_manager.clone()
+        container_manager.clone(),
+        heartbeat_receiver,
     );
 
     Ok((
