@@ -150,7 +150,7 @@ pub async fn run_server<'a: 'static>(
         // "unsubscribe_node_state", // unsubscribe_method_name
         |params, pending_sink, _, _| async move {
 
-			let n = params.parse::<usize>().expect("params err");
+			let n = params.one::<usize>().expect("params err");
             const LETTERS: &str = "abcdefghijklmnopqrstuvxyz";
 
 			let stream = IntervalStream::new(
@@ -160,7 +160,8 @@ pub async fn run_server<'a: 'static>(
             .enumerate()
             .map(move |(i, _instant)| &LETTERS[i..i+1]);
 
-			pipe_from_stream_and_drop(pending_sink, stream).await.map_err(Into::into)
+			pipe_from_stream_and_drop(pending_sink, stream)
+                .await.map_err(Into::into)
         }
     )?;
 
@@ -172,26 +173,21 @@ pub async fn run_server<'a: 'static>(
         "unsubscribe_hb", // unsubscribe_method_name
         move |params, pending_sink, _, _| {
 
-			// let one = params.parse::<usize>().expect("params err");
+			let _n = params.one::<usize>().expect("params err");
             let heartbeat_receiver = nc.get_hb_channel();
             let nc2 = nc.clone();
+
             async move {
+
                 let stream = async_stream::stream! {
                     while let Ok(some_item) = heartbeat_receiver.recv().await {
-
-                        let node_state_result = nc2
-                            .get_node_state()
-                            .await
-                            .unwrap();
-
-                        let now = get_time();
-
                         if let (Some(tee_bytes)) = some_item {
+                            let node_state_result = nc2.get_node_state().await.ok();
                             let tee_attestation = parse_tee_attestation_bytes(tee_bytes);
                             let json_payload = serde_json::json!({
                                 "tee_attestation": tee_attestation,
                                 "node_state": node_state_result,
-                                "time": now,
+                                "time": get_time(),
                             });
                             yield Some(json_payload)
                         } else {
@@ -199,10 +195,10 @@ pub async fn run_server<'a: 'static>(
                         }
                     }
                 };
-
                 pin_mut!(stream);
 
-                pipe_from_stream_and_drop(pending_sink, stream).await.map_err(Into::into)
+                pipe_from_stream_and_drop(pending_sink, stream)
+                    .await.map_err(Into::into)
             }
         }
     )?;
@@ -243,12 +239,6 @@ pub async fn pipe_from_stream_and_drop<T: Serialize>(
 		}
 	}
 }
-
-
-
-
-
-
 
 
 pub fn get_time() -> std::time::Duration {

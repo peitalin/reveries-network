@@ -29,7 +29,6 @@ use p2p_network::{
     get_node_name,
     short_peer_id,
 };
-use runtime::llm::AgentSecretsJson;
 
 
 
@@ -73,6 +72,7 @@ async fn main() -> Result<()> {
                 format!("{}", &response.umbral_public_key).red()
             ));
         }
+
         CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
             let client = create_rpc_client(port).await?;
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
@@ -97,6 +97,7 @@ async fn main() -> Result<()> {
                 log(format!("Fragment({}): {:?}", format!("{}", frag_num).green(), peer_names));
             }
         }
+
         CliArgument::SpawnAgent {
             total_frags,
             threshold,
@@ -206,7 +207,7 @@ async fn main() -> Result<()> {
 
             let url = parse_url(port)?;
             let ws_client = WsClientBuilder::default().build(&url).await?;
-            println!("SubscribeHeartbeat to: {:?}", url);
+            println!("SubscribeHeartbeat to: {:?}", url.port());
 
             let mut hb_subscription: Subscription<Option<serde_json::Value>> = ws_client
                 .subscribe(
@@ -214,6 +215,7 @@ async fn main() -> Result<()> {
                     rpc_params![0],
                     "unsubscribe_hb"
                 ).await?;
+            println!("{:?}", hb_subscription);
 
             while let Some(hb) = hb_subscription.next().await {
                 if let Ok(Some(b)) = hb {

@@ -199,8 +199,7 @@ impl<'a> NetworkEvents<'a> {
 
                 if let None = &peer_info.agent_vessel {
                     println!("{} failed but wasn't hosting an agent.", node_name);
-                    // TODO
-                    // remove peer kfrags, it will disconnect automatically after a while
+                    // TODO remove peer kfrags, will disconnect automatically after timeout
                     // self.remove_peer(peer_id);
                 }
 
@@ -345,8 +344,7 @@ impl<'a> NetworkEvents<'a> {
             .trigger_restart(RestartReason::ScheduledHeartbeatFailure)
             .await.ok();
 
-        // TODO
-        // Shutdown the LLM runtime (if in Vessel Mode), but continue attempting
+        // TODO: Shutdown LLM runtime (if in Vessel Mode), but continue attempting
         // to broadcast the agent_secrets reencryption fragments and ciphertexts.
         //
         // If the node never reconnects to the network, then 1up-network nodes will

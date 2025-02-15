@@ -260,7 +260,7 @@ impl ConnectionHandler for HeartbeatHandler {
             }
             ConnectionEvent::DialUpgradeError(_) => {
                 self.outbound = None;
-                // TODO: surface fail to heartbeat behaviour
+                // TODO: surface failure to heartbeat_behaviour/mod.rs
                 // self.internal_fail_count = self.internal_fail_count.saturating_add(1);
             }
             _ => {}

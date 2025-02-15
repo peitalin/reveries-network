@@ -166,7 +166,7 @@ impl<'a> NodeClient<'a> {
                                 println!("num_subscribed: {:?}", num_subscribed);
 
                                 self.encrypt_secret_and_store(agent_secrets_json.clone()).ok();
-                                // TODO
+                                // TODO: post-respawn checks:
                                 // 1. test LLM API works
                                 // 2. re-encrypt secrets + provide TEE attestation of it
                                 // 3. confirm shutdown of old vessel

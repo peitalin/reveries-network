@@ -1,6 +1,4 @@
-use std::time::Instant;
-
-use color_eyre::{owo_colors::OwoColorize, Result};
+use color_eyre::Result;
 use futures::{
     AsyncRead,
     AsyncReadExt,
@@ -9,7 +7,6 @@ use futures::{
 };
 use serde::{Deserialize, Serialize};
 use runtime::tee_attestation::QuoteV4;
-
 
 const MSG_LEN_SIZE: u64 = 8;
 const HEARTBEAT_MESSAGE_MAX_SIZE: u64 = 1024*24; // 24 kb
@@ -22,7 +19,7 @@ pub struct TeeAttestation {
     /// QuoteV4 does not have Serializer trait, need to store byte representation
     pub tee_attestation: Option<QuoteV4>,
     pub tee_attestation_bytes: Option<Vec<u8>>,
-    pub block_height: u32,
+    pub block_height: u32, // TODO: replace with real blockheight from consensus
 }
 
 impl Default for TeeAttestation {
@@ -92,7 +89,7 @@ pub(super) async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, Te
     match serde_json::from_slice::<TeeAttestationBytes>(&payload) {
         Err(e) => {
             let payload_str = std::str::from_utf8(&payload)?;
-            panic!("payload_str: {}\n>>> {}\n\tpayload_str.len(): {}\n\tpayload.len(): {}\n\tmsg_len: {}\n\tnum_bytes read: {}\n",
+            tracing::error!("payload_str: {}\n>>> {}\n\tpayload_str.len(): {}\n\tpayload.len(): {}\n\tmsg_len: {}\n\tnum_bytes read: {}\n",
                 payload_str,
                 e,
                 payload_str.len(),
@@ -100,6 +97,7 @@ pub(super) async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, Te
                 msg_len,
                 num_bytes_read
             );
+            Err(e.into())
         }
         Ok(tee_attestation_bytes) => {
             let tee_attestation = TeeAttestation::from(tee_attestation_bytes);
@@ -113,11 +111,9 @@ pub(super) async fn receive_heartbeat_payload<S>(mut stream: S) -> Result<(S, Te
 pub(super) async fn send_heartbeat_payload<S>(mut stream: S, tee_attestation: TeeAttestation) -> Result<S>
     where S: AsyncRead + AsyncWrite + Unpin,
 {
-    let msg_bytes = serde_json::to_vec(
-        &TeeAttestationBytes::from(tee_attestation)
-    ).unwrap();
-
+    let msg_bytes = serde_json::to_vec(&TeeAttestationBytes::from(tee_attestation))?;
     let msg_len = msg_bytes.len() as u64;
+
     if msg_len > HEARTBEAT_MESSAGE_MAX_SIZE {
         panic!(
             "Sending HeartbeatSig msg_bytes of length: {} exceeds HEARTBEAT_MESSAGE_MAX_SIZE: {}",

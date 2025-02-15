@@ -207,7 +207,7 @@ impl<'a> NetworkEvents<'a> {
                 } else {
                     None
                 }
-                //// TODO: assert node subscribed to only 1 topic for receiving kfrags
+                // TODO: assert node subscribed to only 1 topic for receiving kfrags
             })
             .collect()
     }

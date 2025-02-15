@@ -76,9 +76,9 @@ pub struct KeyFragmentMessage {
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,
-    // TODO: split data into private data for the MPC node, vs public data for kademlia
+    // TODO: split data into private data for the MPC node, vs public data
     // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
-    // public: capsules and ciphertexts -> store on Kademlia
+    // public: capsules and ciphertexts -> store on Kademlia or in next Vessel(s)
     pub vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
     pub kfrag: KeyFrag,
