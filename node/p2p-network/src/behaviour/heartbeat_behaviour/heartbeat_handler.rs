@@ -67,24 +67,18 @@ pub struct HeartbeatHandler {
     config: HeartbeatConfig,
     inbound: Option<InboundData>,
     outbound: Option<OutboundState>,
+    dial_failures: Option<u32>,
     timer: Pin<Box<Sleep>>,
-    // Internal failure count for the node to keep track of when it should shutdown it's runtime.
-    // It is not related to the PRE re-incarnation protocol--that is determined by external nodes
-    // after they don't hear from this node for a while.
-    internal_fail_count: std::sync::Arc<u32>,
 }
 
 impl HeartbeatHandler {
-    pub fn new(
-        config: HeartbeatConfig,
-        internal_fail_count: std::sync::Arc<u32>,
-    ) -> Self {
+    pub fn new(config: HeartbeatConfig) -> Self {
         Self {
             config,
             inbound: None,
             outbound: None,
+            dial_failures: None,
             timer: Box::pin(sleep(Duration::new(0, 0))),
-            internal_fail_count,
         }
     }
 }
@@ -128,6 +122,12 @@ impl ConnectionHandler for HeartbeatHandler {
                 }
                 _ => {}
             }
+        }
+
+        if let Some(dial_fail_count) = self.dial_failures {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HeartbeatOutEvent::IncrementFailureCount(dial_fail_count)
+            ))
         }
 
         //// Outbound Events
@@ -260,8 +260,8 @@ impl ConnectionHandler for HeartbeatHandler {
             }
             ConnectionEvent::DialUpgradeError(_) => {
                 self.outbound = None;
-                // TODO: surface failure to heartbeat_behaviour/mod.rs
-                // self.internal_fail_count = self.internal_fail_count.saturating_add(1);
+                // surface failure to heartbeat_behaviour/mod.rs via poll()
+                self.dial_failures = Some(1);
             }
             _ => {}
         }

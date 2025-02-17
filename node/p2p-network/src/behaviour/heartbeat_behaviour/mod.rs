@@ -74,6 +74,8 @@ pub struct HeartbeatBehaviour {
     pub(crate) current_heartbeat_payload: TeeAttestation,
 
     /// internal heartbeat fail count to know when to shutdown runtime and reboot container
+    // It is not related to the PRE re-incarnation protocol--that is determined by external nodes
+    // after they don't hear from this node for a while.
     pub(crate) internal_fail_count: std::sync::Arc<u32>,
 }
 
@@ -152,8 +154,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(HeartbeatHandler::new(
-            self.config.clone(),
-            Arc::clone(&self.internal_fail_count),
+            self.config.clone()
         ))
     }
 
@@ -166,8 +167,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         _port_use: PortUse
     ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(HeartbeatHandler::new(
-            self.config.clone(),
-            Arc::clone(&self.internal_fail_count),
+            self.config.clone()
         ))
     }
 
