@@ -99,9 +99,6 @@ pub enum NodeCommand {
         reason: RestartReason,
     },
 
-    // PeerManager data
-    // Connected Peers
-    // NodeState
     GetNodeState {
         sender: oneshot::Sender<serde_json::Value>,
     },

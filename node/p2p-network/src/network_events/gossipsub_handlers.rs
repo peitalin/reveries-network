@@ -41,71 +41,57 @@ impl<'a> NetworkEvents<'a> {
                         let k: KeyFragmentMessage = serde_json::from_slice(&message.data)
                             .expect("Error deserializing KeyFragmentMessage");
 
-                        if let Some(capsule) = k.capsule {
+                        let verified_kfrag = k.kfrag.verify(
+                            &k.verifying_pk,
+                            Some(&k.alice_pk),
+                            Some(&k.bob_pk)
+                        ).expect("err verifying kfrag");
 
-                            let verified_kfrag = k.kfrag.verify(
-                                &k.verifying_pk,
-                                Some(&k.alice_pk),
-                                Some(&k.bob_pk)
-                            ).expect("err verifying kfrag");
+                        // all nodes store cfrags locally
+                        // nodes should also inform the vessel_node that they hold a fragment
+                        self.peer_manager.insert_cfrags(
+                            &agent_name_nonce,
+                            CapsuleFragmentMessage {
+                                frag_num: k.frag_num,
+                                threshold: k.threshold,
+                                cfrag: umbral_pre::reencrypt(&k.capsule, verified_kfrag).unverify(),
+                                verifying_pk: k.verifying_pk,
+                                alice_pk: k.alice_pk, // vessel
+                                bob_pk: k.bob_pk, // next vessel
+                                sender_peer_id: self.peer_id,
+                                vessel_peer_id: propagation_peer_id,
+                                next_vessel_peer_id: k.next_vessel_peer_id,
+                                capsule: k.capsule,
+                                ciphertext: k.ciphertext
+                            }
+                        );
+                        self.print_stored_cfrags(&self.peer_manager.cfrags);
 
-                            // all nodes store cfrags locally
-                            // nodes should also inform the vessel_node that they hold a fragment
-                            self.peer_manager.insert_cfrags(
+                        if !self.peer_manager.peer_info_has_agent(&k.vessel_peer_id) {
+                            println!("Saving agent vessel for {}", short_peer_id(&k.vessel_peer_id));
+                            self.peer_manager.set_peer_info_agent_vessel(
                                 &agent_name_nonce,
-                                CapsuleFragmentMessage {
-                                    frag_num: k.frag_num,
-                                    threshold: k.threshold,
-                                    cfrag: umbral_pre::reencrypt(&capsule, verified_kfrag).unverify(),
-                                    verifying_pk: k.verifying_pk,
-                                    alice_pk: k.alice_pk, // vessel
-                                    bob_pk: k.bob_pk, // next vessel
-                                    sender_peer_id: self.peer_id,
-                                    vessel_peer_id: propagation_peer_id,
-                                    next_vessel_peer_id: k.next_vessel_peer_id,
-                                    capsule: Some(capsule),
-                                    ciphertext: k.ciphertext
-                                }
+                                &total_frags,
+                                k.vessel_peer_id,
+                                k.next_vessel_peer_id,
                             );
-                            self.print_stored_cfrags(&self.peer_manager.cfrags);
+                        }
 
-                            // Track agent vessel: current and next vessel (peer_ids)
-                            println!("\n\npeer_info:");
-                            for (pid, peer_info) in &self.peer_manager.peer_info {
-                                println!("{} agent_vessel: {:?}", get_node_name(pid), peer_info.agent_vessel);
-                            }
-
-                            if !self.peer_manager.peer_info_contains_agent(&k.vessel_peer_id) {
-                                println!("SAVING AGENT VESSEL");
-                                self.peer_manager.set_peer_info_agent_vessel(
-                                    &agent_name_nonce,
-                                    &total_frags,
-                                    k.vessel_peer_id,
-                                    k.next_vessel_peer_id,
+                        // If node is not next vessel, let vessel node know it holds a fragment
+                        if self.peer_id != k.next_vessel_peer_id {
+                            // request-response: let vessel know this peer received a fragment
+                            let request_id = self
+                                .swarm
+                                .behaviour_mut()
+                                .request_response
+                                .send_request(
+                                    &k.next_vessel_peer_id,
+                                    FragmentRequestEnum::ProvidingFragment(
+                                        agent_name_nonce,
+                                        frag_num,
+                                        self.peer_id // sender_peer_id
+                                    )
                                 );
-                            }
-
-                            println!("\n\npeer_info after:");
-                            for (pid, peer_info) in &self.peer_manager.peer_info {
-                                println!("{} agent_vessel: {:?}", get_node_name(pid), peer_info.agent_vessel);
-                            }
-
-                            // If node is not next vessel, let vessel node know it holds a fragment
-                            if self.peer_id != k.next_vessel_peer_id {
-                                // request-response: let vessel know this peer received a fragment
-                                let request_id = self
-                                    .swarm
-                                    .behaviour_mut()
-                                    .request_response
-                                    .send_request(
-                                        &k.next_vessel_peer_id,
-                                        FragmentRequestEnum::ProvidingFragment(
-                                            agent_name_nonce,
-                                            frag_num,
-                                            self.peer_id // sender_peer_id
-                                        )
-                                    );
-                            }
                         }
 
                     }
@@ -117,10 +103,10 @@ impl<'a> NetworkEvents<'a> {
                         let agent_name_nonce = ts.next_topic.agent_name_nonce;
                         let total_frags = ts.next_topic.total_frags;
 
+                        // TODO: replace self.seed with NODE_SEED_NUM global param
                         NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
                         let frag_num = self.seed % total_frags;
                         // assert_eq!(frag_num, NODE_SEED_NUM.take());
-                        println!("self.seed: {}", self.seed);
                         println!("total_frags: {}", total_frags);
                         println!("frag_num: {}", frag_num);
 
@@ -139,12 +125,12 @@ impl<'a> NetworkEvents<'a> {
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
                 // TODO: check TEE attestation from Peer before adding peer to channel
-                // We want to ensure that the Peer is running in a TEE and not subscribe to multiple
-                // fragment channels for the same agent (collusion attempts)
+                // We want to ensure that the Peer is running in a TEE and not subscribing to multiple
+                // fragment channels for the same agent
                 //
-                // if peer is registered on multiple kfrag broadcasts, blacklist them
+                // if peer is registered on multiple kfrag broadcasts, blacklist them.
                 // Peers should be on just 1 kfrag broadcast channel.
-                // We can enforce this if the binary runs in a TEE
+                // We can enforce this if the binary runs in a TEE + check binary hash
 
                 match topic.into() {
                     GossipTopic::BroadcastKfrag(

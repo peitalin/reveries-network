@@ -35,24 +35,21 @@ pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
         .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
 }
 
-pub fn get_node_name(peer_id: &libp2p::PeerId) -> String {
+// TODO: temporary convenience functions
+pub fn get_node_name<'a>(peer_id: &libp2p::PeerId) -> &'a str {
     match peer_id.to_base58().as_str() {
-        "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ALICE".to_string(),
-        "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BELLA".to_string(),
-        "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo" => "CARL".to_string(),
-        "12D3KooWLJtG8fd2hkQzTn96MrLvThmnNQjTUFZwGEsLRz5EmSzc" => "DANY".to_string(),
-        "12D3KooWSHj3RRbBjD15g6wekV8y3mm57Pobmps2g2WJm6F67Lay" => "EMMA".to_string(),
-        _ => "Unnamed".to_string(),
-    }
-}
-
-pub fn make_node_name<'a>(seed: usize) -> &'a str {
-    match seed {
-        1 => "ALICE",
-        2 => "BELLA",
-        3 => "CARL",
-        4 => "DANY",
-        5 => "EMMA",
+        "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ALICE",
+        "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BELLA",
+        "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo" => "CARL",
+        "12D3KooWLJtG8fd2hkQzTn96MrLvThmnNQjTUFZwGEsLRz5EmSzc" => "DANY",
+        "12D3KooWSHj3RRbBjD15g6wekV8y3mm57Pobmps2g2WJm6F67Lay" => "EMMA",
+        "12D3KooWDMCQbZZvLgHiHntG1KwcHoqHPAxL37KvhgibWqFtpqUY" => "FRANK",
+        "12D3KooWLnZUpcaBwbz9uD1XsyyHnbXUrJRmxnsMiRnuCmvPix67" => "GEMMA",
+        "12D3KooWQ8vrERR8bnPByEjjtqV6hTWehaf8TmK7qR1cUsyrPpfZ" => "HANA",
+        "12D3KooWNRk8VBuTJTYyTbnJC7Nj2UN5jij4dJMo8wtSGT2hRzRP" => "IAN",
+        "12D3KooWFHNBwTxUgeHRcD3g4ieiXBmZGVyp6TKGWRKKEqYgCC1C" => "JACK",
+        "12D3KooWHbEputWi1fJAxoYgmvvDe3yP7acTACqmXKGYwMgN2daQ" => "KASS",
+        "12D3KooWCxnyz1JxC9y1RniRQVFe2cLaLHsYNc2SnXbM7yq5JBbJ" => "LARRY",
         _ => "Unnamed",
     }
 }

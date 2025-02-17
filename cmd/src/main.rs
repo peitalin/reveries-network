@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
             for (frag_num, peers) in peers_sorted_by_fragments {
                 let peer_names = peers.iter()
                     .map(|peer_id| get_node_name(peer_id))
-                    .collect::<Vec<String>>();
+                    .collect::<Vec<&str>>();
 
                 log(format!("Fragment({}): {:?}", format!("{}", frag_num).green(), peer_names));
             }
@@ -195,7 +195,6 @@ async fn main() -> Result<()> {
                     rpc_params![6],
                     "unsubscribe_letter_stream"
                 ).await?;
-
 
             while let Some(a) = sub_params_two.next().await {
                 println!("another letter!: {:?}", a);

@@ -66,7 +66,6 @@ pub(crate) struct PeerManager<'a> {
     avg_window: u32
 }
 
-
 impl<'a> PeerManager<'a> {
     pub fn new(node_name: &'a str) -> Self {
         Self {
@@ -92,7 +91,7 @@ impl<'a> PeerManager<'a> {
         self.peer_info.remove(peer_id);
     }
 
-    pub fn peer_info_contains_agent(&mut self, peer_id: &PeerId) -> bool {
+    pub fn peer_info_has_agent(&mut self, peer_id: &PeerId) -> bool {
         if let Some(pinfo) = self.peer_info.get(peer_id) {
             pinfo.agent_vessel.is_some()
         } else {

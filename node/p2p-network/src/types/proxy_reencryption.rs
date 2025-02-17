@@ -81,9 +81,10 @@ pub struct KeyFragmentMessage {
     // public: capsules and ciphertexts -> store on Kademlia or in next Vessel(s)
     pub vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
+    // kfrag
     pub kfrag: KeyFrag,
-    pub capsule: Option<umbral_pre::Capsule>,
-    pub ciphertext: Option<Box<[u8]>>
+    pub capsule: umbral_pre::Capsule,
+    pub ciphertext: Box<[u8]>
 }
 
 
@@ -94,14 +95,13 @@ pub struct CapsuleFragmentMessage {
     pub alice_pk: umbral_pre::PublicKey, // delegator
     pub bob_pk: umbral_pre::PublicKey, // delegatee (receiver)
     pub verifying_pk: umbral_pre::PublicKey, // key for anyone to verify the PRE capsules
-
     pub sender_peer_id: PeerId, // peer which holds and sends the kfrags
     pub vessel_peer_id: PeerId, // peer which houses the agent
     pub next_vessel_peer_id: PeerId, // next peer which houses the agent
-
+    // cfrag
     pub cfrag: umbral_pre::CapsuleFrag,
-    pub capsule: Option<umbral_pre::Capsule>,
-    pub ciphertext: Option<Box<[u8]>>,
+    pub capsule: umbral_pre::Capsule,
+    pub ciphertext: Box<[u8]>,
 }
 
 impl Display for CapsuleFragmentMessage {

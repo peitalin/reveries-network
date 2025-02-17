@@ -53,7 +53,8 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
-    // just used for determining which fragment the peer subscribes
+    // TODO: used for determining which fragment the peer subscribes
+    // Replace with NODE_SEED_NUM
     let seed = secret_key_seed.unwrap_or(0);
 
     // Channels
@@ -63,7 +64,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
     let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
-
+    // Swarm Setup
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
         .with_tcp(
@@ -138,7 +139,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
             })
         })?
         .with_swarm_config(|c|
-            c.with_idle_connection_timeout(Duration::from_secs(60))
+            c.with_idle_connection_timeout(Duration::from_secs(u64::MAX))
         )
         .build();
 
@@ -193,7 +194,7 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
 ) {
 
     // Create a public/private key pair, either random or based on a seed.
-    let (id_keys, node_name, umbral_key) = match secret_key_seed {
+    let (id_keys, umbral_key) = match secret_key_seed {
         Some(seed) => {
 
             let mut bytes = [0u8; 32];
@@ -205,19 +206,18 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
             });
 
             let id_keys = identity::Keypair::ed25519_from_bytes(bytes).unwrap();
-            let node_name = crate::make_node_name(seed);
             let umbral_key = runtime::reencrypt::UmbralKey::new(Some(bytes.as_slice()));
-            (id_keys, node_name, umbral_key)
+            (id_keys, umbral_key)
         },
         None => {
 
             let id_keys = identity::Keypair::generate_ed25519();
-            let node_name = "Unnamed";
             let umbral_key = runtime::reencrypt::UmbralKey::new(None);
-            (id_keys, node_name, umbral_key)
+            (id_keys, umbral_key)
         }
     };
 
     let peer_id = id_keys.public().to_peer_id();
+    let node_name = crate::get_node_name(&peer_id);
     (peer_id, id_keys, node_name, umbral_key)
 }

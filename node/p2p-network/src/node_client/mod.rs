@@ -333,6 +333,15 @@ impl<'a> NodeClient<'a> {
         threshold: usize
     ) -> Result<UmbralPublicKeyResponse> {
 
+        let umbral_capsule = match self.umbral_capsule.clone() {
+            Some(capsule) => capsule,
+            None => return Err(anyhow!("Vessel has no agent capsule"))
+        };
+        let umbral_ciphertext = match self.umbral_ciphertext.clone() {
+            Some(ciphertext) => ciphertext,
+            None => return Err(anyhow!("Vessel has no ciphertext"))
+        };
+
         // first check that the broadcaster is subscribed to all fragment channels for the agent
         let topics = (0..total_frags)
             .map(|n| {
@@ -390,8 +399,8 @@ impl<'a> NodeClient<'a> {
                                 bob_pk, // bob_pk
                                 vessel_peer_id: self.peer_id,
                                 next_vessel_peer_id: new_vessel_pk.umbral_peer_id.clone().into(),
-                                capsule: self.umbral_capsule.clone(),
-                                ciphertext: self.umbral_ciphertext.clone(),
+                                capsule: umbral_capsule.clone(),
+                                ciphertext: umbral_ciphertext.clone(),
                             }
                         )).await?;
                 }
@@ -479,15 +488,15 @@ impl<'a> NodeClient<'a> {
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
 
-                let nc = self.clone();
                 self.log(format!(
                     "Requesting {} cfrag({}) from {:?}",
-                    agent_name_nonce,
-                    frag_num,
+                    &agent_name_nonce,
+                    &frag_num,
                     get_node_name(&peer_id)
                 ));
-                let agent_name_nonce = agent_name_nonce.clone();
 
+                let nc = self.clone();
+                let agent_name_nonce = agent_name_nonce.clone();
                 async move {
                     let (sender, receiver) = oneshot::channel();
 
@@ -553,7 +562,7 @@ impl<'a> NodeClient<'a> {
                             // Bob must check that cfrags are valid
                             // assemble kfrags, verify them as cfrags.
                             let verified_cfrag = cfrag.cfrag.clone().verify(
-                                &cfrag.capsule.clone().unwrap(),
+                                &cfrag.capsule.clone(),
                                 &cfrag.verifying_pk, // verifying pk
                                 &cfrag.alice_pk, // alice pk
                                 &new_vessel_pk // bob pk
@@ -582,7 +591,7 @@ impl<'a> NodeClient<'a> {
     ) -> Result<AgentSecretsJson, Error> {
 
         // get next vessel (can randomise as well)
-        let mut new_vessel_pk = match new_vessel_cfrags.pop() {
+        let new_vessel_pk = match new_vessel_cfrags.pop() {
             Some(vessel) => vessel,
             None => return Err(anyhow!("No CapsuleFragments found"))
         };
@@ -594,9 +603,9 @@ impl<'a> NodeClient<'a> {
         // least `threshold` cfrags, then decrypts the re-encrypted ciphertext.
         match self.umbral_key.decrypt_reencrypted(
             &new_vessel_pk.alice_pk, // delegator_pubkey
-            &new_vessel_pk.capsule.unwrap(), // capsule,
+            &new_vessel_pk.capsule, // capsule,
             verified_cfrags, // verified capsule fragments
-            new_vessel_pk.ciphertext.unwrap()
+            new_vessel_pk.ciphertext
         ) {
             Ok(plaintext_bob) => {
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;

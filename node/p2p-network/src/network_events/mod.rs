@@ -47,8 +47,8 @@ use time::Duration;
 // use runtime::llm::test_claude_query;
 
 pub struct NetworkEvents<'a> {
-    seed: usize,
     swarm: Swarm<Behaviour>,
+    seed: usize,
     peer_id: PeerId, // This node's PeerId
     node_name: &'a str,
     // Umbral fragments
@@ -180,7 +180,8 @@ impl<'a> NetworkEvents<'a> {
             .max_time_before_rotation();
 
         let peer_ids = self.peer_manager.get_connected_peers()
-            .iter().map(|p| format!("{}", get_node_name(p.0)))
+            .iter()
+            .map(|p| format!("{}", get_node_name(p.0)))
             .collect::<Vec<String>>();
 
         println!("Connected peers: {:?}", peer_ids);
@@ -336,7 +337,6 @@ impl<'a> NetworkEvents<'a> {
             tokio::time::sleep(Duration::from_secs(1)).await;
             println!("{}", format!("Rebooting container in {} seconds", countdown).yellow());
         };
-
 
         self.container_manager
             .write()

@@ -109,7 +109,7 @@ impl ConnectionHandler for HeartbeatHandler {
         if let Some(inbound_stream) = self.inbound.as_mut() {
             match inbound_stream.poll_unpin(cx) {
                 Poll::Ready(Err(_)) => {
-                    debug!(target: "1up", "Incoming heartbeat errored");
+                    debug!(target: "heartbeat", "Incoming heartbeat errored");
                     self.inbound = None;
                 }
                 Poll::Ready(Ok((stream, tee_attestation))) => {

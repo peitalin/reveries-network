@@ -61,7 +61,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::OutgoingConnectionError { .. } => { }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 self.log(format!("ConnectionClosed with peer: {:?}", peer_id));
-                // Do not remove vessel peers if connection is lost right away.
+                // TODO: Do not remove vessel peers if connection is lost right away.
                 // put them in a queue for reincarnating and remove only after they
                 // have been reincarnated in a new vessel
 
