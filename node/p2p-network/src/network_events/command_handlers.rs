@@ -4,6 +4,8 @@ use libp2p::{
 };
 use color_eyre::eyre::anyhow;
 use colored::Colorize;
+use tracing::info;
+
 use crate::node_client::NodeCommand;
 use crate::types::{
     FragmentRequestEnum,
@@ -12,7 +14,7 @@ use crate::types::{
     TopicHash,
     UmbralPeerId
 };
-use crate::{short_peer_id, get_node_name};
+use crate::{short_peer_id};
 use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
 use super::NetworkEvents;
@@ -67,12 +69,13 @@ impl<'a> NetworkEvents<'a> {
                 sender_peer_id,
                 channel
             } => {
-                self.log(format!(
-                    "\nAdding peer to kfrags_peers({}, {}, {})",
+                info!(
+                    "\n{} Adding peer to kfrags_peers({}, {}, {})",
+                    self.nname(),
                     agent_name_nonce,
                     frag_num,
                     short_peer_id(&sender_peer_id)
-                ).bright_green());
+                );
 
                 self.save_peer(&sender_peer_id, agent_name_nonce, frag_num);
 
@@ -145,7 +148,7 @@ impl<'a> NetworkEvents<'a> {
                             .ok();
                     }
                     None => {
-                        self.log(format!("Topic '{}' not found in subscribed topics.", topic_kfrag));
+                        info!("{} Topic '{}' not found in subscribed topics.", self.nname(), topic_kfrag);
                         self.print_subscribed_topics();
                     }
                 }
@@ -174,7 +177,7 @@ impl<'a> NetworkEvents<'a> {
                 sender_peer_id,
                 channel
             } => {
-                self.log(format!("RespondCapsuleFragment for {agent_name_nonce} frag_num: {frag_num}"));
+                info!("{} RespondCapsuleFragment for {agent_name_nonce} frag_num: {frag_num}", self.nname());
                 match self.peer_manager.get_cfrags(&agent_name_nonce) {
                     None => {},
                     // Do not send if no cfrag found, fastest successful futures returns
@@ -210,8 +213,8 @@ impl<'a> NetworkEvents<'a> {
                 sender.send(unsubscribed_topics).ok();
             }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
-                self.log("Simulating network failure:".yellow());
-                self.log(format!("Triggering heartbeat failure in 500ms: {:?}", reason).yellow());
+                info!("{} Simulating network failure:", self.nname());
+                info!("Triggering heartbeat failure in 500ms: {:?}", reason);
                 sender.send(reason.clone()).ok();
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.simulate_heartbeat_failure().await;

@@ -1,8 +1,9 @@
-use color_eyre::owo_colors::OwoColorize;
 use libp2p::{
     mdns,
     swarm::SwarmEvent
 };
+use colored::Colorize;
+use tracing::{trace, info};
 use crate::behaviour::BehaviourEvent;
 use super::NetworkEvents;
 
@@ -30,7 +31,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::Behaviour(BehaviourEvent::Heartbeat(tee_event)) => {
                 self.peer_manager.update_peer_heartbeat(tee_event.peer_id, tee_event.latest_tee_attestation);
                 if let Some(tee_log_str) = self.peer_manager.make_heartbeat_tee_log(tee_event.peer_id) {
-                    self.log(tee_log_str);
+                    info!("{} {}", self.nname(), tee_log_str);
                 }
             }
 
@@ -39,7 +40,7 @@ impl<'a> NetworkEvents<'a> {
                 match mdns_event {
                     mdns::Event::Discovered(list) => {
                         for (peer_id, multiaddr) in list {
-                            self.log(format!("mDNS adding peer {:?}", peer_id));
+                            info!("{} {}", self.nname(), format!("mDNS adding peer {:?}", peer_id));
                             self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                         }
                     }
@@ -60,7 +61,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::IncomingConnectionError { .. } => { }
             SwarmEvent::OutgoingConnectionError { .. } => { }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                self.log(format!("ConnectionClosed with peer: {:?}", peer_id));
+                info!("{} {}", self.nname(), format!("ConnectionClosed with peer: {:?}", peer_id).red());
                 // TODO: Do not remove vessel peers if connection is lost right away.
                 // put them in a queue for reincarnating and remove only after they
                 // have been reincarnated in a new vessel
@@ -69,7 +70,7 @@ impl<'a> NetworkEvents<'a> {
             }
 
             //// Unhandled SwarmEvents
-            swarm_event => println!("Unhandled SwarmEvent: {swarm_event:?}"),
+            swarm_event => trace!("Unhandled SwarmEvent: {swarm_event:?}"),
         }
     }
 

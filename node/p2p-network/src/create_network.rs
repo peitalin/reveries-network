@@ -44,7 +44,6 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
     mpsc::Receiver<NetworkEvent>,
     NetworkEvents<'a>
 )> {
-
     // Create a public/private key pair, either random or based on a seed.
     let (
         peer_id,

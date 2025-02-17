@@ -11,10 +11,11 @@ use std::sync::Arc;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use color_eyre::eyre::eyre;
-use futures::{StreamExt, FutureExt};
-use tokio::sync::{mpsc, oneshot, };
 use hex;
 use libp2p::{core::Multiaddr, PeerId};
+use futures::{StreamExt, FutureExt};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{info, debug, error, warn};
 
 use crate::get_node_name;
 use crate::network_events::peer_manager::AgentVesselTransferInfo;
@@ -30,9 +31,9 @@ use crate::types::{
     TopicSwitch,
     UmbralPublicKeyResponse
 };
-use umbral_pre::VerifiedCapsuleFrag;
-use runtime::reencrypt::UmbralKey;
+use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::{test_claude_query, AgentSecretsJson};
+
 
 
 
@@ -103,8 +104,8 @@ impl<'a> NodeClient<'a> {
         loop {
             tokio::select! {
                 // hb = self.heartbeat_receiver.recv() => match hb {
-                //     Ok(r) => println!("hb: {:?}", r),
-                //     Err(e) => println!("err: {:?}", e),
+                //     Ok(r) => info!("hb: {:?}", r),
+                //     Err(e) => error!("err: {:?}", e),
                 // },
                 e = network_event_receiver.recv() => match e {
                     // Reply with the content of the file on incoming requests.
@@ -145,7 +146,7 @@ impl<'a> NodeClient<'a> {
                             Some(prev_vessel_peer_id)
                         ).await {
                             Err(e) => {
-                                self.log(format!("Error respawning agent in new vessel: {}", e).red());
+                                error!("{} error respawning agent in new vessel: {}", self.nname(), e);
                             }
                             Ok(mut agent_secrets_json) => {
                                 agent_secrets_json.agent_nonce = next_nonce;
@@ -163,7 +164,7 @@ impl<'a> NodeClient<'a> {
                                     }),
                                 };
                                 let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
-                                println!("num_subscribed: {:?}", num_subscribed);
+                                info!("num peers subscribed: {:?}", num_subscribed);
 
                                 self.encrypt_secret_and_store(agent_secrets_json.clone()).ok();
                                 // TODO: post-respawn checks:
@@ -173,13 +174,13 @@ impl<'a> NodeClient<'a> {
                                 // 4. then broadcast topic switch to new Agent with new nonce
 
                                 if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                                    self.log(format!("Decrypted LLM API keys, querying LLM (paused)"));
+                                    info!("Decrypted LLM API keys, querying LLM (paused)");
                                     // let response = test_claude_query(
                                     //     anthropic_api_key,
                                     //     "What is your name and what do you do?",
                                     //     &agent_secrets_json.context
                                     // ).await.unwrap();
-                                    // println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                                    // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
                                 }
 
                                 self.broadcast_kfrags(next_agent_name_nonce, 3, 2).await.expect("respawn err");
@@ -194,7 +195,7 @@ impl<'a> NodeClient<'a> {
                         sender_peer_id,
                         channel
                     }) => {
-                        self.log(format!("Saving provider {} to peer_manager", sender_peer_id));
+                        info!("{} Saving provider {} to peer_manager", self.nname(), sender_peer_id);
                         // Only the broadcast and vessel need to know which nodes have which fragments.
                         // Not necessary for other nodes to keep track of this.
                         self.command_sender
@@ -230,8 +231,10 @@ impl<'a> NodeClient<'a> {
             )?
         )?;
 
-        self.log(format!("Encrypted AgentSecretsJson data: \n{:?}",
-            hex::encode(ciphertext.clone())).black());
+        info!(
+            "Encrypted AgentSecretsJson data: \n{:?}",
+            format!("{}", hex::encode(ciphertext.clone())).black()
+        );
 
         self.agent_secrets_json = Some(agent_secrets_json);
         self.umbral_capsule = Some(capsule);
@@ -270,7 +273,7 @@ impl<'a> NodeClient<'a> {
             threshold
         ).await?;
 
-        self.log(format!("\nSpawnAgent result: Next vessel: {:?}", next_vessel_pk.umbral_peer_id));
+        info!("\nSpawnAgent next vessel: {:?}", next_vessel_pk.umbral_peer_id);
         // TODO: should return info:
         // current vessel: peer_id, umbral_public_key, peer_address (info for health monitoring)
         // next vessel: peer_id, umbral_public_key
@@ -302,7 +305,7 @@ impl<'a> NodeClient<'a> {
 
         match receiver.await {
             Ok(subscribed_topics) => {
-                self.log(format!("Subscribed to {:?}", subscribed_topics));
+                info!("Subscribed to {:?}", subscribed_topics);
                 Ok(subscribed_topics)
             }
             Err(e) => Err(e.into())
@@ -319,7 +322,7 @@ impl<'a> NodeClient<'a> {
 
         match receiver.await {
             Ok(unsubscribed_topics) => {
-                self.log(format!("Unsubscribed from {:?}", unsubscribed_topics));
+                info!("Unsubscribed from {:?}", unsubscribed_topics);
                 Ok(unsubscribed_topics)
             }
             Err(e) => Err(e.into())
@@ -371,7 +374,7 @@ impl<'a> NodeClient<'a> {
                 let bob_pk = new_vessel_pk.umbral_public_key;
 
                 // Alice generates reencryption key fragments for Ursulas (MPC nodes)
-                self.log(format!("Generating share fragments for new vessel: ({total_frags},{threshold})"));
+                info!("Generating fragments for new vessel: ({total_frags},{threshold})");
                 let kfrags = self.umbral_key.generate_pre_kfrags(
                     &bob_pk, // bob_pk
                     threshold,
@@ -405,9 +408,10 @@ impl<'a> NodeClient<'a> {
                         )).await?;
                 }
 
-                self.log(format!("\n\nNext Vessel: {}\n\t{:?}\n\t{}\n",
+                info!("{}", format!(
+                    "Next Vessel: {}\n\t{:?}\n\t{}\n",
                     get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
-                    new_vessel_pk.umbral_peer_id,
+                    new_vessel_pk.umbral_peer_id.short_peer_id(),
                     new_vessel_pk.umbral_public_key,
                 ).yellow());
 
@@ -417,7 +421,6 @@ impl<'a> NodeClient<'a> {
             }
         }
     }
-
 
     pub async fn get_peer_umbral_pks(&mut self, agent_name_nonce: AgentNameWithNonce) -> Vec<UmbralPublicKeyResponse> {
         let (sender, mut receiver) = mpsc::channel(100);
@@ -429,7 +432,7 @@ impl<'a> NodeClient<'a> {
 
         let mut pks: Vec<UmbralPublicKeyResponse> = vec![];
         while let Some(pk) = receiver.recv().await {
-            self.log(format!("Received Peer Umbral PK => {}", pk).blue());
+            debug!("Received Peer Umbral PK => {}", pk);
             pks.push(pk);
         }
         pks
@@ -462,9 +465,9 @@ impl<'a> NodeClient<'a> {
             agent_name_nonce.clone()
         ).await;
 
-        self.log(format!("Finding providers for: {}", agent_name_nonce));
-        println!("filter out vessel peer: {:?}", opt_prev_vessel_peer_id);
-        println!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
+        info!("Finding providers for: {}", agent_name_nonce);
+        info!("filter out vessel peer: {:?}", opt_prev_vessel_peer_id);
+        info!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
 
         let mut results = vec![];
 
@@ -488,12 +491,12 @@ impl<'a> NodeClient<'a> {
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
 
-                self.log(format!(
+                info!(
                     "Requesting {} cfrag({}) from {:?}",
                     &agent_name_nonce,
                     &frag_num,
                     get_node_name(&peer_id)
-                ));
+                );
 
                 let nc = self.clone();
                 let agent_name_nonce = agent_name_nonce.clone();
@@ -542,9 +545,7 @@ impl<'a> NodeClient<'a> {
                 match serde_json::from_slice::<Option<CapsuleFragmentMessage>>(&cfrag_bytes) {
                     Err(e) => panic!("{}", e.to_string()),
                     Ok(opt_cfrag) => match opt_cfrag {
-                        None => {
-                            println!("No cfrags found.");
-                        }
+                        None => warn!("No cfrags found."),
                         Some(cfrag) => {
 
                             total_frags += 1;
@@ -552,12 +553,12 @@ impl<'a> NodeClient<'a> {
                             let new_vessel_pk  = cfrag.bob_pk;
                             let kfrag_num = cfrag.frag_num;
 
-                            self.log(format!("Success! cfrag({}) from {}",
+                            info!("Success! cfrag({}) from {}\ntotal frags: {}",
                                 // get_node_name(&cfrag.vessel_peer_id),
                                 cfrag.frag_num,
-                                get_node_name(&cfrag.sender_peer_id)
-                            ));
-                            println!("total frags: {}", total_frags);
+                                get_node_name(&cfrag.sender_peer_id),
+                                total_frags
+                            );
 
                             // Bob must check that cfrags are valid
                             // assemble kfrags, verify them as cfrags.
@@ -597,7 +598,7 @@ impl<'a> NodeClient<'a> {
         };
 
         let threshold = new_vessel_pk.threshold as usize;
-        self.log(format!("Received {}/{} required CapsuleFrags", total_frags_received, threshold));
+        info!("Received {}/{} required CapsuleFrags", total_frags_received, threshold);
 
         // Bob (next vessel) uses his umbral_key to open the capsule by using at
         // least `threshold` cfrags, then decrypts the re-encrypted ciphertext.
@@ -610,18 +611,18 @@ impl<'a> NodeClient<'a> {
             Ok(plaintext_bob) => {
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
                 let agent_secrets_str = serde_json::to_string_pretty(&decrypted_data)?;
-                self.log(format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str).yellow());
+                info!("{}", format!("Decrypted (re-encrypted) agent data:\n{}", agent_secrets_str).yellow());
                 let agent_secrets_json: AgentSecretsJson = serde_json::from_slice(&plaintext_bob)?;
                 Ok(agent_secrets_json)
             },
             Err(e) => {
                 let node_name = get_node_name(&self.peer_id);
-                self.log(format!(">>> Err({})", e).red());
+                error!("{}", e);
                 if total_frags_received < threshold as u32 {
-                    self.log(format!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}"));
+                    warn!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}");
                 } else {
-                    self.log(format!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key));
-                    self.log(format!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk));
+                    warn!(">>> Not decryptable by user {} with: {}", node_name, self.umbral_key.public_key);
+                    warn!(">>> Only decryptable by new vessel with: {}", new_vessel_pk.bob_pk);
                 }
                 Err(anyhow!(e.to_string()))
             }
@@ -650,23 +651,20 @@ impl<'a> NodeClient<'a> {
         self.decrypt_cfrags(verified_cfrags, new_vessel_cfrags, total_frags_received)
     }
 
-    pub fn log<S: std::fmt::Display>(&self, message: S) {
-        println!("{} {}{} {}",
-            "NodeClient".bright_blue(), self.node_name.yellow(), ">".blue(),
-            message
-        );
+    fn nname(&self) -> String {
+        format!("{}{}", self.node_name.yellow(), ">".blue())
     }
 
     pub async fn ask_llm(&mut self, question: &str) {
         if let Some(agent_secrets_json) = &self.agent_secrets_json {
             if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                println!("Context: {}", agent_secrets_json.context.blue());
+                info!("Context: {}", agent_secrets_json.context.blue());
                 let response = test_claude_query(
                     anthropic_api_key,
                     question,
                     &agent_secrets_json.context
                 ).await.unwrap();
-                println!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+                info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
             }
         }
     }
@@ -698,3 +696,4 @@ impl<'a> NodeClient<'a> {
         self.heartbeat_receiver.clone()
     }
 }
+

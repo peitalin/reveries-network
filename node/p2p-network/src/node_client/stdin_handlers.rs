@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
+use tracing::warn;
 
 use crate::types::{ChatMessage, TOPIC_DELIMITER};
 use super::NodeClient;
@@ -22,7 +23,7 @@ impl<'a> NodeClient<'a> {
     /// Will be replaced with an automated protocol
     async fn handle_stdin_commands(&mut self, line: String) {
         if line.trim().len() == 0 {
-            self.log(format!("Message needs to begin with: <topic>"));
+            warn!("Message needs to begin with: <topic>");
         } else {
 
             let line_split = line.split(" ").collect::<Vec<&str>>();
@@ -30,12 +31,12 @@ impl<'a> NodeClient<'a> {
 
             match cmd.to_string().into() {
                 StdInputCommand::UnknownCmd(s) => {
-                    self.log(format!("Unknown command: '{}'", s));
+                    warn!("Unknown command: '{}'", s);
                     println!("Input must begin with 'chat' or 'llm'");
                 }
                 StdInputCommand::ChatCmd => {
                     if line_split.len() < 2 {
-                        self.log(format!("Message needs 2 or more words: 'chat <message>'"));
+                        warn!("Message needs 2 or more words: 'chat <message>'");
                     } else {
 
                         let message = line_split[1..].join(" ");
@@ -48,7 +49,7 @@ impl<'a> NodeClient<'a> {
                 }
                 StdInputCommand::LLM => {
                     if line_split.len() < 2 {
-                        self.log(format!("Message needs 2 or more words: 'llm <message>'"));
+                        warn!("Message needs 2 or more words: 'llm <message>'");
                     } else {
                         let message = line_split[1..].join(" ");
                         self.ask_llm(&message).await;

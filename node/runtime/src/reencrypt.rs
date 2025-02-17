@@ -1,6 +1,19 @@
 use color_eyre::{eyre, Result};
 use umbral_pre::{
-    decrypt_original, decrypt_reencrypted, encrypt, reencrypt, Capsule, KeyFrag, PublicKey, ReencryptionError, SecretKey, SecretKeyFactory, Signer, VerifiedCapsuleFrag
+    decrypt_original,
+    decrypt_reencrypted,
+    encrypt,
+    reencrypt,
+    PublicKey,
+    SecretKey,
+    ReencryptionError,
+    SecretKeyFactory,
+    Signer,
+};
+pub use umbral_pre::{
+    Capsule,
+    KeyFrag,
+    VerifiedCapsuleFrag
 };
 
 // Proxy Re-Encryption Key

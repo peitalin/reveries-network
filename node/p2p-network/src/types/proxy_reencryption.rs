@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use libp2p::PeerId;
-use crate::types::GossipTopic;
+use crate::{short_peer_id, types::GossipTopic};
 use umbral_pre::KeyFrag;
 
 
@@ -10,6 +10,12 @@ use umbral_pre::KeyFrag;
 pub struct UmbralPeerId(pub String);
 
 const UMBRAL_KEY_PREFIX: &'static str = "umbral_pubkey_";
+
+impl UmbralPeerId {
+    pub(crate) fn short_peer_id(&self) -> String {
+        short_peer_id(&self)
+    }
+}
 
 impl From<String> for UmbralPeerId {
     fn from(s: String) -> Self {

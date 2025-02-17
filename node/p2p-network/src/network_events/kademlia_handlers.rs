@@ -1,4 +1,5 @@
 use libp2p::kad;
+use tracing::{info, warn, debug};
 use crate::get_node_name;
 use crate::types::{
     UmbralPeerId,
@@ -29,7 +30,7 @@ impl<'a> NetworkEvents<'a> {
                     }
                     Ok(kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. }) => {},
                     Err(err) => {
-                        self.log(format!("Failed to get providers: {err:?}"));
+                        warn!("Failed to get providers: {err:?}");
                     }
                 }
                 kad::QueryResult::GetRecord(Ok(
@@ -61,11 +62,11 @@ impl<'a> NetworkEvents<'a> {
                 kad::QueryResult::StartProviding(..) => {}
                 kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
                     if peer == self.peer_id {
-                        self.log(format!(
+                        debug!(
                             "Kademlia BootstrapOk: Publishing Umbral PK for {:?} {}\n",
                             get_node_name(&peer),
                             self.umbral_key.public_key
-                        ));
+                        );
 
                         let umbral_pk_response = UmbralPublicKeyResponse {
                             umbral_peer_id: UmbralPeerId::from(peer),

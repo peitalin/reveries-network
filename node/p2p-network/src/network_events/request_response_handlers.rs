@@ -1,5 +1,6 @@
 use libp2p::request_response;
 use colored::Colorize;
+use tracing::info;
 use crate::SendError;
 use crate::types::{
     NetworkEvent,
@@ -79,7 +80,7 @@ impl<'a> NetworkEvents<'a> {
                                 let _ = sender.send(fragment_bytes);
                             }
                             FragmentResponseEnum::KfragProviderAck => {
-                                self.log(format!("\nVessel acknowledged fragment provider\n").green());
+                                info!("{} {}", self.nname(), format!("vessel acknowledged fragment provider\n").green());
                             }
                         }
                     }

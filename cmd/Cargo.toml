@@ -8,6 +8,8 @@ edition = "2021"
 p2p-network = { path = "../node/p2p-network" }
 rpc = { path = "../node/rpc" }
 runtime = { path = "../node/runtime" }
+telemetry = { path = "../node/telemetry" }
+
 itertools = { version = "0.8.2" }
 
 color-eyre = { workspace = true }
