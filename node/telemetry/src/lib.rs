@@ -1,4 +1,3 @@
-
 /// The Logging Module
 pub mod logging;
 
@@ -14,3 +13,4 @@ pub mod prelude {
     pub use tracing::{debug, error, info, span, trace, warn, Level};
     pub use tracing_subscriber::{fmt, prelude::*};
 }
+

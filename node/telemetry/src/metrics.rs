@@ -25,3 +25,14 @@ lazy_static! {
     pub static ref SYNCED: IntGauge = register_int_gauge!("synced", "synced flag").unwrap();
 }
 
+/// Starts the metrics server on port 9200
+pub fn init_telemetry() -> color_eyre::Result<String> {
+    dotenv::dotenv().ok();
+    let port = std::env::var("PROMETHEUS_PORT")
+        .unwrap_or("9090".to_string())
+        .parse().unwrap_or("9090".to_string());
+
+    let url = format!("0.0.0.0:{}", port);
+    prometheus_exporter::start(url.parse()?)?;
+    Ok(url)
+}

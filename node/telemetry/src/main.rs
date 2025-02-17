@@ -1,11 +1,8 @@
 mod metrics;
-
-use color_eyre::Result;
-use metrics::REQUESTS_TOTAL;
-use prometheus_exporter;
+use metrics::{REQUESTS_TOTAL, init_telemetry};
 
 #[tokio::main]
-pub async fn main() -> Result<()> {
+pub async fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
     let url = init_telemetry()?;
@@ -19,16 +16,4 @@ pub async fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Starts the metrics server on port 9200
-pub fn init_telemetry() -> Result<String> {
-    dotenv::dotenv().ok();
-    let port = std::env::var("PROMETHEUS_PORT")
-        .unwrap_or("9090".to_string())
-        .parse().unwrap_or("9090".to_string());
-
-    let url = format!("0.0.0.0:{}", port);
-    prometheus_exporter::start(url.parse()?)?;
-    Ok(url)
 }
