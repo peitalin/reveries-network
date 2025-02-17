@@ -25,15 +25,26 @@ FROM base AS build
 RUN rustc --version && cargo --version
 
 # Create a working directory
-WORKDIR /1up
+WORKDIR /app
 
 # Copy src into the container
-COPY . .
+# COPY . .
+COPY ./cait ./cait
+COPY ./cmd  ./cmd
+COPY ./node ./node
+COPY ./telemetry ./telemetry
+
+COPY ./.env ./.env
+COPY ./Cargo.toml ./Cargo.toml
+COPY ./Cargo.lock ./Cargo.lock
+
+COPY ./JustFile ./JustFile
+COPY ./README.md ./README.md
+
 # Build the project
 RUN cargo build
 # Run the following if building on a TDX enabled Linux VM
 # RUN cargo build --features "tdx"
-
 
 # Default command when container starts
 CMD ["ls"]
