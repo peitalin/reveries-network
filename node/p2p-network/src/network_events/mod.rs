@@ -12,7 +12,6 @@ use std::sync::Arc;
 use color_eyre::Result;
 use colored::Colorize;
 use futures::StreamExt;
-use tokio::sync::{RwLock, mpsc, oneshot};
 use libp2p::{
     gossipsub::IdentTopic,
     kad,
@@ -20,7 +19,9 @@ use libp2p::{
     swarm::Swarm,
     PeerId
 };
-use runtime::reencrypt::UmbralKey;
+use tokio::sync::{RwLock, mpsc, oneshot};
+use tracing::{info, warn, debug};
+
 use crate::{
     SendError,
     get_node_name,
@@ -41,6 +42,7 @@ use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
 use crate::network_events::peer_manager::AgentVesselTransferInfo;
+use runtime::reencrypt::UmbralKey;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
@@ -133,11 +135,8 @@ impl<'a> NetworkEvents<'a> {
         }
     }
 
-    fn log<S: std::fmt::Display>(&self, message: S) {
-        println!("{} {}{} {}",
-            "NetworkEvents".blue(), self.node_name.yellow(), ">".blue(),
-            message
-        );
+    fn nname(&self) -> String {
+        format!("{}{}", self.node_name.yellow(), ">".blue())
     }
 
     pub async fn listen_for_network_events(mut self) {
@@ -184,7 +183,7 @@ impl<'a> NetworkEvents<'a> {
             .map(|p| format!("{}", get_node_name(p.0)))
             .collect::<Vec<String>>();
 
-        println!("Connected peers: {:?}", peer_ids);
+        info!("{} connected peers: {:?}", self.nname(), peer_ids);
 
         let mut failed_agents = vec![];
         let topic_switch: Option<TopicSwitch> = None;
@@ -215,12 +214,11 @@ impl<'a> NetworkEvents<'a> {
                     let respawn_pending = self.pending.respawns.contains(&(prev_agent.clone(), *next_vessel_peer_id));
 
                     if respawn_pending {
-                        self.log(format!("Respawn pending: {} -> {}", next_agent, self.node_name));
+                        info!("Respawn pending: {} -> {}", next_agent, self.node_name);
 
                     } else {
 
-                        self.log(format!(
-                            "{} failed. Consensus: voting to reincarnate agent '{}'",
+                        info!("{}", format!("{} failed. Consensus: voting to reincarnate agent '{}'",
                             node_name,
                             prev_agent
                         ).magenta());
@@ -250,11 +248,11 @@ impl<'a> NetworkEvents<'a> {
                                     }
                                 )).await;
 
-                            self.log(format!("{} '{}' {} {}", "Respawning agent".blue(),
+                            info!("{} '{}' {} {}", "Respawning agent".blue(),
                                 prev_agent.to_string().green(),
                                 "in new vessel:".blue(),
                                 self.node_name.yellow()
-                            ));
+                            );
 
                             // mark as respawning...
                             self.pending.respawns.insert((prev_agent.clone(), *next_vessel_peer_id));
@@ -284,7 +282,7 @@ impl<'a> NetworkEvents<'a> {
                             // Subscribe to next agent_nonce channel for when it
                             // is reincarnated and broadcasting cfrags
                             let frag_num = self.seed % total_frags;
-                            self.log(format!("\nNext frag_num: {}\n", frag_num));
+                            info!("\nNext frag_num: {}\n", frag_num);
 
                             // Broadcast new agent fragments
                             self.subscribe_topics(&vec![
@@ -305,7 +303,7 @@ impl<'a> NetworkEvents<'a> {
         };
 
         if let Some(topic_switch2) = topic_switch {
-            self.log(format!("Broadcasting topic switch"));
+            info!("Broadcasting topic switch");
             self.broadcast_topic_switch(&topic_switch2).await;
         }
     }
@@ -313,14 +311,14 @@ impl<'a> NetworkEvents<'a> {
     async fn handle_internal_heartbeat_failure(&mut self, heartbeat_config: HeartbeatConfig) {
         // Internal heartbeat failure is when this node fails to send heartbeats to external
         // nodes. It realizes it is no longer connected to the network.
-        self.log(format!("{:?}", heartbeat_config).red());
-        self.log(format!("Initiating recovery...").green());
-        self.log(format!("Todo: attempting to broadcast/save last good agent_secrets reencryption fragments.").green());
-        self.log(format!("Todo: Delete agent secrets, to prevent duplicated agents.").green());
+        info!("{}", format!("{:?}", heartbeat_config).red());
+        info!("{}", "Initiating recovery...".green());
+        info!("{}", "Todo: attempting to broadcast/save last good agent_secrets reencryption fragments.".green());
+        info!("{}", "Todo: Delete agent secrets, to prevent duplicated agents.".green());
 
         let peers: Vec<PeerId> = self.swarm.connected_peers().cloned().collect();
         let total_peers = peers.len();
-        self.log(format!("Disconnecting from {} peers", total_peers).yellow());
+        info!("{}", format!("Disconnecting from {} peers", total_peers).yellow());
         for peer_id in peers {
             self.swarm.disconnect_peer_id(peer_id).ok();
         }

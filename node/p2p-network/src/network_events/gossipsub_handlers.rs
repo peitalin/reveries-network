@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use color_eyre::eyre::anyhow;
 use libp2p::gossipsub;
+use tracing::{debug, info};
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
     AgentNameWithNonce,
@@ -26,13 +27,13 @@ impl<'a> NetworkEvents<'a> {
                 message,
             } => {
 
-                self.log(format!(
+                info!(
                     "\n\tReceived message: '{}'\n\t|from peer: {} {}\n\t|topic: '{}'\n",
                     String::from_utf8_lossy(&message.data),
                     get_node_name(&propagation_peer_id),
                     short_peer_id(&propagation_peer_id),
                     message.topic
-                ));
+                );
 
                 match message.topic.into() {
                     // When a node receives Kfrags in a broadcast/multicast
@@ -150,7 +151,6 @@ impl<'a> NetworkEvents<'a> {
         let gossip_topic_bytes = serde_json::to_vec(&topic_switch)
             .expect("serde error");
 
-        self.log(format!("Broadcasting topic switch"));
         self.swarm
             .behaviour_mut()
             .gossipsub
@@ -163,16 +163,16 @@ impl<'a> NetworkEvents<'a> {
     }
 
     fn print_stored_cfrags(&self, self_kfrags: &HashMap<AgentNameWithNonce, CapsuleFragmentMessage>) {
-        self.log(format!("Storing CapsuleFragmentMessage:"));
+        debug!("{} Storing CapsuleFragmentMessage:", self.nname());
         let _ = self_kfrags.iter()
             .map(|(k, v)|
-                println!("key: {}\tfrag_num: {}", k, v.frag_num)
+                debug!("key: {}\tfrag_num: {}", k, v.frag_num)
             )
             .collect::<Vec<()>>();
     }
 
     pub fn print_subscribed_topics(&mut self) {
-        self.log(format!("Topics subscribed:"));
+        debug!("Topics subscribed:");
         let _ = self.swarm.behaviour_mut().gossipsub.topics()
             .into_iter()
             .map(|t| println!("{:?}", t.as_str())).collect::<()>();
@@ -182,7 +182,7 @@ impl<'a> NetworkEvents<'a> {
         topic_strs.iter()
             .filter_map(|topic_str| {
                 let topic = gossipsub::IdentTopic::new(topic_str);
-                println!("Subscribing to: {}", topic);
+                debug!("Subscribing to: {}", topic);
                 if let Some(_) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic).ok() {
 
                     let entry = self.topics

@@ -39,40 +39,69 @@ services:
       sh -c "ls && just node2"
 
 
-  node3:
+  # node3:
+  #   image: 1up
+  #   expose:
+  #     - "8003"
+  #     - "80"
+  #   ports:
+  #     - "8003:8003"
+  #   stdin_open: true
+  #   tty: true
+  #   command: >
+  #     sh -c "ls && just node3"
+
+
+  # node4:
+  #   image: 1up
+  #   expose:
+  #     - "8004"
+  #     - "80"
+  #   ports:
+  #     - "8004:8004"
+  #   stdin_open: true
+  #   tty: true
+  #   command: >
+  #     sh -c "ls && just node4"
+
+
+  # node5:
+  #   image: 1up
+  #   expose:
+  #     - "8005"
+  #     - "80"
+  #   ports:
+  #     - "8005:8005"
+  #   stdin_open: true
+  #   tty: true
+  #   command: >
+  #     sh -c "ls && just node5"
+
+  telemetry:
     image: 1up
-    expose:
-      - "8003"
-      - "80"
-    ports:
-      - "8003:8003"
     stdin_open: true
     tty: true
+    restart: always
     command: >
-      sh -c "ls && just node3"
+      sh -c "ls && just telemetry"
 
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    volumes: ["./telemetry/prometheus.yml:/etc/prometheus/prometheus.yml"]
 
-  node4:
-    image: 1up
-    expose:
-      - "8004"
-      - "80"
-    ports:
-      - "8004:8004"
-    stdin_open: true
-    tty: true
-    command: >
-      sh -c "ls && just node4"
-
-
-  node5:
-    image: 1up
-    expose:
-      - "8005"
-      - "80"
-    ports:
-      - "8005:8005"
-    stdin_open: true
-    tty: true
-    command: >
-      sh -c "ls && just node5"
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    volumes:
+      - ./telemetry/dashboards:/etc/grafana/provisioning/dashboards
+      - ./telemetry/datasources:/etc/grafana/provisioning/datasources
+      - ./telemetry/grafana.ini:/etc/grafana/grafana.ini  # Persistent config
+    environment:
+      # GF_SECURITY_ADMIN_USER: "user"    # Override default admin
+      # GF_SECURITY_ADMIN_PASSWORD: "pass123"
+      # GF_PATHS_CONFIG: "/etc/grafana/grafana.ini"  # Enforce custom config
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"  # Full access
+      GF_AUTH_BASIC_ENABLED: "false"

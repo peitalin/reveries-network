@@ -5,6 +5,7 @@ use color_eyre::owo_colors::OwoColorize;
 use libp2p::PeerId;
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
+use tracing::{warn, info};
 
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use crate::types::{CapsuleFragmentMessage, FragmentNumber};
@@ -106,7 +107,7 @@ impl<'a> PeerManager<'a> {
         vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        self.log(format!("Setting vessel for Agent: {}", agent_name_nonce.yellow()));
+        info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
@@ -145,11 +146,13 @@ impl<'a> PeerManager<'a> {
             match &peer_info.heartbeat_data.tee_payload.tee_attestation {
                 Some(quote) => {
                     return Some(format!(
-                        "{} {} {} {} {}",
-                        short_peer_id(&peer_id).black(),
-                        "HeartBeat Block".black(),
-                        peer_info.heartbeat_data.tee_payload.block_height.black(),
-                        "TEE ESCDA attestation pubkey:".bright_black(),
+                        "{} {} {} {}",
+                        format!("{}{}",
+                            "Heartbeat from ".bright_black(),
+                            get_node_name(&peer_id).magenta(),
+                        ),
+                        format!("Block({})", peer_info.heartbeat_data.tee_payload.block_height).bright_black(),
+                        "TEE Pubkey:".bright_black(),
                         format!("{}", hex::encode(quote.signature.ecdsa_attestation_key)).black(),
                     ))
                     // format!(
@@ -236,13 +239,13 @@ impl<'a> PeerManager<'a> {
         // lookup all the agents and fragments Peer holds
         println!("Removing kfrag_broadcast_peers for {}", short_peer_id(peer_id));
         let opt_agent_fragments = self.peers_to_agent_frags.get(&peer_id);
-        self.log(format!("peer holds agent_fragments: {:?}", opt_agent_fragments));
+        info!("{} {} {:?}", self.nname(), "peer holds agent_fragments:", opt_agent_fragments);
 
         if let Some(agent_fragments) = opt_agent_fragments {
             // remove all kfrag_broadcast_peers entries for the Peer
             for af in agent_fragments.into_iter() {
 
-                self.log(format!("removing frag_num({}): {}", af.frag_num, af.agent_name_nonce));
+                info!("removing frag_num({}): {}", af.frag_num, af.agent_name_nonce);
                 if let Some(
                     hmap
                 ) = self.kfrag_broadcast_peers.get_mut(&af.agent_name_nonce) {
@@ -251,15 +254,13 @@ impl<'a> PeerManager<'a> {
                     }
                 };
 
-                self.log(format!(
-                    "{}: {:?}", "kfrag_broadcast_peers".blue(),
-                    self.kfrag_broadcast_peers.get(&af.agent_name_nonce)
-                ));
+                info!("{}: {:?}", "kfrag_broadcast_peers".blue(),
+                    self.kfrag_broadcast_peers.get(&af.agent_name_nonce));
             }
             // remove Peer from peers_to_agent_frags Hashmap
             self.peers_to_agent_frags.remove(&peer_id);
         } else {
-            self.log("No entry found.");
+            warn!("{} No entry found.", self.nname());
         }
     }
 
@@ -357,11 +358,8 @@ impl<'a> PeerManager<'a> {
         }).collect::<>()
     }
 
-    fn log<S: std::fmt::Display>(&self, message: S) {
-        println!("{} {}{} {}",
-            "PeerManager".blue(), self.node_name.yellow(), ">".blue(),
-            message
-        );
+    fn nname(&self) -> String {
+        format!("{}{}", self.node_name.yellow(), ">".blue())
     }
 
 }

@@ -19,8 +19,9 @@ impl std::fmt::Display for SendError {
     }
 }
 
-pub fn short_peer_id(peer_id: &libp2p::PeerId) -> String {
+pub fn short_peer_id<T: ToString>(peer_id: T) -> String {
     let peer_id_str = peer_id.to_string();
+    // TODO: add stricter PeerId checks
     if peer_id_str.len() < 10 {
         panic!("Not a valid PeerId")
     }

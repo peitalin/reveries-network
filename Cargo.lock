@@ -1884,6 +1884,7 @@ dependencies = [
  "runtime",
  "serde",
  "serde_json",
+ "telemetry",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5341,6 +5342,7 @@ dependencies = [
  "runtime",
  "serde",
  "serde_json",
+ "telemetry",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5779,6 +5781,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
+ "protobuf",
  "thiserror 1.0.69",
 ]
 
@@ -5838,6 +5841,12 @@ dependencies = [
  "tempfile",
  "unarray",
 ]
+
+[[package]]
+name = "protobuf"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "quick-error"
@@ -6394,6 +6403,7 @@ dependencies = [
  "runtime",
  "serde",
  "serde_json",
+ "telemetry",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -7485,13 +7495,18 @@ dependencies = [
 name = "telemetry"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "color-eyre",
+ "colored",
  "dotenv",
  "lazy_static",
+ "prometheus",
  "prometheus_exporter",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
 ]
 
@@ -7849,6 +7864,18 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3566e8ce28cc0a3fe42519fc80e6b4c943cc4c8cef275620eb8dac2d3d4e06cf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror 1.0.69",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]

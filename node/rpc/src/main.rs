@@ -8,17 +8,20 @@ use clap::Parser;
 use p2p_network::create_network;
 use commands::Opt;
 use rpc_server::run_server;
+use tracing::{debug, info, warn, error};
 
 
 #[tokio::main]
 async fn main() -> Result<()> {
 
     color_eyre::install()?;
-
-	tracing_subscriber::FmtSubscriber::builder()
-		.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-		.try_init()
-        .ok();
+    telemetry::init_logger(telemetry::LoggerConfig {
+        show_log_level: true,
+        show_path: true,
+        show_time: false,
+        show_crate_name: false,
+        ..Default::default()
+    });
 
     let opt = Opt::parse();
 

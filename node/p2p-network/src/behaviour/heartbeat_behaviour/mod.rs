@@ -275,12 +275,11 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     // Send shutdown signal to NetworkEvents. Only this node knows
                     // it's run into an error. Peers will have to wait until hearbeats
                     // start to timeout before initiating reincarnation process
-                    println!("{}{}",
-                        format!("ShutdownIfMaxFailuresExceeded: ").red(),
+                    tracing::error!("ShutdownIfMaxFailuresExceeded: {}",
                         format!("internal_fail_count({}) > max_failures({})",
                             self.internal_fail_count,
                             self.config.max_failures
-                        ).red()
+                        )
                     );
 
                     if self.internal_fail_count.as_ref() > &self.config.max_failures {

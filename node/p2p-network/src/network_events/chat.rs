@@ -1,11 +1,12 @@
 use crate::types::ChatMessage;
+use tracing::{error, info};
 use super::NetworkEvents;
 
 impl<'a> NetworkEvents<'a> {
 
     pub(super) async fn broadcast_chat_message(&mut self, message: ChatMessage) {
 
-        self.log(format!("Broadcasting message: {:?}", message));
+        info!("{}Broadcasting message {:?}", self.nname(), message);
 
         // testing TEE
         let (
@@ -26,8 +27,8 @@ impl<'a> NetworkEvents<'a> {
                     }
             }
             None => {
-                self.log(format!("Err: topic does not exist {:?}", message.topic));
-                self.log(format!("Topics subscribed:"));
+                error!("{} Err: topic does not exist {:?}", self.nname(), message.topic);
+                info!("Topics subscribed:");
                 let _ = self.swarm.behaviour_mut().gossipsub.topics()
                     .into_iter()
                     .map(|t| println!("{:?}", t)).collect::<()>();
