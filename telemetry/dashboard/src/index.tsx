@@ -10,12 +10,12 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <div className="min-h-screen bg-gray-900">
-      <header className="p-6 bg-gray-800">
+      <header className="p-6 bg-gray-600">
         <h1 className="text-3xl font-bold text-white text-center">
           TEE Network Peer Heartbeat Tracker
         </h1>
       </header>
-      <main className="container mx-auto px-4">
+      <main className="w-full">
         <HeartbeatMonitor />
       </main>
     </div>
