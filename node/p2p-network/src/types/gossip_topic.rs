@@ -4,6 +4,7 @@ use lazy_static::lazy_static;
 use libp2p::gossipsub::{self, IdentTopic};
 pub use libp2p::gossipsub::TopicHash;
 use libp2p::PeerId;
+use runtime::llm::AgentSecretsJson;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use nanoid::nanoid;
@@ -53,6 +54,24 @@ pub struct AgentNameWithNonce(pub AgentName, pub AgentNonce);
 impl AgentNameWithNonce {
     pub fn as_key(&self) -> String {
         self.to_string()
+    }
+
+    pub fn make_next_agent(&self) -> AgentNameWithNonce {
+        let next_nonce = self.1 + 1;
+        AgentNameWithNonce(
+            self.0.clone(),
+            next_nonce
+        )
+    }
+
+    pub fn nonce(&self) -> usize {
+        self.1
+    }
+}
+
+impl From<AgentSecretsJson> for AgentNameWithNonce {
+    fn from(a: AgentSecretsJson) -> Self {
+        AgentNameWithNonce(a.agent_name, a.agent_nonce)
     }
 }
 

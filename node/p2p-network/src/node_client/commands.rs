@@ -15,8 +15,6 @@ use crate::types::{
     TopicSwitch,
     UmbralPublicKeyResponse
 };
-use crate::network_events::peer_manager::AgentVesselTransferInfo;
-
 use super::container_manager::RestartReason;
 
 

@@ -1,8 +1,9 @@
 use crate::{short_peer_id, get_node_name};
+use crate::types::NetworkEvent;
 use super::NetworkEvents;
 
 impl<'a> NetworkEvents<'a> {
-    pub(super) fn query_node_state(&self) -> serde_json::Value {
+    pub(super) async fn query_node_state(&mut self) -> serde_json::Value {
 
         // self.peer_manager.peer_info
         let peer_info = self.peer_manager.peer_info
@@ -11,9 +12,9 @@ impl<'a> NetworkEvents<'a> {
 
                 let last_hb = peer_info.heartbeat_data.duration_since_last_heartbeat();
                 // let avg_hb = peer_info.heartbeat_data.average_time_between_heartbeats();
-                let tee_byte_len = match &peer_info.heartbeat_data.tee_payload.tee_attestation_bytes {
-                    None => 0,
-                    Some(bytes) => bytes.len()
+                let tee_bytes = match &peer_info.heartbeat_data.tee_payload.tee_attestation_bytes {
+                    None => "".as_bytes(),
+                    Some(bytes) => bytes
                 };
 
                 match &peer_info.agent_vessel {
@@ -24,7 +25,7 @@ impl<'a> NetworkEvents<'a> {
                             "agent_vessel": None as Option<serde_json::Value>,
                             "heartbeat_data": {
                                 "last_hb": last_hb,
-                                "tee_byte_len": tee_byte_len
+                                "tee_bytes_len": tee_bytes.len()
                             }
                         })
                     }
@@ -40,7 +41,7 @@ impl<'a> NetworkEvents<'a> {
                             },
                             "heartbeat_data": {
                                 "last_hb": last_hb,
-                                "tee_byte_len": tee_byte_len
+                                "tee_bytes_len": tee_bytes.len()
                             }
                         })
                     }
@@ -64,10 +65,14 @@ impl<'a> NetworkEvents<'a> {
                 })
             }).collect::<Vec<serde_json::Value>>();
 
+        let agent_in_vessel = &self.peer_manager.vessel_agent;
+
         let node_state = serde_json::json!({
             "_node_name": self.node_name,
             "_peer_id": self.peer_id,
             "_umbral_public_key": self.umbral_key.public_key,
+            "_pending_respawns": self.pending.respawns,
+            "_agent_in_vessel": agent_in_vessel,
             "peer_manager": {
                 // get all held agent cfrags
                 "1_cfrags_summary": self.peer_manager.held_cfrags_summary(),

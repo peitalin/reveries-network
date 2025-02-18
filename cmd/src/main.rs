@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
             info!("Next Vessel: {} {}\nUmbral Public Key: {}",
                 get_node_name(&response.umbral_peer_id.clone().into()).yellow(),
                 short_peer_id(&response.umbral_peer_id).green(),
-                format!("{}", &response.umbral_public_key).red()
+                &response.umbral_public_key
             );
         }
 
@@ -128,13 +128,17 @@ async fn main() -> Result<()> {
                 ]
             ).await?;
 
-            info!("Spawned Agent");
-            info!("Next Vessel: {} {}",
-                short_peer_id(&umbral_peer_id.clone()),
-                get_node_name(&umbral_peer_id.into())
+            info!("{}\n{}",
+                format!("Spawned Agent. Next Vessel: {}\n{}",
+                    get_node_name(&umbral_peer_id.clone().into()),
+                    short_peer_id(&umbral_peer_id),
+                ).yellow(),
+                format!(
+                    "Umbral PublicKey: {}",
+                    hex::encode(umbral_public_key.to_uncompressed_bytes())
+                ).blue()
             );
-            info!("Umbral PublicKey: {}",
-                hex::encode(umbral_public_key.to_uncompressed_bytes()));
+
         }
 
         CliArgument::TriggerNodeFailure => {

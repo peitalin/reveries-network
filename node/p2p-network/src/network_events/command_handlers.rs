@@ -220,7 +220,7 @@ impl<'a> NetworkEvents<'a> {
                 self.simulate_heartbeat_failure().await;
             }
             NodeCommand::GetNodeState { sender } => {
-                let node_state = self.query_node_state();
+                let node_state = self.query_node_state().await;
                 sender.send(node_state).ok();
             }
         }

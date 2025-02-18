@@ -50,6 +50,9 @@ pub struct AgentFragment {
 #[derive(Debug)]
 pub(crate) struct PeerManager<'a> {
     pub(crate) node_name: &'a str,
+    pub(crate) peer_id: PeerId,
+    // Tracks agent info if node is a vessel
+    pub(crate) vessel_agent: Option<serde_json::Value>,
     // Tracks Vessel Nodes
     pub(crate) peer_info: HashMap<PeerId, PeerInfo>,
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
@@ -68,9 +71,11 @@ pub(crate) struct PeerManager<'a> {
 }
 
 impl<'a> PeerManager<'a> {
-    pub fn new(node_name: &'a str) -> Self {
+    pub fn new(node_name: &'a str, peer_id: PeerId) -> Self {
         Self {
             node_name,
+            peer_id,
+            vessel_agent: None,
             kfrag_broadcast_peers: HashMap::new(),
             peers_to_agent_frags: HashMap::new(),
             peer_info: HashMap::new(),
@@ -104,23 +109,37 @@ impl<'a> PeerManager<'a> {
         &mut self,
         agent_name_nonce: &AgentNameWithNonce,
         total_frags: &usize,
-        vessel_peer_id: PeerId,
+        current_vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
-        println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&vessel_peer_id).bright_blue()));
+        info!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow());
+        println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&current_vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
-        match self.peer_info.get_mut(&vessel_peer_id) {
+        match self.peer_info.get_mut(&current_vessel_peer_id) {
             None => {},
             Some(peer_info) => {
                 peer_info.agent_vessel = Some(AgentVesselTransferInfo {
                     agent_name_nonce: agent_name_nonce.clone(),
                     total_frags: total_frags.clone(),
-                    prev_vessel_peer_id: vessel_peer_id,
+                    prev_vessel_peer_id: current_vessel_peer_id,
                     next_vessel_peer_id: next_vessel_peer_id,
                 })
             }
+        }
+
+        println!("self.peer_id {}", self.peer_id);
+        println!("next_vessel_peer_id {}", next_vessel_peer_id);
+
+        if current_vessel_peer_id == self.peer_id {
+            self.vessel_agent = Some(serde_json::json!({
+                "agent_name_nonce": agent_name_nonce.clone(),
+                "total_frags": total_frags.clone(),
+                "current_vessel_peer_id": current_vessel_peer_id,
+                "current_vessel_node_name": get_node_name(&current_vessel_peer_id),
+                "next_vessel_peer_id": next_vessel_peer_id,
+                "next_vessel_node_name":  get_node_name(&next_vessel_peer_id),
+            }));
         }
     }
 
@@ -229,17 +248,10 @@ impl<'a> PeerManager<'a> {
 
     }
 
-    // removes all peers associated with the agent
-    pub fn remove_kfrag_broadcast_peers_by_agent(&mut self, agent_name_nonce: &AgentNameWithNonce) {
-        self.kfrag_broadcast_peers.remove(agent_name_nonce);
-    }
-
     pub fn remove_kfrags_broadcast_peer(&mut self, peer_id: &PeerId) {
-
         // lookup all the agents and fragments Peer holds
         println!("Removing kfrag_broadcast_peers for {}", short_peer_id(peer_id));
         let opt_agent_fragments = self.peers_to_agent_frags.get(&peer_id);
-        info!("{} {} {:?}", self.nname(), "peer holds agent_fragments:", opt_agent_fragments);
 
         if let Some(agent_fragments) = opt_agent_fragments {
             // remove all kfrag_broadcast_peers entries for the Peer
