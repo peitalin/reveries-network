@@ -8,7 +8,6 @@ use clap::Parser;
 use p2p_network::create_network;
 use commands::Opt;
 use rpc_server::run_server;
-use tracing::{debug, info, warn, error};
 
 
 #[tokio::main]
@@ -34,10 +33,9 @@ async fn main() -> Result<()> {
 
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
-
-    node_client
-        .start_listening_to_network(opt.listen_address)
-        .await?;
+    // Tell network to start listening for peers on the network
+    node_client.start_listening_to_network(opt.listen_address).await?;
+    // TODO: redudant step, automatically start listening and finding peers later
 
     // Subscribe and listen to gossip network for messages
     node_client.subscribe_topics(vec![
@@ -52,18 +50,9 @@ async fn main() -> Result<()> {
 
     // Run RPC server if provided an RPC port,
     // so clients can make requests without running a node themselves.
-    let mut nc2 = node_client.clone();
-    match opt.rpc_port {
-        None => {
-            // listen for input messages for chat in main blocking thread
-            nc2.listen_and_handle_stdin().await;
-        }
-        Some(port) => {
-            // listen for input messages for chat in background thread
-            tokio::spawn(async move { nc2.listen_and_handle_stdin().await });
-            // await to keep the server running
-            run_server(port, node_client).await?;
-        }
+    if let Some(port) = opt.rpc_port {
+        // await to keep the server running
+        run_server(port, node_client).await?;
     }
 
     Ok(())

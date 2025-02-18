@@ -99,7 +99,6 @@ pub struct AgentSecretsJson {
     pub context: String,
 }
 
-
 pub fn connect_to_anthropic(anthropic_api_key: &str, context: &str) -> (CompletionModel, Agent<CompletionModel>) {
     // Create client with specific version and beta features
     let client = ClientBuilder::new(anthropic_api_key)

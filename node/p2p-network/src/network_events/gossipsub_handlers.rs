@@ -10,6 +10,8 @@ use crate::types::{
     FragmentRequestEnum,
     GossipTopic,
     KeyFragmentMessage,
+    PrevTopic,
+    RespawnId,
     TopicSwitch,
 };
 use crate::create_network::NODE_SEED_NUM;
@@ -66,10 +68,8 @@ impl<'a> NetworkEvents<'a> {
                                 ciphertext: k.ciphertext
                             }
                         );
-                        self.print_stored_cfrags(&self.peer_manager.cfrags);
 
                         if !self.peer_manager.peer_info_has_agent(&k.vessel_peer_id) {
-                            println!("Saving agent vessel for {}", short_peer_id(&k.vessel_peer_id));
                             self.peer_manager.set_peer_info_agent_vessel(
                                 &agent_name_nonce,
                                 &total_frags,
@@ -88,7 +88,7 @@ impl<'a> NetworkEvents<'a> {
                                 .send_request(
                                     &k.next_vessel_peer_id,
                                     FragmentRequestEnum::ProvidingFragment(
-                                        agent_name_nonce,
+                                        agent_name_nonce.clone(),
                                         frag_num,
                                         self.peer_id // sender_peer_id
                                     )
@@ -113,6 +113,11 @@ impl<'a> NetworkEvents<'a> {
 
                         let topic = GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num);
                         self.subscribe_topics(&vec![topic.to_string()]);
+
+                        // remove previous peer that failed, and associated pending RespawnIds
+                        if let Some(prev_topic) = &ts.prev_topic {
+                            self.remove_prev_vessel_peer(prev_topic);
+                        }
                     }
                     // Nothing else to do for GossipTopic::Unknown
                     GossipTopic::Unknown => {
@@ -160,15 +165,25 @@ impl<'a> NetworkEvents<'a> {
             )
             .map_err(|e| anyhow!(e.to_string()))
             .ok();
+
+        // remove previous peer that failed, and associated pending RespawnIds
+        if let Some(prev_topic) = &topic_switch.prev_topic {
+            self.remove_prev_vessel_peer(prev_topic);
+        }
     }
 
-    fn print_stored_cfrags(&self, self_kfrags: &HashMap<AgentNameWithNonce, CapsuleFragmentMessage>) {
-        debug!("{} Storing CapsuleFragmentMessage:", self.nname());
-        let _ = self_kfrags.iter()
-            .map(|(k, v)|
-                debug!("key: {}\tfrag_num: {}", k, v.frag_num)
-            )
-            .collect::<Vec<()>>();
+    pub(crate) fn remove_prev_vessel_peer(&mut self, prev_topic: &PrevTopic) {
+        // remove pending RespawnIds if need be
+        if let Some(prev_peer_id) = prev_topic.peer_id {
+            let respawn_id = RespawnId::new(
+                &prev_topic.agent_name_nonce,
+                &prev_peer_id,
+            );
+            info!("Removing respawn_id {:?}", respawn_id);
+            info!("Removing prev peer {:?}", prev_peer_id);
+            self.pending.respawns.remove(&respawn_id);
+            self.remove_peer(&prev_peer_id);
+        }
     }
 
     pub fn print_subscribed_topics(&mut self) {

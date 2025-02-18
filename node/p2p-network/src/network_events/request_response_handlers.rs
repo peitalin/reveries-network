@@ -94,11 +94,12 @@ impl<'a> NetworkEvents<'a> {
                 peer,
                 connection_id,
             } => {
-                self.pending.request_fragments
-                    .remove(&request_id)
-                    .expect(&format!("RequestId {} not found for {}", request_id, peer))
-                    .send(Err(SendError(error.to_string())))
-                    .ok();
+                match self.pending.request_fragments.remove(&request_id) {
+                    None => tracing::warn!("RequestId {} not found for {}", request_id, peer),
+                    Some(sender) => {
+                        sender.send(Err(SendError(error.to_string()))).ok();
+                    }
+                }
             }
         }
     }
