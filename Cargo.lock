@@ -6397,6 +6397,7 @@ dependencies = [
  "clap 4.5.28",
  "color-eyre",
  "futures",
+ "hex",
  "jsonrpsee",
  "libp2p",
  "p2p-network",

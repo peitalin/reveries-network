@@ -14,6 +14,7 @@ async-stream = { version = "0.3.6" }
 color-eyre = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 jsonrpsee = { workspace = true }
 libp2p = { workspace = true }
 serde = { workspace = true }

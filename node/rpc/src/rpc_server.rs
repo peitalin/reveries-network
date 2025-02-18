@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use color_eyre::eyre::{Error, anyhow};
 use futures::{Stream, StreamExt, pin_mut};
 
+use hex;
 use jsonrpsee::PendingSubscriptionSink;
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
 use jsonrpsee::server::{RpcModule, Server, SubscriptionMessage, TrySendError};
@@ -17,7 +18,9 @@ use p2p_network::types::{
     UmbralPublicKeyResponse
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
+use p2p_network::get_node_name;
 use runtime::llm::AgentSecretsJson;
+use runtime::QuoteBody;
 
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -165,7 +168,6 @@ pub async fn run_server<'a: 'static>(
         }
     )?;
 
-
     let nc = network_client.clone();
     rpc_module.register_subscription(
         "subscribe_hb", // subscribe_method_name
@@ -180,19 +182,27 @@ pub async fn run_server<'a: 'static>(
             async move {
 
                 let stream = async_stream::stream! {
-                    while let Ok(some_item) = heartbeat_receiver.recv().await {
-                        if let Some(tee_bytes) = some_item {
-                            let node_state_result = nc2.get_node_state().await.ok();
-                            let tee_attestation = parse_tee_attestation_bytes(tee_bytes);
-                            let json_payload = serde_json::json!({
-                                "tee_attestation": tee_attestation,
-                                "node_state": node_state_result,
-                                "time": get_time(),
-                            });
-                            yield Some(json_payload)
-                        } else {
-                            yield None
-                        }
+                    while let Ok(tee_payload) = heartbeat_receiver.recv().await {
+
+                        let node_state_result = nc2.get_node_state().await.ok();
+
+                        let tee_quote_v4 = match tee_payload.latest_tee_attestation.tee_attestation_bytes {
+                            None => None,
+                            Some(tee_bytes) => {
+                                Some(parse_tee_attestation_bytes(tee_bytes))
+                            }
+                        };
+
+                        let json_payload = serde_json::json!({
+                            "tee_attestation": {
+                                "peer_id": tee_payload.peer_id,
+                                "peer_name": get_node_name(&tee_payload.peer_id),
+                                "tee_quote_v4": tee_quote_v4
+                            },
+                            "node_state": node_state_result,
+                            "time": get_time(),
+                        });
+                        yield Some(json_payload)
                     }
                 };
                 pin_mut!(stream);
@@ -254,11 +264,25 @@ pub fn parse_tee_attestation_bytes(ta_bytes: Vec<u8>) -> serde_json::Value {
     let quote = runtime::tee_attestation::QuoteV4::from_bytes(&ta_bytes);
     let now = get_time();
 
+    let quote_body = match quote.quote_body {
+        // no deserializer traits on these types, defined in dcap-rs crate
+        QuoteBody::SGXQuoteBody(e) => {
+            format!("{:?}", &e)
+        }
+        QuoteBody::TD10QuoteBody(e) => {
+            format!("{:?}", &e)
+        }
+    };
+
     serde_json::json!({
         "header": &format!("{:?}", &quote.header),
-        "signature": &format!("{:?}", &quote.signature),
-        "signature_len": &format!("{:?}", &quote.signature_len),
-        "quote_body": &format!("{:?}", &quote.quote_body),
+        "signature": {
+            "ecdsa_attestation_key": hex::encode(&quote.signature.ecdsa_attestation_key),
+            "qe_cert_data": format!("{:?}", &quote.signature.qe_cert_data),
+            "quote_signature": hex::encode(&quote.signature.quote_signature),
+        },
+        "signature_len": &format!("{}", &quote.signature_len),
+        "quote_body": quote_body,
         "time": now,
     })
 }

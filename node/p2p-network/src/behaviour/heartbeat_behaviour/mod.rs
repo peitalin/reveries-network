@@ -66,7 +66,7 @@ pub struct HeartbeatBehaviour {
     /// and disconnect from Swarm, or shutdown the LLM runtime.
     pub(crate) internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
 
-    pub(crate) heartbeat_sender: async_channel::Sender<Option<Vec<u8>>>,
+    pub(crate) heartbeat_sender: async_channel::Sender<TeePayloadOutEvent>,
 
     pending_events: VecDeque<HeartbeatAction>,
 
@@ -83,7 +83,7 @@ impl HeartbeatBehaviour {
     pub fn new(
         config: HeartbeatConfig,
         internal_heartbeat_fail_sender: mpsc::Sender<HeartbeatConfig>,
-        heartbeat_sender: async_channel::Sender<Option<Vec<u8>>>,
+        heartbeat_sender: async_channel::Sender<TeePayloadOutEvent>,
     ) -> Self {
         Self {
             config,
@@ -245,18 +245,16 @@ impl NetworkBehaviour for HeartbeatBehaviour {
         if let Some(action) = self.pending_events.pop_front() {
             match action {
 
-                HeartbeatAction::HeartbeatEvent(event) => {
+                HeartbeatAction::HeartbeatEvent(tee_event) => {
 
                     // send to NodeClient, expose stream to subscribers
                     let _ = async {
-                        self.heartbeat_sender.send(
-                            event.latest_tee_attestation.tee_attestation_bytes.clone()
-                        ).await
+                        self.heartbeat_sender.send(tee_event.clone()).await
                     }
                     .boxed()
                     .poll_unpin(cx);
 
-                    return Poll::Ready(ToSwarm::GenerateEvent(event))
+                    return Poll::Ready(ToSwarm::GenerateEvent(tee_event))
                 },
 
                 HeartbeatAction::HeartbeatRequest  {

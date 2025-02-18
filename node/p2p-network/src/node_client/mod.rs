@@ -32,6 +32,7 @@ use crate::types::{
     TopicSwitch,
     UmbralPublicKeyResponse
 };
+use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::{test_claude_query, AgentSecretsJson};
 
@@ -47,7 +48,7 @@ pub struct NodeClient<'a> {
     // container app state
     container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
     // hb subscriptions for rpc clients
-    pub heartbeat_receiver: async_channel::Receiver<Option<Vec<u8>>>,
+    pub heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     // keep private in TEE
     agent_secrets_json: Option<AgentSecretsJson>,
     umbral_key: UmbralKey,
@@ -63,7 +64,7 @@ impl<'a> NodeClient<'a> {
         chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
         container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
-        heartbeat_receiver: async_channel::Receiver<Option<Vec<u8>>>,
+        heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     ) -> Self {
         Self {
             peer_id: peer_id,
@@ -714,7 +715,7 @@ impl<'a> NodeClient<'a> {
         Ok(node_info)
     }
 
-    pub fn get_hb_channel(&self) -> async_channel::Receiver<Option<Vec<u8>>> {
+    pub fn get_hb_channel(&self) -> async_channel::Receiver<TeePayloadOutEvent> {
         self.heartbeat_receiver.clone()
     }
 }
