@@ -3,7 +3,8 @@ import { NodeState, HeartbeatData, WebSocketConnection, PeerManagerData } from '
 import { JsonRpcWebSocket } from '../utils/websocket';
 import { formatTime, formatLastSeen, getColorForPeerName, formatHeartbeatData } from '../utils/formatting';
 import toast, { Toaster } from 'react-hot-toast';
-
+import { PortManager } from './PortManager';
+import { ConnectionDisplay } from './ConnectionDisplay';
 
 const HeartbeatMonitor: React.FC = () => {
   const [connections, setConnections] = useState<Record<number, WebSocketConnection>>({});
@@ -185,150 +186,28 @@ const HeartbeatMonitor: React.FC = () => {
       {/* Port Management UI */}
       <div className="container m-auto p-4">
         <h2 className="text-2xl font-bold mb-4">Node Heartbeat Monitor</h2>
-        <div className="mb-2 p-4 bg-gray-700 rounded-lg">
-          <h3 className="text-lg font-semibold mb-2">Manage Ports</h3>
-          <form onSubmit={handleSubmit} className="flex gap-2 mb-4">
-            <input
-              type="number"
-              value={newPort}
-              onChange={(e) => setNewPort(e.target.value)}
-              placeholder="Enter port number"
-              className="px-3 py-2 bg-gray-800 rounded text-white w-48"
-              min="1"
-              max="65535"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition-colors"
-            >
-              Add Port
-            </button>
-          </form>
-
-          <div className="flex flex-wrap gap-2">
-            {Object.keys(connections).map(port => (
-              <div key={port} className="flex items-center gap-2 bg-gray-800 px-3 py-1 rounded">
-                <span>Port {port}</span>
-                <button
-                  onClick={() => removePort(Number(port))}
-                  className="ml-2 text-red-400 hover:text-red-300"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-      </div>
+        <PortManager
+          ports={Object.keys(connections)}
+          newPort={newPort}
+          onPortChange={setNewPort}
+          onPortSubmit={handleSubmit}
+          onPortRemove={removePort}
+        />
       </div>
 
       {/* Existing connection displays */}
-      {Object.values(connections).map(({ port, heartbeat, isConnected, error }) => {
-        const nodeColor = heartbeat ? getColorForPeerName(heartbeat.node_state._node_name) : undefined;
-
-        return (
-          <div
-            key={port}
-            className="rounded-lg p-4"
-            style={{
-              backgroundColor: nodeColor,
-              opacity: 0.9
-            }}
-          >
-            <div className="p-3 rounded-md mb-3 bg-gray-700">
-              <div className={`inline-block px-2 py-1 rounded-md mb-2 text-lg font-medium ${
-                isConnected ? 'bg-green-600' : 'bg-red-600'
-              }`}>
-                {heartbeat?.node_state._node_name} status: {isConnected ? 'Connected' : 'Disconnected'}
-              </div>
-
-              {heartbeat && (
-                <div className="text-sm mt-2">
-                  <div><span className="font-bold">PeerID:</span> {heartbeat.node_state._peer_id}</div>
-                  <div className="truncate"><span className="font-bold">Umbral Public Key:</span> {heartbeat.node_state._umbral_public_key}</div>
-                  <div className="mt-0">
-                    <div className="font-bold">Agent in Vessel:</div>
-                    <pre className="text-xs bg-black bg-opacity-50 p-2 rounded mt-1 mb-2 overflow-x-auto">
-                      {JSON.stringify(heartbeat.node_state._agent_in_vessel, null, 2)}
-                    </pre>
-                  </div>
-                  <div className="mt-0">
-                    <div className="font-bold">Pending Respawns:</div>
-                    <pre className="text-xs bg-black bg-opacity-50 p-2 rounded mt-1 overflow-x-auto">
-                      {JSON.stringify(heartbeat.node_state._pending_respawns, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-600 rounded-md mb-3">
-                Error: {error}
-              </div>
-            )}
-
-            {heartbeat && (
-              <>
-                <div className="my-3 p-3 bg-gray-700 rounded-md">
-                  <h3 className="text-xl font-semibold mb-2">
-                    {heartbeat.node_state._node_name}'s Connected Peers ({getPeerManagerData(heartbeat).peer_info.length})
-                  </h3>
-                  <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                    {getPeerManagerData(heartbeat).peer_info.map((peer) => (
-                      <div
-                        key={peer.peer_id}
-                        className="p-4 bg-gray-800 rounded-lg cursor-pointer transition-all hover:bg-gray-700"
-                        onClick={() => setExpandedPeerId(expandedPeerId === '*' ? peer.peer_id : expandedPeerId === peer.peer_id ? '' : '*')}
-                      >
-                        <div className="font-bold">{peer.node_name}</div>
-                        <div className="text-sm text-gray-400 mb-2">ID: {peer.peer_id}</div>
-                        <div className="text-sm">
-                          Last seen: {formatLastSeen(peer.heartbeat_data?.last_hb)}
-                        </div>
-                        {(expandedPeerId === '*' || expandedPeerId === peer.peer_id) && (
-                          <div className="mt-3 pt-3 border-t border-gray-600">
-                            <h4 className="text-sm font-semibold mb-2">Peer Info:</h4>
-                            <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-                              {JSON.stringify(peer, null, 2)}
-                            </pre>
-
-                            <h4 className="text-sm font-semibold mt-4 mb-2">KFrag Broadcast Peers:</h4>
-                            <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-                              {JSON.stringify(
-                                  getPeerManagerData(heartbeat)
-                                    .kfrag_broadcast_peers
-                                    // .filter(c => c.agent_name_nonce.includes(peer.agent_vessel?.agent_name_nonce || ''))
-                              )}
-                            </pre>
-                            <h4 className="text-sm font-semibold mt-4 mb-2">CFrag Summary:</h4>
-                            <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-                              {JSON.stringify(
-                                  getPeerManagerData(heartbeat)
-                                    .cfrags_summary
-                                    // .filter(c => c.agent_name_nonce.includes(peer.agent_vessel?.agent_name_nonce || ''))
-                              )}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="my-3 p-3 bg-gray-700 rounded-md">
-                  <h3 className="text-xl font-semibold mb-2">Latest TEE Attestation</h3>
-                  <pre className="overflow-auto">{JSON.stringify(heartbeat.tee_attestation, null, 2)}</pre>
-                </div>
-
-                <div className="my-3 p-3 bg-gray-700 rounded-md">
-                  <h3 className="text-xl font-semibold mb-2">Timestamp</h3>
-                  <pre className="overflow-auto">{formatTime(heartbeat.time)}</pre>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })}
+      {Object.values(connections).map(({ port, heartbeat, isConnected, error }) => (
+        <ConnectionDisplay
+          key={port}
+          port={port}
+          heartbeat={heartbeat}
+          isConnected={isConnected}
+          error={error}
+          expandedPeerId={expandedPeerId}
+          setExpandedPeerId={setExpandedPeerId}
+          getPeerManagerData={getPeerManagerData}
+        />
+      ))}
     </div>
   );
 };
