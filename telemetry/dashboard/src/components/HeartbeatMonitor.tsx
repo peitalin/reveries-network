@@ -108,7 +108,7 @@ const HeartbeatMonitor: React.FC = () => {
               <div className="text-sm">Time: {formatTime(data.time)}</div>
               <div className="text-sm">Last seen: {getLastSeenDiff(lastSeenTime)}</div>
               <div className="text-sm">
-                Signature: <span className="break-all">{tee_attestation.tee_quote_v4?.signature.quote_signature || 'N/A'}</span>
+                Signature: <span className="break-all">{tee_attestation.tee_quote_v4?.signature?.quote_signature || 'N/A'}</span>
               </div>
             </div>,
             {

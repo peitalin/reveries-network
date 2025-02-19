@@ -1,6 +1,7 @@
 import React from 'react';
 import { PeerInfo, HeartbeatData } from '../types';
 import { formatLastSeen } from '../utils/formatting';
+import Footnote from './Footnote';
 
 interface PeerCardProps {
   peer: PeerInfo;
@@ -19,7 +20,7 @@ export const PeerCard: React.FC<PeerCardProps> = ({
 }) => {
   return (
     <div
-      className="p-4 bg-gray-800 rounded-lg cursor-pointer transition-all hover:bg-gray-700"
+      className="p-2 bg-gray-800 rounded-lg cursor-pointer transition-all hover:bg-slate-600"
       onClick={onToggleExpand}
     >
       <div className="font-bold">{peer.node_name}</div>
@@ -34,12 +35,20 @@ export const PeerCard: React.FC<PeerCardProps> = ({
             {JSON.stringify(peer, null, 2)}
           </pre>
 
-          <h4 className="text-sm font-semibold mt-4 mb-2">KFrag Broadcast Peers:</h4>
+          <h4 className="text-sm font-semibold mt-4">Kfrag Broadcast Peers:</h4>
+          <Footnote>
+            Only the next vessel will have Kfrag broadcast peers.
+            It requests CFrags using the request-response protocol when respawning agents.
+          </Footnote>
           <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
             {JSON.stringify(getPeerManagerData(heartbeat).kfrag_broadcast_peers)}
           </pre>
 
-          <h4 className="text-sm font-semibold mt-4 mb-2">CFrag Summary:</h4>
+          <h4 className="text-sm font-semibold mt-4">CFrag Summary:</h4>
+          <Footnote>
+            Cfrag holders are the peers that have received a CFrag from the vessel node
+            housing the agent.
+          </Footnote>
           <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
             {JSON.stringify(getPeerManagerData(heartbeat).cfrags_summary)}
           </pre>

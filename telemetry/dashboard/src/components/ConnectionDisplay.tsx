@@ -27,13 +27,13 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
   return (
     <div
       key={port}
-      className="rounded-lg p-4"
+      className="p-2"
       style={{
         backgroundColor: nodeColor,
-        opacity: 0.9
+        opacity: 0.95
       }}
     >
-      <div className="p-3 rounded-md mb-3 bg-gray-700">
+      <div className="p-4 rounded-md mb-2 bg-gray-700">
         <div className={`inline-block px-2 py-1 rounded-md mb-2 text-lg font-medium ${
           isConnected ? 'bg-green-600' : 'bg-red-600'
         }`}>
@@ -61,18 +61,18 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
       </div>
 
       {error && (
-        <div className="p-3 bg-red-600 rounded-md mb-3">
+        <div className="p-4 bg-red-600 rounded-md mb-3">
           Error: {error}
         </div>
       )}
 
       {heartbeat && (
         <>
-          <div className="my-3 p-3 bg-gray-700 rounded-md">
+          <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">
               {heartbeat.node_state._node_name}'s Connected Peers ({getPeerManagerData(heartbeat).peer_info.length})
             </h3>
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {getPeerManagerData(heartbeat).peer_info.map((peer) => (
                 <PeerCard
                   key={peer.peer_id}
@@ -86,14 +86,14 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
             </div>
           </div>
 
-          <div className="my-3 p-3 bg-gray-700 rounded-md">
+          <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">Latest TEE Attestation</h3>
-            <pre className="overflow-auto">{JSON.stringify(heartbeat.tee_attestation, null, 2)}</pre>
+            <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-md">{JSON.stringify(heartbeat.tee_attestation, null, 2)}</pre>
           </div>
 
-          <div className="my-3 p-3 bg-gray-700 rounded-md">
+          <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">Timestamp</h3>
-            <pre className="overflow-auto">{formatTime(heartbeat.time)}</pre>
+            <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-m">{formatTime(heartbeat.time)}</pre>
           </div>
         </>
       )}

@@ -93,18 +93,18 @@ export function parseStructString(str: string) {
 
 export function formatHeartbeatData(data: any): HeartbeatData {
   const tee_attestation = {
-    peer_id: data.tee_attestation.peer_id,
-    peer_name: data.tee_attestation.peer_name,
+    peer_id: data.tee_attestation?.peer_id,
+    peer_name: data.tee_attestation?.peer_name,
     tee_quote_v4: {
       //// leave these fields as strings, display formatting is more compact.
-      // header: parseStructString(data.tee_attestation.tee_quote_v4.header as string),
-      // quote_body: parseStructString(data.tee_attestation.tee_quote_v4.quote_body as string),
-      // signature: parseStructString(data.tee_attestation.tee_quote_v4.signature as string),
-      header: data.tee_attestation.tee_quote_v4.header as string,
-      quote_body: data.tee_attestation.tee_quote_v4.quote_body as string,
-      signature: data.tee_attestation.tee_quote_v4.signature as string,
-      signature_len: data.tee_attestation.tee_quote_v4.signature_len,
-      time: data.tee_attestation.tee_quote_v4.time,
+      // header: parseStructString(data.tee_attestation?.tee_quote_v4?.header as string),
+      // quote_body: parseStructString(data.tee_attestation?.tee_quote_v4?.quote_body as string),
+      // signature: parseStructString(data.tee_attestation?.tee_quote_v4?.signature as string),
+      header: data.tee_attestation?.tee_quote_v4?.header as string,
+      quote_body: data.tee_attestation?.tee_quote_v4?.quote_body as string,
+      signature: data.tee_attestation?.tee_quote_v4?.signature as string,
+      signature_len: data.tee_attestation?.tee_quote_v4?.signature_len,
+      time: data.tee_attestation?.tee_quote_v4?.time,
     }
   };
 
