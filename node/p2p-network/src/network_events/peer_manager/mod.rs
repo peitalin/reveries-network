@@ -112,7 +112,7 @@ impl<'a> PeerManager<'a> {
         current_vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        info!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow());
+        info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&current_vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
@@ -133,7 +133,7 @@ impl<'a> PeerManager<'a> {
 
         if current_vessel_peer_id == self.peer_id {
             self.vessel_agent = Some(serde_json::json!({
-                "agent_name_nonce": agent_name_nonce.clone(),
+                "agent_name_nonce": agent_name_nonce.clone().to_string(),
                 "total_frags": total_frags.clone(),
                 "current_vessel_peer_id": current_vessel_peer_id,
                 "current_vessel_node_name": get_node_name(&current_vessel_peer_id),

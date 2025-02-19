@@ -162,28 +162,6 @@ impl Default for TopicSwitch {
     }
 }
 
-impl TopicSwitch {
-    fn get_next_subscribtion_topic(&self, frag_num: usize) -> String {
-        GossipTopic::BroadcastKfrag(
-            self.next_topic.agent_name_nonce.clone(),
-            self.next_topic.total_frags,
-            frag_num
-        ).to_string()
-    }
-
-    fn get_prev_unsubscription_topic(&self, frag_num: usize) -> Option<String> {
-        if let Some(prev_topic) = &self.prev_topic {
-            Some(GossipTopic::BroadcastKfrag(
-                prev_topic.agent_name_nonce.clone(),
-                0, // Todo: not used, refactor
-                frag_num
-            ).to_string())
-        } else {
-            None
-        }
-    }
-}
-
 impl From<String> for TopicSwitch {
     fn from(s: String) -> Self {
 

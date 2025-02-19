@@ -1,15 +1,5 @@
 
 services:
-  # runtime:
-  #   image: 1up
-  #   expose:
-  #     - "8001"
-  #     - "8002"
-  #     - "8003"
-  #     - "8004"
-  #     - "8005"
-  #   command: >
-  #     sh -c "ls && just run-runtime"
 
   node1:
     image: 1up
@@ -32,58 +22,61 @@ services:
       - "80"
     ports:
       - "8002:8002"
+    restart: always
     stdin_open: true
     tty: true
-    restart: always
     command: >
       sh -c "ls && just node2"
 
 
-  # node3:
-  #   image: 1up
-  #   expose:
-  #     - "8003"
-  #     - "80"
-  #   ports:
-  #     - "8003:8003"
-  #   stdin_open: true
-  #   tty: true
-  #   command: >
-  #     sh -c "ls && just node3"
-
-
-  # node4:
-  #   image: 1up
-  #   expose:
-  #     - "8004"
-  #     - "80"
-  #   ports:
-  #     - "8004:8004"
-  #   stdin_open: true
-  #   tty: true
-  #   command: >
-  #     sh -c "ls && just node4"
-
-
-  # node5:
-  #   image: 1up
-  #   expose:
-  #     - "8005"
-  #     - "80"
-  #   ports:
-  #     - "8005:8005"
-  #   stdin_open: true
-  #   tty: true
-  #   command: >
-  #     sh -c "ls && just node5"
-
-  telemetry:
+  node3:
     image: 1up
+    expose:
+      - "8003"
+      - "80"
+    ports:
+      - "8003:8003"
+    restart: always
     stdin_open: true
     tty: true
-    restart: always
     command: >
-      sh -c "ls && just telemetry"
+      sh -c "ls && just node3"
+
+
+  node4:
+    image: 1up
+    expose:
+      - "8004"
+      - "80"
+    ports:
+      - "8004:8004"
+    restart: always
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just node4"
+
+
+  node5:
+    image: 1up
+    expose:
+      - "8005"
+      - "80"
+    ports:
+      - "8005:8005"
+    restart: always
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "ls && just node5"
+
+  # telemetry:
+  #   image: 1up
+  #   stdin_open: true
+  #   tty: true
+  #   restart: always
+  #   command: >
+  #     sh -c "ls && just telemetry"
 
   prometheus:
     image: prom/prometheus:latest
@@ -97,11 +90,11 @@ services:
     volumes:
       - ./telemetry/dashboards:/etc/grafana/provisioning/dashboards
       - ./telemetry/datasources:/etc/grafana/provisioning/datasources
-      - ./telemetry/grafana.ini:/etc/grafana/grafana.ini  # Persistent config
+      - ./telemetry/grafana.ini:/etc/grafana/grafana.ini
     environment:
-      # GF_SECURITY_ADMIN_USER: "user"    # Override default admin
-      # GF_SECURITY_ADMIN_PASSWORD: "pass123"
-      # GF_PATHS_CONFIG: "/etc/grafana/grafana.ini"  # Enforce custom config
+      # GF_SECURITY_ADMIN_USER: "user"
+      # GF_SECURITY_ADMIN_PASSWORD: ""
+      # GF_PATHS_CONFIG: "/etc/grafana/grafana.ini"  # or use custom config
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"  # Full access
       GF_AUTH_BASIC_ENABLED: "false"

@@ -7,6 +7,9 @@ default:
 run-runtime:
     cargo run --bin runtime
 
+run-cait:
+    cargo run --release --bin cait -- 100 300 1000000
+
 
 # Runs node 1
 node1:
@@ -43,45 +46,15 @@ node5:
         --secret-key-seed 5 \
         --rpc-port 8005
 
-broadcast:
-    @echo 'Broadcasting on Node 1';
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
-        broadcast \
-        --agent-name beatrix \
-        --agent-nonce 0 \
-        --shares 3 \
-        --threshold 2
-
-respawn:
-    @echo 'Respawning on Node 2 (new vessel)';
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8002 \
-        respawn \
-        --agent-name beatrix \
-        --agent-nonce 0
-
-get-kfrag-peers:
-    @echo 'Respawning on Node 2 (new vessel)';
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8002 \
-        get-kfrag-peers \
-        --agent-name beatrix \
-        --agent-nonce 0
 
 
-spawn-agent:
-    @echo 'Spawn Agent to Node 1';
+spawn-agent node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         spawn-agent \
-        --secret-key-seed 1 \
         --total-frags 3 \
         --threshold 2
 
-
-run-cait:
-    cargo run --release --bin cait -- 100 300 1000000
 
 
 
@@ -141,14 +114,9 @@ test-rpc node_port:
         -d '{"jsonrpc":"2.0","method":"get_node_state","params":[],"id":1}'
 
 
-websocket:
+subscribe-heartbeat node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
-        websocket
-
-subscribe-heartbeat:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         subscribe-heartbeat
 
 

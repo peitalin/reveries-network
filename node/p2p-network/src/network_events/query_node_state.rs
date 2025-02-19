@@ -1,5 +1,4 @@
 use crate::{short_peer_id, get_node_name};
-use crate::types::NetworkEvent;
 use super::NetworkEvents;
 
 impl<'a> NetworkEvents<'a> {
@@ -34,7 +33,7 @@ impl<'a> NetworkEvents<'a> {
                             "peer_id": short_peer_id(peer_id),
                             "node_name": get_node_name(peer_id),
                             "agent_vessel": {
-                                "agent_name": av.agent_name_nonce.to_string(),
+                                "agent_name_nonce": av.agent_name_nonce.to_string(),
                                 "next_vessel": get_node_name(&av.next_vessel_peer_id),
                                 "prev_vessel": get_node_name(&av.prev_vessel_peer_id),
                                 "total_frags": av.total_frags,
@@ -47,6 +46,8 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }).collect::<Vec<serde_json::Value>>();
+
+        println!("kfrag_broadcast_peers {:?}", self.peer_manager.kfrag_broadcast_peers);
 
         // self.peer_manager.kfrag_broadcast_peers
         let broadcast_peers = self.peer_manager.kfrag_broadcast_peers
