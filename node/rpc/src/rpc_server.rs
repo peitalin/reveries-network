@@ -58,28 +58,9 @@ pub async fn run_server<'a: 'static>(
 	let addr = server.local_addr()?;
 	let mut rpc_module = RpcModule::new(());
 
-    ////// register RPC endpoints //////
-
-    // Broadcast
-    let nc = network_client.clone();
-	rpc_module.register_async_method("broadcast", move |params, _, _| {
-
-        let (
-            agent_name,
-            agent_nonce,
-            shares,
-            threshold
-        ) = params.parse::<(String, usize, usize, usize)>().expect("error parsing params");
-        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
-
-        let mut nc = nc.clone();
-        async move {
-            nc
-                .broadcast_kfrags(agent_name_nonce, shares, threshold)
-                .await
-                .map_err(|e| RpcError(e.to_string()))
-        }
-    })?;
+    ////////////////////////////////////////////////////
+    // RPC Endpoints
+    ////////////////////////////////////////////////////
 
     let nc = network_client.clone();
 	rpc_module.register_async_method("get_kfrag_broadcast_peers", move |params, _, _| {
@@ -143,6 +124,10 @@ pub async fn run_server<'a: 'static>(
             Ok::<serde_json::Value, RpcError>(result)
         }
     })?;
+
+    ////////////////////////////////////////////////////
+    // Subscriptions
+    ////////////////////////////////////////////////////
 
     rpc_module.register_subscription(
         "subscribe_letter_stream",

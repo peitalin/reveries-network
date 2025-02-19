@@ -3,7 +3,6 @@ use dotenv;
 use libp2p::identity::{ed25519, secp256k1};
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
-
 use rig::{
     agent::Agent, completion::Prompt, providers::{
         // openai,
@@ -15,16 +14,16 @@ use rig::{
 };
 
 
-
 pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
 
     let agent_name = match seed {
-        0 => "auron".to_string(),
-        1 => "beatrix".to_string(),
-        2 => "cid".to_string(),
-        3 => "dagger".to_string(),
-        4 => "ellone".to_string(),
-        5 => "fang".to_string(),
+        1 => "auron".to_string(),
+        2 => "beatrix".to_string(),
+        3 => "cid".to_string(),
+        4 => "dagger".to_string(),
+        5 => "edea".to_string(),
+        6 => "fang".to_string(),
+        7 => "gilgamesh".to_string(),
         _ => "unnamed".to_string(),
     };
 
@@ -38,17 +37,17 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
 
     let social_accounts = serde_json::json!({
         "twitter": {
-            "username": "asuka.x",
+            "username": format!("{}-x", agent_name),
             "password": "123twitterpass",
         },
         "github": {
-            "username": "asuka.git",
+            "username": format!("{}.git", agent_name),
             "password": "123githubpass",
         }
     });
 
     AgentSecretsJson {
-        agent_name: agent_name,
+        agent_name: agent_name.clone(),
         agent_nonce: 0,
         corekey_secp256k1: AgentKeypair {
             public_key: hex::encode(keypair_secp256k1.public().to_bytes()),
@@ -62,7 +61,7 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
         openai_api_key: openai_api_key,
         deepseek_api_key: deepseek_api_key,
         social_accounts: social_accounts,
-        context: "Your name is Larry, your profession is a pizza chef".to_string(),
+        context: format!("Your name is {}, your profession is a pizza chef", agent_name),
     }
 }
 

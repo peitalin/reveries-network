@@ -16,29 +16,21 @@ pub(crate) struct Cmd {
 
 #[derive(Debug, Parser, Clone, Deserialize, Serialize)]
 pub enum CliArgument {
-    Broadcast {
-        #[clap(long)]
-        agent_name: String,
-        #[clap(long)]
-        agent_nonce: usize,
-        #[clap(long)]
-        shares: usize,
-        #[clap(long)]
-        threshold: usize,
-    },
+
     GetKfragBroadcastPeers {
         #[clap(long)]
         agent_name: String,
         #[clap(long)]
         agent_nonce: usize,
     },
+
     SpawnAgent {
         #[clap(long)]
         total_frags: usize,
         #[clap(long)]
         threshold: usize,
-        #[clap(long)]
-        secret_key_seed: usize,
+        // #[clap(long)]
+        // secret_key_seed: usize,
     },
 
     TriggerNodeFailure,

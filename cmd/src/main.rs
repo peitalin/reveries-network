@@ -48,33 +48,6 @@ async fn main() -> Result<()> {
     let port = cmd.rpc_server_address.port();
 
     match cmd.argument {
-        CliArgument::Broadcast { agent_name, agent_nonce, shares, threshold } => {
-
-            let client = create_rpc_client(port).await?;
-            info!("Broadcasting agent: {}/{}'s re-encryption fragments(n={}, t={})",
-                agent_name,
-                agent_nonce,
-                shares,
-                threshold
-            );
-            // client tells node to create proxy re-encryption key fragments and broadcast them
-            // to the network as an example
-            let response: UmbralPublicKeyResponse = client.request(
-                "broadcast",
-                rpc_params![
-                    agent_name,
-                    agent_nonce,
-                    shares,
-                    threshold
-                ]
-            ).await?;
-
-            info!("Next Vessel: {} {}\nUmbral Public Key: {}",
-                get_node_name(&response.umbral_peer_id.clone().into()).yellow(),
-                short_peer_id(&response.umbral_peer_id).green(),
-                &response.umbral_public_key
-            );
-        }
 
         CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
             let client = create_rpc_client(port).await?;
@@ -104,15 +77,20 @@ async fn main() -> Result<()> {
         CliArgument::SpawnAgent {
             total_frags,
             threshold,
-            secret_key_seed,
         } => {
 
             let client = create_rpc_client(port).await?;
             // Read local AgentSecretJson file and send to node over a secure channel/TLS.
             // TODO: user will send this over a secure channel and commit the hash onchain
             // along with some payment.
+            // TODO: use port as seed for prototyping
+            let secret_key_seed = port.to_string().chars().last()
+                .unwrap_or('1')
+                .to_digit(10)
+                .unwrap_or(1);
+
             let agent_secrets_json = runtime::llm::read_agent_secrets(
-                secret_key_seed
+                secret_key_seed as usize
             );
 
             let UmbralPublicKeyResponse {
