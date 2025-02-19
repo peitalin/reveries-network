@@ -2,5 +2,5 @@
 .env
 .vscode
 /target
-/telemetry/dashboard/node_modules
-/telemetry/dashboard/dist
+*/*/node_modules
+*/*/dist
