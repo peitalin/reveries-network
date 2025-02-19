@@ -299,7 +299,7 @@ impl<'a> NodeClient<'a> {
             threshold
         ).await?;
 
-        info!("\nSpawnAgent next vessel: {:?}", next_vessel_pk.umbral_peer_id);
+        info!("SpawnAgent next vessel: {:?}", next_vessel_pk.umbral_peer_id);
         // TODO: should return info:
         // current vessel: peer_id, umbral_public_key, peer_address (info for health monitoring)
         // next vessel: peer_id, umbral_public_key
@@ -370,11 +370,11 @@ impl<'a> NodeClient<'a> {
 
         let umbral_capsule = match self.umbral_capsule.clone() {
             Some(capsule) => capsule,
-            None => return Err(anyhow!("Vessel has no agent capsule"))
+            None => return Err(anyhow!("Vessel has no agent capsule to broadcast"))
         };
         let umbral_ciphertext = match self.umbral_ciphertext.clone() {
             Some(ciphertext) => ciphertext,
-            None => return Err(anyhow!("Vessel has no ciphertext"))
+            None => return Err(anyhow!("Vessel has no ciphertext to broadcast"))
         };
 
         // first check that the broadcaster is subscribed to all fragment channels for the agent
@@ -399,7 +399,7 @@ impl<'a> NodeClient<'a> {
             None => {
                 // unsubscribe from the topics
                 self.unsubscribe_topics(topics).await.ok();
-                Err(anyhow!("No Umbral PK Peers found"))
+                Err(anyhow!("No Umbral Pubkey Peers found. Not connected to any peers."))
             }
             Some(new_vessel_pk) => {
 
@@ -441,7 +441,7 @@ impl<'a> NodeClient<'a> {
                 }
 
                 info!("{}", format!(
-                    "Next Vessel: {}\n\t{:?}\n\t{}\n",
+                    "Next Vessel: {} {} {}",
                     get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
                     new_vessel_pk.umbral_peer_id.short_peer_id(),
                     new_vessel_pk.umbral_public_key,

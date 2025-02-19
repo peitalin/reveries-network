@@ -70,10 +70,9 @@ get-kfrag-peers:
         --agent-nonce 0
 
 
-spawn-agent:
-    @echo 'Spawn Agent to Node 1';
+spawn-agent node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         spawn-agent \
         --secret-key-seed 1 \
         --total-frags 3 \
@@ -141,14 +140,9 @@ test-rpc node_port:
         -d '{"jsonrpc":"2.0","method":"get_node_state","params":[],"id":1}'
 
 
-websocket:
+subscribe-heartbeat node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
-        websocket
-
-subscribe-heartbeat:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         subscribe-heartbeat
 
 

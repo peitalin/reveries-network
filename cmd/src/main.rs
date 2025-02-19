@@ -43,7 +43,6 @@ async fn main() -> Result<()> {
         show_path: true,
         ..Default::default()
     });
-    telemetry::metrics::init_telemetry()?;
 
     let cmd = Cmd::parse();
     let port = cmd.rpc_server_address.port();

@@ -112,7 +112,7 @@ impl<'a> PeerManager<'a> {
         current_vessel_peer_id: PeerId,
         next_vessel_peer_id: PeerId,
     ) {
-        info!("\nSetting vessel for Agent: {}", agent_name_nonce.yellow());
+        info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&current_vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
