@@ -1,3 +1,5 @@
+import { HeartbeatData } from "types";
+
 // Color constants
 export const colors = [
   '#B22222', // FireBrick
@@ -69,4 +71,45 @@ export const formatLastSeen = (lastHb?: { secs: number; nanos: number }) => {
   const minutes = Math.floor(timeDiffSeconds / 60);
   const remainingSeconds = timeDiffSeconds % 60;
   return `${minutes}m ${remainingSeconds}.${milliseconds.toString().padStart(3, '0')}s ago`;
+};
+
+export function parseStructString(str: string) {
+  // 1. Remove prefix word before the first {
+  const objectStr = str.replace(/^\w+\s*/, '').trim();
+
+  // 2. Clean up whitespace and normalize arrays
+  const cleanStr = objectStr
+    .replace(/\s+/g, ' ')
+    .replace(/\[\s+/g, '[')
+    .replace(/\s+\]/g, ']')
+    .replace(/,\s+/g, ',');
+
+  // 3. Convert to valid JSON by adding quotes around keys
+  const jsonStr = cleanStr
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+
+  return JSON.parse(jsonStr);
+}
+
+export function formatHeartbeatData(data: any): HeartbeatData {
+  const tee_attestation = {
+    peer_id: data.tee_attestation.peer_id,
+    peer_name: data.tee_attestation.peer_name,
+    tee_quote_v4: {
+      //// leave these fields as strings, display formatting is more compact.
+      // header: parseStructString(data.tee_attestation.tee_quote_v4.header as string),
+      // quote_body: parseStructString(data.tee_attestation.tee_quote_v4.quote_body as string),
+      // signature: parseStructString(data.tee_attestation.tee_quote_v4.signature as string),
+      header: data.tee_attestation.tee_quote_v4.header as string,
+      quote_body: data.tee_attestation.tee_quote_v4.quote_body as string,
+      signature: data.tee_attestation.tee_quote_v4.signature as string,
+      signature_len: data.tee_attestation.tee_quote_v4.signature_len,
+      time: data.tee_attestation.tee_quote_v4.time,
+    }
+  };
+
+  return {
+    ...data,
+    tee_attestation,
+  };
 };

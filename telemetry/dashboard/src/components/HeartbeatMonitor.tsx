@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NodeState, HeartbeatData, WebSocketConnection, PeerManagerData } from '../types';
 import { JsonRpcWebSocket } from '../utils/websocket';
-import { formatTime, formatLastSeen, getColorForPeerName, getToastPosition } from '../utils/formatting';
+import { formatTime, formatLastSeen, getColorForPeerName, formatHeartbeatData } from '../utils/formatting';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -71,7 +71,9 @@ const HeartbeatMonitor: React.FC = () => {
       await wsClients[port]?.subscribe(
         'subscribe_hb',
         [0],
-        (data: HeartbeatData) => {
+        (data: any) => {
+          data = formatHeartbeatData(data);
+
           setConnections(prev => ({
             ...prev,
             [port]: {
@@ -82,10 +84,10 @@ const HeartbeatMonitor: React.FC = () => {
             }
           }));
 
-          const attestation = data.tee_attestation;
-          const lastSeenTime = attestation?.tee_quote_v4?.time ? {
-            secs: attestation.tee_quote_v4.time.secs,
-            nanos: attestation.tee_quote_v4.time.nanos
+          const tee_attestation = data.tee_attestation;
+          const lastSeenTime = tee_attestation.tee_quote_v4?.time ? {
+            secs: tee_attestation.tee_quote_v4.time.secs,
+            nanos: tee_attestation.tee_quote_v4.time.nanos
           } : null;
 
           const getLastSeenDiff = (time: { secs: number; nanos: number } | null) => {
@@ -101,17 +103,17 @@ const HeartbeatMonitor: React.FC = () => {
 
           toast.success(
             <div>
-              <div className="font-bold">{attestation.peer_name}</div>
+              <div className="font-bold">{tee_attestation.peer_name}</div>
               <div className="text-sm">Time: {formatTime(data.time)}</div>
               <div className="text-sm">Last seen: {getLastSeenDiff(lastSeenTime)}</div>
               <div className="text-sm">
-                Signature: <span className="break-all">{attestation.tee_quote_v4?.signature.quote_signature || 'N/A'}</span>
+                Signature: <span className="break-all">{tee_attestation.tee_quote_v4?.signature.quote_signature || 'N/A'}</span>
               </div>
             </div>,
             {
               duration: 3000,
               position: 'bottom-right',
-              style: getToastStyle(attestation.peer_name),
+              style: getToastStyle(tee_attestation.peer_name),
             }
           );
         }
