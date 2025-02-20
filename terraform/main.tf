@@ -50,18 +50,23 @@ locals {
     #!/bin/bash
     set -euxo pipefail
 
-    # Wait for cloud-init to complete
-    cloud-init status --wait
+    # open port 80 and 8001 for node1
+    sudo ufw enable
+    sudo ufw allow 80/tcp
+    sudo ufw allow 8001/tcp
+    sudo ufw allow 8001/udp
+    sudo ufw reload
+
+    mkdir pta
 
     # Install system dependencies
-    sudo apt-get install -y \
-      apt-get install -y \
+    sudo apt-get install -y --fix-missing \
+      build-essential \
+      curl \
       git \
       pkg-config \
       libssl-dev \
-      libtss2-dev \
-      build-essential \
-      curl
+      libtss2-dev
 
     # Install Rust
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -71,7 +76,6 @@ locals {
     curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
 
     # Clone the repository using token in URL
-    sudo mkdir -p /opt/app
     git clone https://${var.github_token}@github.com/${var.github_repo}.git
     sudo chown $(whoami):$(whoami) ~/1up-network
     cd ~/1up-network
@@ -90,6 +94,25 @@ provider "google" {
 resource "google_compute_address" "static_ip" {
   name = "${local.instance_name}-ip"
   region = substr(var.zone, 0, length(var.zone)-2)
+}
+
+# Add this firewall rule for RPC port
+resource "google_compute_firewall" "allow_rpc_ports" {
+  name    = "${local.instance_name}-allow-rpc-ports"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8000-9000"]
+  }
+
+  allow {
+    protocol = "udp"
+    ports    = ["8000-9000"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["allow-rpc-ports"]
 }
 
 # GCP Confidential VM setup
@@ -146,15 +169,12 @@ resource "google_compute_instance" "tdx_instance" {
     visible_core_count = null  // Default
   }
 
-  confidential_instance_config {
-    enable_confidential_compute = true
-  }
-
   metadata = {
+    enable-confidential-computing = "true"
     startup-script = local.startup_script
   }
 
-  tags = ["http-server", "https-server"]
+  tags = ["http-server", "https-server", "allow-rpc-ports"]
 
   labels = {
     goog-ec-src = "vm_add-gcloud"
