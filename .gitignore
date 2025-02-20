@@ -1,6 +1,17 @@
 .DS_Store
-.env
 .vscode
+
+# secrets
+.env
+
+# rust builds
 /target
+
+# node dependencies
 */*/node_modules
 */*/dist
+
+# terraform secrets
+/terraform/terraform.tfvars
+/terraform/.terraform.lock.hcl
+/terraform/.terraform
