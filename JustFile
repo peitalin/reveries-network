@@ -5,10 +5,12 @@ default:
 
 # Run runtime crate
 run-runtime:
-    cargo run --bin runtime -- test-tee
+    cargo run --bin runtime -- test-umbral
 
+# Only on TDX-enabled VMs
 run-runtime-tee:
     cargo run --bin runtime --features tdx_enabled -- test-tee
+
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
