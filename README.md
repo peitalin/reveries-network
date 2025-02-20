@@ -82,6 +82,42 @@ cargo run --bin runtime
 
 ### Deployment: TEE VM Setup
 
+Deploy TDK confidential VMs on Google Cloud Platform with `terraform`:
+```
+cd ./terraform
+terraform init
+terraform plan
+```
+
+Then once we are happy, execute:
+```
+terraform apply
+```
+
+The startup script in terraform should execute and install the required dependencies.
+
+Once deployed, you can interact with the node via RPC:
+```
+curl -X POST http://<TEE_IP_ADDRESS>:8001 \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"get_node_state","id":1}'
+```
+
+I will later put this RPC interface behind a proper HTTP API (caddy) on port 80.
+
+Test websocket heartbeat monitor with `websocat`:
+```
+cargo install websocat
+websocat ws://34.143.238.248:8001
+
+# then paste in JSOn input
+{"jsonrpc":"2.0","method":"subscribe_hb","params":[0],"id":1}
+```
+
+
+
+### Misc Deployment Notes
+
 TDX enabled confidential VMs can only be set up with `gcloud`, it cannot be accessed through the Google Cloud website.
 [Setup google confidential VM settings via gcloud here](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud)
 
@@ -116,3 +152,4 @@ gcloud compute instances create tee3-instance-20250123-042942 \
 ```
 
 
+kill -9 $(lsof -ti:8001)
