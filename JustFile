@@ -7,6 +7,9 @@ default:
 run-runtime:
     cargo run --bin runtime -- test-tee
 
+run-runtime-tee:
+    cargo run --bin runtime --features tdx_enabled -- test-tee
+
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
 
