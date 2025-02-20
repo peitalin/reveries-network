@@ -36,6 +36,11 @@ variable "repo_branch" {
   default     = "main"
 }
 
+variable "service_account_email" {
+  description = "GCP Service Account Email"
+  type        = string
+}
+
 locals {
   timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
   instance_name = "tee-04-instance-${local.timestamp}"
@@ -120,7 +125,7 @@ resource "google_compute_instance" "tdx_instance" {
   }
 
   service_account {
-    email  = "634774300751-compute@developer.gserviceaccount.com"
+    email  = var.service_account_email
     scopes = ["cloud-platform"]
   }
 
