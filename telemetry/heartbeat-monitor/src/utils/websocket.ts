@@ -2,10 +2,15 @@ export class JsonRpcWebSocket {
   private ws: WebSocket;
   private subscriptionId: string | null = null;
   private messageHandler: ((data: any) => void) | null = null;
+  private onCloseCallback?: () => void;
+  private onOpenCallback?: () => void;
 
   constructor(url: string) {
     this.ws = new WebSocket(url);
     this.setupEventListeners();
+    this.ws.addEventListener('close', () => {
+      this.onCloseCallback?.();
+    });
   }
 
   private setupEventListeners() {
@@ -14,6 +19,14 @@ export class JsonRpcWebSocket {
       if (data.params?.subscription && this.messageHandler) {
         this.messageHandler(data.params.result);
       }
+    };
+
+    this.ws.onclose = () => {
+      this.onCloseCallback?.();
+    };
+
+    this.ws.onopen = () => {
+      this.onOpenCallback?.();
     };
   }
 
@@ -25,25 +38,35 @@ export class JsonRpcWebSocket {
     return new Promise((resolve, reject) => {
       this.messageHandler = handler;
 
-      this.ws.onopen = () => {
-        // Send subscription request
-        this.ws.send(JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: method,
-          params: params
-        }));
-        resolve();
+      const setupConnection = async () => {
+        try {
+          console.log('WebSocket opened, sending subscription');
+          this.ws.send(JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: method,
+            params: params
+          }));
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
       };
 
-      this.ws.onerror = (error) => {
-        reject(error);
-      };
+      if (this.ws.readyState === WebSocket.OPEN) {
+        setupConnection();
+      } else {
+        this.ws.onopen = () => setupConnection();
+        this.ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          reject(error);
+        };
+      }
     });
   }
 
-  public unsubscribe() {
-    if (this.subscriptionId) {
+  public async unsubscribe() {
+    if (this.subscriptionId && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         jsonrpc: '2.0',
         id: 2,
@@ -51,6 +74,25 @@ export class JsonRpcWebSocket {
         params: [this.subscriptionId]
       }));
     }
-    this.ws.close();
+    if (this.ws.readyState !== WebSocket.CLOSED) {
+      this.ws.close();
+    }
+  }
+
+  onClose(callback: () => void) {
+    this.onCloseCallback = callback;
+  }
+
+  onOpen(callback: () => void) {
+    this.onOpenCallback = callback;
+    if (this.ws.readyState === WebSocket.OPEN) {
+      callback();
+    } else {
+      this.ws.addEventListener('open', callback);
+    }
+  }
+
+  public async isConnected(): Promise<boolean> {
+    return this.ws.readyState === WebSocket.OPEN;
   }
 }

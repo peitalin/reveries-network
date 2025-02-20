@@ -11,7 +11,17 @@ interface ConnectionDisplayProps {
   expandedPeerId: string;
   setExpandedPeerId: (peerId: string) => void;
   getPeerManagerData: (data: HeartbeatData) => PeerManagerData;
+  isLoading?: boolean;
 }
+
+const BackgroundOverlay: React.FC<{nodeColor: string | undefined}> = ({nodeColor}) => {
+  if (!nodeColor) return null;
+  return (
+    <div className={`absolute w-full h-full top-0 left-0 opacity-40`}
+      style={{backgroundColor: nodeColor}}
+    />
+  );
+};
 
 export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
   port,
@@ -20,24 +30,29 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
   error,
   expandedPeerId,
   setExpandedPeerId,
-  getPeerManagerData
+  getPeerManagerData,
+  isLoading
 }) => {
   const nodeColor = heartbeat ? getColorForPeerName(heartbeat.node_state._node_name) : undefined;
 
   return (
-    <div
-      key={port}
-      className="p-2"
-      style={{
-        backgroundColor: nodeColor,
-        opacity: 0.95
-      }}
-    >
-      <div className="p-4 rounded-md mb-2 bg-gray-700">
-        <div className={`inline-block px-2 py-1 rounded-md mb-2 text-lg font-medium ${
-          isConnected ? 'bg-green-600' : 'bg-red-600'
-        }`}>
-          {heartbeat?.node_state._node_name} status: {isConnected ? 'Connected' : 'Disconnected'}
+    <div className="p-2 rounded-md relative">
+      <div className={`absolute w-full h-full top-0 left-0 opacity-40`} style={{backgroundColor: nodeColor}}></div>
+      <BackgroundOverlay nodeColor={nodeColor}/>
+      <div className="p-4 rounded-md mb-2 bg-gray-700 relative">
+        <div className="flex items-center gap-4 mb-4">
+          <h2 className={`inline-block px-3 py-2 rounded-md text-lg font-bold ${
+            isLoading ? 'bg-yellow-600' : isConnected ? 'bg-green-600' : 'bg-red-600'
+          }`}>
+            {heartbeat?.node_state._node_name} {isLoading ? 'Connecting...' : isConnected ? 'Connected' : 'Disconnected'}
+          </h2>
+          <h3 className="text-xl font-bold p-2 rounded">
+            Port {port}
+            {isLoading && <span className="ml-2 text-yellow-500">(Connecting...)</span>}
+            {isConnected && <span className="ml-2 text-green-500">(Connected)</span>}
+            {!isConnected && !isLoading && <span className="ml-2 text-red-500">(Disconnected)</span>}
+            {!isConnected && !isLoading && !!error && <span className="ml-2 text-red-500">(Error: {error})</span>}
+          </h3>
         </div>
 
         {heartbeat && (
@@ -60,14 +75,8 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
         )}
       </div>
 
-      {error && (
-        <div className="p-4 bg-red-600 rounded-md mb-3">
-          Error: {error}
-        </div>
-      )}
-
       {heartbeat && (
-        <>
+        <div className="relative">
           <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">
               {heartbeat.node_state._node_name}'s Connected Peers ({getPeerManagerData(heartbeat).peer_info.length})
@@ -91,11 +100,11 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
             <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-md">{JSON.stringify(heartbeat.tee_attestation, null, 2)}</pre>
           </div>
 
-          <div className="my-2 p-4 bg-gray-700 rounded-md">
+          <div className="p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">Timestamp</h3>
             <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-m">{formatTime(heartbeat.time)}</pre>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

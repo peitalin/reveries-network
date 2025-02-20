@@ -186,6 +186,7 @@ pub async fn run_server<'a: 'static>(
                             },
                             "node_state": node_state_result,
                             "time": get_time(),
+                            // get duration between heartbeats etc
                         });
                         yield Some(json_payload)
                     }

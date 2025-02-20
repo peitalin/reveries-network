@@ -1,5 +1,3 @@
-
-
 export interface TD10QuoteBody {
   tee_tcb_svn: number[];
   mrseam: number[];
@@ -152,6 +150,7 @@ export interface WebSocketConnection {
   heartbeat: HeartbeatData | null;
   isConnected: boolean;
   error: string | null;
+  isLoading?: boolean;
 }
 
 // Specific type for heartbeat subscription responses
