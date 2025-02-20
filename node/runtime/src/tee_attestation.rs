@@ -25,7 +25,7 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
 }
 
 #[cfg(not(all(target_os = "linux", feature = "tdx_enabled")))]
-pub fn generate_tee_attestation2(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
+pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     let attestation_bytes = hex::decode(TEE_MOCK_ATTESTATION_REPORT)?;
     let attestation_report = QuoteV4::from_bytes(&attestation_bytes);
     if log {
