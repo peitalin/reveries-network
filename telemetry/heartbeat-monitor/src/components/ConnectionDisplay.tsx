@@ -51,6 +51,7 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
             {isLoading && <span className="ml-2 text-yellow-500">(Connecting...)</span>}
             {isConnected && <span className="ml-2 text-green-500">(Connected)</span>}
             {!isConnected && !isLoading && <span className="ml-2 text-red-500">(Disconnected)</span>}
+            {!isConnected && !isLoading && !!error && <span className="ml-2 text-red-500">(Error: {error})</span>}
           </h3>
         </div>
 

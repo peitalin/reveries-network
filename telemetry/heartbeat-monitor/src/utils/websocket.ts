@@ -3,13 +3,12 @@ export class JsonRpcWebSocket {
   private subscriptionId: string | null = null;
   private messageHandler: ((data: any) => void) | null = null;
   private onCloseCallback?: () => void;
+  private onOpenCallback?: () => void;
 
   constructor(url: string) {
-    console.log(`Creating WebSocket connection to ${url}`);
     this.ws = new WebSocket(url);
     this.setupEventListeners();
     this.ws.addEventListener('close', () => {
-      console.log('WebSocket closed');
       this.onCloseCallback?.();
     });
   }
@@ -23,8 +22,11 @@ export class JsonRpcWebSocket {
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket connection closed');
       this.onCloseCallback?.();
+    };
+
+    this.ws.onopen = () => {
+      this.onOpenCallback?.();
     };
   }
 
@@ -79,6 +81,15 @@ export class JsonRpcWebSocket {
 
   onClose(callback: () => void) {
     this.onCloseCallback = callback;
+  }
+
+  onOpen(callback: () => void) {
+    this.onOpenCallback = callback;
+    if (this.ws.readyState === WebSocket.OPEN) {
+      callback();
+    } else {
+      this.ws.addEventListener('open', callback);
+    }
   }
 
   public async isConnected(): Promise<boolean> {
