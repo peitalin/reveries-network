@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NodeState, HeartbeatData, WebSocketConnection, PeerManagerData } from '../types';
 import { JsonRpcWebSocket } from '../utils/websocket';
-import { formatTime, formatLastSeen, getColorForPeerName, formatHeartbeatData } from '../utils/formatting';
+import { formatTime, getColorForPeerName, formatHeartbeatData, getLastSeenDiff } from '../utils/formatting';
 import toast, { Toaster } from 'react-hot-toast';
 import { PortManager } from './PortManager';
 import { ConnectionDisplay } from './ConnectionDisplay';
@@ -12,16 +12,28 @@ const HeartbeatMonitor: React.FC = () => {
   const [newPort, setNewPort] = useState<string>('');
 
   // Function to add a new port
-  const addPort = (port: number) => {
+  const addPort = async (port: number) => {
     if (connections[port]) {
       toast.error(`Port ${port} is already being monitored`);
       return;
     }
+    // Set initial state first
     setConnections(prev => ({
       ...prev,
-      [port]: { port, heartbeat: null, isConnected: false, error: null }
+      [port]: {
+        port,
+        heartbeat: null,
+        isConnected: false,
+        error: null,
+        isLoading: true
+      }
     }));
-    connectWebSocket(port);
+
+    // Wait for state update to be applied
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Then attempt connection
+    await connectWebSocket(port);
   };
 
   // Function to remove a port
@@ -69,11 +81,31 @@ const HeartbeatMonitor: React.FC = () => {
   const connectWebSocket = async (port: number) => {
     try {
       wsClients[port] = new JsonRpcWebSocket(`ws://0.0.0.0:${port}`);
+
+      wsClients[port]?.onClose(() => {
+        console.log(`WebSocket closed for port ${port}`);
+        setConnections(prev => ({
+          ...prev,
+          [port]: {
+            ...prev[port],
+            heartbeat: null,
+            isConnected: false,
+            error: 'Connection closed',
+            isLoading: true
+          }
+        }));
+
+        // Attempt to reconnect
+        setTimeout(() => {
+          connectWebSocket(port);
+        }, 1000);
+      });
+
       await wsClients[port]?.subscribe(
         'subscribe_hb',
         [0],
-        (data: any) => {
-          data = formatHeartbeatData(data);
+        (raw_data: any) => {
+          const data = formatHeartbeatData(raw_data);
 
           setConnections(prev => ({
             ...prev,
@@ -81,26 +113,13 @@ const HeartbeatMonitor: React.FC = () => {
               ...prev[port],
               heartbeat: data,
               isConnected: true,
-              error: null
+              error: null,
+              isLoading: false  // Connection successful, stop loading
             }
           }));
 
           const tee_attestation = data.tee_attestation;
-          const lastSeenTime = tee_attestation.tee_quote_v4?.time ? {
-            secs: tee_attestation.tee_quote_v4.time.secs,
-            nanos: tee_attestation.tee_quote_v4.time.nanos
-          } : null;
-
-          const getLastSeenDiff = (time: { secs: number; nanos: number } | null) => {
-            if (!time) return 'N/A';
-            const now = Date.now();
-            const attestationTime = (time.secs * 1000) + (time.nanos / 1_000_000);
-            const diffMs = now - attestationTime;
-            return formatLastSeen({
-              secs: Math.floor(diffMs / 1000),
-              nanos: (diffMs % 1000) * 1_000_000
-            });
-          };
+          const lastSeenTime = tee_attestation.tee_quote_v4?.time;
 
           toast.success(
             <div>
@@ -125,7 +144,8 @@ const HeartbeatMonitor: React.FC = () => {
         [port]: {
           ...prev[port],
           error: err instanceof Error ? err.message : 'Failed to connect',
-          isConnected: false
+          isConnected: false,
+          isLoading: false  // Connection failed, stop loading
         }
       }));
     }
@@ -144,29 +164,28 @@ const HeartbeatMonitor: React.FC = () => {
   };
 
   useEffect(() => {
-    // Get ports from URL query string
-    const params = new URLSearchParams(window.location.search);
-    const portParam = params.get('port');
-    const defaultPorts = portParam ?
-      portParam.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)) :
-      [8001, 8002];  // fallback to default ports if none specified
+    const initializeConnections = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const portParam = params.get('port');
+      const defaultPorts = portParam ?
+        portParam.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)) :
+        [8001, 8002];
 
-    // Initialize with ports from URL or defaults
-    defaultPorts.forEach(port => {
-      if (port > 0 && port < 65536) {  // validate port range
-        addPort(port);
-      } else {
-        toast.error(`Invalid port number: ${port}`);
+      for (const port of defaultPorts) {
+        if (port > 0 && port < 65536) {
+          await addPort(port);
+        }
       }
-    });
+    };
+
+    initializeConnections();
 
     return () => {
-      // Cleanup all connections
       Object.values(wsClients).forEach(client => {
         if (client) client.unsubscribe();
       });
     };
-  }, []);  // Empty dependency array since we only want this to run once
+  }, []);
 
   return (
     <div className="bg-gray-800 text-white">
@@ -184,8 +203,8 @@ const HeartbeatMonitor: React.FC = () => {
       </div>
 
       {/* Port Management UI */}
-      <div className="container m-auto p-4">
-        <h2 className="text-2xl font-bold mb-4">Node Heartbeat Monitor</h2>
+      <div className="container p-4">
+        <h2 className="text-2xl font-bold my-2 mx-1">Node Heartbeat Monitor</h2>
         <PortManager
           ports={Object.keys(connections)}
           newPort={newPort}
@@ -196,12 +215,13 @@ const HeartbeatMonitor: React.FC = () => {
       </div>
 
       {/* Existing connection displays */}
-      {Object.values(connections).map(({ port, heartbeat, isConnected, error }) => (
+      {Object.values(connections).map(({ port, heartbeat, isConnected, error, isLoading }) => (
         <ConnectionDisplay
           key={port}
           port={port}
           heartbeat={heartbeat}
           isConnected={isConnected}
+          isLoading={isLoading}
           error={error}
           expandedPeerId={expandedPeerId}
           setExpandedPeerId={setExpandedPeerId}

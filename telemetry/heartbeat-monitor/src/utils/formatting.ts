@@ -1,4 +1,4 @@
-import { HeartbeatData } from "types";
+import { HeartbeatData } from "../types";
 
 // Color constants
 export const colors = [
@@ -112,4 +112,15 @@ export function formatHeartbeatData(data: any): HeartbeatData {
     ...data,
     tee_attestation,
   };
+};
+
+export const getLastSeenDiff = (time: { secs: number; nanos: number } | null) => {
+  if (!time) return 'N/A';
+  const now = Date.now();
+  const attestationTime = (time.secs * 1000) + (time.nanos / 1_000_000);
+  const diffMs = now - attestationTime;
+  return formatLastSeen({
+    secs: Math.floor(diffMs / 1000),
+    nanos: (diffMs % 1000) * 1_000_000
+  });
 };
