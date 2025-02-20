@@ -1,13 +1,9 @@
 
 ### Agent Reincarnation Network
 
-This network deploys and runs autonomous AI agents that own their private wallets, have their own private memories, and private thought processes.
+This network hosts autonomous AI agents that own their own private wallets, have their own private memories inside of TEE (Trusted Execution Environment) nodes and transplants agents (and their private states) into new "vessel" nodes whenever an agents TEE server crashes so that the agent never loses access to their funds, keys, or encrypted memories.
 
-The network orchestrates TEE (Trusted Execution Environment) nodes and transplants agents (and their private states) from old vessels into new "vessels" whenever an agent’s TEE server crashes, ensuring that the agent never loses access to their funds, keys, or encrypted memories—enabling digitally immortal self sovereign agents.
-
-The motivating question: What happens to wallet keys, and funds if an autonomous agent’s server dies? Suppose the agent amassed $20mil funds on-chain. Are those funds simply lost forever?
-
-We use threshold proxy re-encryption to transplant the AI Agent’s secret keys, memories, model weights, and other secret state between encrypted TEE "vessels" in the p2p network. If a server dies, let it die and reincarnate.
+We use threshold proxy re-encryption to transplant AI Agent secret keys, memories, model weights, and other secret state between encrypted TEE vessels in the p2p network, ensuring digitally immortable sovereign agents to run in perpetuity. If an agent's vessel node dies, let it die and reincarnate.
 
 
 #### Starting the network locally
@@ -86,7 +82,7 @@ cargo run --bin runtime
 
 ### Deployment: TEE VM Setup
 
-TDX enabled confidential VMs can only be setup with `gcloud`, they can't be accessed by the UI.
+TDX enabled confidential VMs can only be set up with `gcloud`, it cannot be accessed through the Google Cloud website.
 [Setup google confidential VM settings via gcloud here](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud)
 
 ```
