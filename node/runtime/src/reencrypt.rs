@@ -214,6 +214,12 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
         ciphertext
     ).unwrap();
 
+
+    let plaintext_bob_str= String::from_utf8(plaintext_bob.to_vec())?;
+    let plaintext_alice_str= String::from_utf8(plaintext_alice.to_vec())?;
+    println!("decrypted plaintext_bob:  {:?}", plaintext_bob_str);
+    println!("original plaintext_alice: {:?}", plaintext_alice_str);
+
     Ok((plaintext_bob, plaintext_alice, plaintext_original.to_vec()))
 }
 
@@ -233,12 +239,6 @@ mod tests {
 
         assert_eq!(&plaintext_bob as &[u8], plaintext_original);
         assert_eq!(&plaintext_alice as &[u8], plaintext_original);
-
-        let plaintext_bob_str= String::from_utf8(plaintext_bob.to_vec())?;
-        let plaintext_alice_str= String::from_utf8(plaintext_alice.to_vec())?;
-
-        println!("plaintext_bob: {:?}", plaintext_bob_str);
-        println!("plaintext_alice: {:?}", plaintext_alice_str);
 
         Ok(())
     }

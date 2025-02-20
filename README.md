@@ -1,13 +1,9 @@
 
 ### Agent Reincarnation Network
 
-This network deploys and runs autonomous AI agents that own their private wallets, have their own private memories, and private thought processes.
+This network hosts autonomous AI agents that own their own private wallets, have their own private memories inside of TEE (Trusted Execution Environment) nodes and transplants agents (and their private states) into new "vessel" nodes whenever an agents TEE server crashes so that the agent never loses access to their funds, keys, or encrypted memories.
 
-The network orchestrates TEE (Trusted Execution Environment) nodes and transplants agents (and their private states) from old vessels into new "vessels" whenever an agent’s TEE server crashes, ensuring that the agent never loses access to their funds, keys, or encrypted memories—enabling digitally immortal self sovereign agents.
-
-The motivating question: What happens to wallet keys, and funds if an autonomous agent’s server dies? Suppose the agent amassed $20mil funds on-chain. Are those funds simply lost forever?
-
-We use threshold proxy re-encryption to transplant the AI Agent’s secret keys, memories, model weights, and other secret state between encrypted TEE "vessels" in the p2p network. If a server dies, let it die and reincarnate.
+We use threshold proxy re-encryption to transplant AI Agent secret keys, memories, model weights, and other secret state between encrypted TEE vessels in the p2p network, ensuring digitally immortable sovereign agents to run in perpetuity. If an agent's vessel node dies, let it die and reincarnate.
 
 
 #### Starting the network locally
@@ -86,7 +82,43 @@ cargo run --bin runtime
 
 ### Deployment: TEE VM Setup
 
-TDX enabled confidential VMs can only be setup with `gcloud`, they can't be accessed by the UI.
+Deploy TDK confidential VMs on Google Cloud Platform with `terraform`:
+```
+cd ./terraform
+terraform init
+terraform plan
+```
+
+Then once we are happy, execute:
+```
+terraform apply
+```
+
+The startup script in terraform should execute and install the required dependencies.
+
+Once deployed, you can interact with the node via RPC:
+```
+curl -X POST http://<TEE_IP_ADDRESS>:8001 \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"get_node_state","id":1}'
+```
+
+I will later put this RPC interface behind a proper HTTP API (caddy) on port 80.
+
+Test websocket heartbeat monitor with `websocat`:
+```
+cargo install websocat
+websocat ws://34.143.238.248:8001
+
+# then paste in JSOn input
+{"jsonrpc":"2.0","method":"subscribe_hb","params":[0],"id":1}
+```
+
+
+
+### Misc Deployment Notes
+
+TDX enabled confidential VMs can only be set up with `gcloud`, it cannot be accessed through the Google Cloud website.
 [Setup google confidential VM settings via gcloud here](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud)
 
 ```
@@ -120,3 +152,4 @@ gcloud compute instances create tee3-instance-20250123-042942 \
 ```
 
 
+kill -9 $(lsof -ti:8001)

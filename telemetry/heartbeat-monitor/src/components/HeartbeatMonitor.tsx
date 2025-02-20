@@ -10,6 +10,10 @@ const HeartbeatMonitor: React.FC = () => {
   // State
   const [connections, setConnections] = useState<Record<number, WebSocketConnection>>({});
   const [expandedPeerId, setExpandedPeerId] = useState<string>('*');
+  const [teeUrl, setTeeUrl] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('teeUrl') || '0.0.0.0';  // Get teeUrl from URL params or use default
+  });
   const [newPort, setNewPort] = useState<string>('');
   const [lastHeartbeats, setLastHeartbeats] = useState<Record<number, number>>({});
   const wsClients = React.useRef<Record<number, JsonRpcWebSocket | null>>({}).current;
@@ -44,7 +48,9 @@ const HeartbeatMonitor: React.FC = () => {
   // WebSocket Functions
   const connectWebSocket = async (port: number) => {
     try {
-      wsClients[port] = new JsonRpcWebSocket(`ws://0.0.0.0:${port}`);
+      let ws_url = `ws://${teeUrl}:${port}`;
+      console.log(`Connecting to ${ws_url}`);
+      wsClients[port] = new JsonRpcWebSocket(ws_url);
 
       wsClients[port]?.onOpen(() => {
         setLastHeartbeats(prev => ({ ...prev, [port]: Date.now() }));
@@ -202,6 +208,18 @@ const HeartbeatMonitor: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [lastHeartbeats, heartbeatInterval]);
 
+  useEffect(() => {
+    // Reconnect all existing connections when teeUrl changes
+    Object.entries(connections).forEach(([port]) => {
+      const portNum = parseInt(port);
+      if (wsClients[portNum]) {
+        wsClients[portNum]?.unsubscribe();
+        delete wsClients[portNum];
+      }
+      connectWebSocket(portNum);
+    });
+  }, [teeUrl]); // Only run when teeUrl changes
+
   // Render
   return (
     <div className="bg-gray-800 text-white">
@@ -224,7 +242,9 @@ const HeartbeatMonitor: React.FC = () => {
         <PortManager
           ports={Object.keys(connections)}
           newPort={newPort}
+          teeUrl={teeUrl}
           onPortChange={setNewPort}
+          onTeeUrlChange={setTeeUrl}
           onPortSubmit={handleSubmit}
           onPortRemove={removePort}
         />

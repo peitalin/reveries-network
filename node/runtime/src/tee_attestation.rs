@@ -18,6 +18,7 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
         println!("Attestation Report raw bytes: 0x{}", hex::encode(raw_report));
         log_quote_v4_attestation(&attestation_report);
     }
+    println!("\nThis is NOT a mock TDX Attestation");
     Ok((attestation_report, attestation_bytes))
 }
 
@@ -28,6 +29,8 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
     if log {
         log_quote_v4_attestation(&attestation_report);
     }
+    println!("\nTHIS IS A MOCK TDX Attestation.\nReal proofs only on TDX enabled Linux VMs");
+    println!("You must also compile with the 'tdx_enabled' feature flag");
     Ok((attestation_report, attestation_bytes))
 }
 
@@ -64,11 +67,6 @@ fn log_quote_v4_attestation(attestation: &QuoteV4) {
 
     let os = std::env::consts::OS;
     println!("\nOperating System: {}", os);
-
-    match os {
-        "linux" => {},
-        _ => println!("This is a mock TDX Attestation. Real proofs only on TDX enabled Linux VMs"),
-    }
 }
 
 /// Example Intel TDX QuoteV4 attestation response from a real TDX VM.
