@@ -5,7 +5,7 @@ default:
 
 # Run runtime crate
 run-runtime:
-    cargo run --bin runtime
+    cargo run --bin runtime -- test-tee
 
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
