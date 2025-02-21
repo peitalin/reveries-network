@@ -1,8 +1,8 @@
 terraform {
   required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 4.0"
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 6.21"
     }
   }
 }
@@ -18,6 +18,17 @@ variable "zone" {
   type        = string
   default     = "asia-southeast1-a"
 }
+
+### Multizone deployment
+# variable "zones" {
+#   description = "GCP Zones for deployment"
+#   type        = list(string)
+#   default     = [
+#     "asia-southeast1-a",
+#     "us-central1-a",
+#     "europe-west4-a"
+#   ]
+# }
 
 variable "github_token" {
   description = "GitHub Personal Access Token"
@@ -43,72 +54,77 @@ variable "service_account_email" {
 
 locals {
   timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
-  instance_name = "tee-04-instance-${local.timestamp}"
+  node_commands = ["node1", "node2", "node3"]
 
-  # Create startup script
+  ### Multizone deployment: Get regions from zones
+  # regions = [for zone in var.zones : substr(zone, 0, length(zone)-2)]
+
   startup_script = <<-EOF
     #!/bin/bash
-    set -euxo pipefail
 
-    # open port 80 and 8001 for node1
-    sudo ufw enable
-    sudo ufw allow 80/tcp
-    sudo ufw allow 8001/tcp
-    sudo ufw allow 8001/udp
-    sudo ufw reload
-
-    mkdir pta
+    # Basic logging to syslog
+    exec 1> >(logger -s -t $(basename $0)) 2>&1
 
     # Install system dependencies
-    sudo apt-get install -y --fix-missing \
+    apt-get update && apt-get install -y \
       build-essential \
       curl \
       git \
       pkg-config \
       libssl-dev \
-      libtss2-dev
+      libtss2-dev \
+      rustup
 
-    # Install Rust
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
+    # Set up Rust
+    rustup default stable
 
     # Install Just
-    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
-    # Clone the repository using token in URL
+    # Clone the repository
     git clone https://${var.github_token}@github.com/${var.github_repo}.git
-    sudo chown $(whoami):$(whoami) ~/1up-network
-    cd ~/1up-network
+    cd 1up-network
     git checkout ${var.repo_branch}
 
-    # Run the justfile command
-    just node1
+    # Run the justfile command for this node
+    just %NODE_COMMAND%
   EOF
 }
 
-provider "google" {
+# Must use google-beta provider to create TDX instances
+# confidential_instance_type is not supported in the default google provider
+# https://github.com/hashicorp/terraform-provider-google-beta?tab=readme-ov-file
+provider "google-beta" {
   project = var.project_id
+  zone    = var.zone
+  region = substr(var.zone, 0, length(var.zone)-2)
 }
 
-# Static IP address
-resource "google_compute_address" "static_ip" {
-  name = "${local.instance_name}-ip"
-  region = substr(var.zone, 0, length(var.zone)-2)
+# Static IP addresses for each node
+resource "google_compute_address" "static_ips" {
+  provider = google-beta
+  count    = 3
+  name     = "tee-node${count.index + 1}-${local.timestamp}-ip"
+  region   = substr(var.zone, 0, length(var.zone)-2)
+  ### Multizone deployment:
+  # region   = local.regions[count.index]
 }
 
 # Add this firewall rule for RPC port
 resource "google_compute_firewall" "allow_rpc_ports" {
-  name    = "${local.instance_name}-allow-rpc-ports"
-  network = "default"
+  provider = google-beta
+  name     = "tee-node-${local.timestamp}-allow-rpc-ports"
+  network  = "projects/${var.project_id}/global/networks/default"
+  project  = var.project_id
 
   allow {
     protocol = "tcp"
-    ports    = ["8000-9000"]
+    ports    = ["22", "80", "8000-9000"]  # port 22 for SSH
   }
 
   allow {
     protocol = "udp"
-    ports    = ["8000-9000"]
+    ports    = ["22", "80", "8000-9000"]
   }
 
   source_ranges = ["0.0.0.0/0"]
@@ -125,17 +141,28 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 # Currently, TDX enabled VMs can only be created via gcloud or Rest API:
 # https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud
 
-resource "google_compute_instance" "tdx_instance" {
-  name         = local.instance_name
+resource "google_compute_instance" "tdx_instances" {
+  provider = google-beta
+  count    = 3
+  name     = "tee-node${count.index + 1}-${local.timestamp}"
   machine_type = "c3-standard-4"
   zone         = var.zone
+  ### Multizone deployment:
+  # zone        = var.zones[count.index]
+
+
+  // Enable Confidential Computing
+  confidential_instance_config {
+    enable_confidential_compute = true
+    confidential_instance_type  = "TDX"
+  }
 
   boot_disk {
     auto_delete = true
-    device_name = "boot-disk-${local.timestamp}"
+    device_name = "boot-disk-tee-node${count.index + 1}-${local.timestamp}"
     initialize_params {
-      image = "projects/ubuntu-os-cloud/global/images/ubuntu-2204-jammy-v20250112"
-      size  = 10
+      image = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20250214"
+      size  = 20
       type  = "hyperdisk-balanced"
     }
   }
@@ -143,7 +170,7 @@ resource "google_compute_instance" "tdx_instance" {
   network_interface {
     network = "default"  # Using default VPC network
     access_config {
-      nat_ip = google_compute_address.static_ip.address
+      nat_ip = google_compute_address.static_ips[count.index].address
     }
   }
 
@@ -162,16 +189,8 @@ resource "google_compute_instance" "tdx_instance" {
     enable_integrity_monitoring = true
   }
 
-  // Specify TDX through advanced_machine_features instead
-  advanced_machine_features {
-    enable_nested_virtualization = false  // Default for TDX
-    threads_per_core = null  // Default
-    visible_core_count = null  // Default
-  }
-
   metadata = {
-    enable-confidential-computing = "true"
-    startup-script = local.startup_script
+    startup-script = replace(local.startup_script, "%NODE_COMMAND%", local.node_commands[count.index])
   }
 
   tags = ["http-server", "https-server", "allow-rpc-ports"]
@@ -185,4 +204,45 @@ resource "google_compute_instance" "tdx_instance" {
   }
 
   deletion_protection = false
+}
+
+  ### Multizone deployment:
+# Output variables for monitoring
+# output "instance_details" {
+#   description = "Details for all instances"
+#   value = [
+#     for i in range(3) : {
+#       name = google_compute_instance.tdx_instances[i].name
+#       zone = var.zones[i]
+#       ip   = google_compute_address.static_ips[i].address
+#       monitoring_command = "gcloud compute instances tail-serial-port-output ${google_compute_instance.tdx_instances[i].name} --zone=${var.zones[i]}"
+#     }
+#   ]
+# }
+
+# output "monitoring_commands" {
+#   description = "Commands to monitor startup script output for each instance"
+#   value = [
+#     for i in range(3) : "gcloud compute instances tail-serial-port-output ${google_compute_instance.tdx_instances[i].name} --zone=${var.zones[i]}"
+#   ]
+# }
+
+output "instance_names" {
+  description = "The names of the instances"
+  value       = google_compute_instance.tdx_instances[*].name
+}
+
+output "instance_ips" {
+  description = "The external IPs of the instances"
+  value       = google_compute_address.static_ips[*].address
+}
+
+output "instance_zone" {
+  description = "The zone where instances are deployed"
+  value       = var.zone
+}
+
+output "monitoring_commands" {
+  description = "Commands to monitor startup script output for each instance"
+  value       = [for instance in google_compute_instance.tdx_instances : "gcloud compute instances tail-serial-port-output ${instance.name} --zone=${var.zone}"]
 }
