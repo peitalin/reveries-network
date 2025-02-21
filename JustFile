@@ -4,12 +4,16 @@ default:
   @just --list
 
 # Run runtime crate
-run-runtime:
+run-runtime-umbral:
     cargo run --bin runtime -- test-umbral
 
 # Only on TDX-enabled VMs
 run-runtime-tee:
     cargo run --bin runtime --features tdx_enabled -- test-tee
+
+run-runtime-tee2:
+    cargo build --features tdx_enabled
+    sudo ./target/debug/runtime test-tee
 
 
 run-cait:

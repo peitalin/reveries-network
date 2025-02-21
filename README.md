@@ -82,12 +82,16 @@ cargo run --bin runtime
 
 ### Deployment: TEE VM Setup
 
-Deploy TDK confidential VMs on Google Cloud Platform with `terraform`:
+Deploy TDK confidential VMs on Google Cloud with terraform:
 ```
 cd ./terraform
-terraform init
+
+terraform init -upgrade
 terraform plan
 ```
+NOTE: you need the google-beta provider to deploy confidential VMs: https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/guides/provider_versions
+
+The google-beta provider is added in the terraform/main.tf file.
 
 Then once we are happy, execute:
 ```
@@ -95,6 +99,12 @@ terraform apply
 ```
 
 The startup script in terraform should execute and install the required dependencies.
+Monitor the node's executing deploy scripts after the VM is launched:
+```
+sh watch_nodes.sh 1
+sh watch_nodes.sh 2
+sh watch_nodes.sh 3
+```
 
 Once deployed, you can interact with the node via RPC:
 ```
@@ -113,8 +123,6 @@ websocat ws://34.143.238.248:8001
 # then paste in JSOn input
 {"jsonrpc":"2.0","method":"subscribe_hb","params":[0],"id":1}
 ```
-
-
 
 ### Misc Deployment Notes
 
@@ -135,7 +143,7 @@ gcloud compute instances create <VM-name-unique-id> \
 
 E.g
 ```
-gcloud compute instances create tee3-instance-20250123-042942 \
+gcloud compute instances create tee09-instance-20250221-042942 \
     --project=eigen-413918 \
     --confidential-compute-type=TDX \
     --zone=asia-southeast1-a \
@@ -143,7 +151,7 @@ gcloud compute instances create tee3-instance-20250123-042942 \
     --maintenance-policy=TERMINATE \
     --service-account=634774300751-compute@developer.gserviceaccount.com \
     --tags=http-server,https-server \
-    --create-disk=auto-delete=yes,boot=yes,device-name=tee3-instance-20250123-042942,image=projects/ubuntu-os-cloud/global/images/ubuntu-2204-jammy-v20250112,mode=rw,provisioned-iops=3060,provisioned-throughput=155,size=10,type=hyperdisk-balanced \
+    --create-disk=auto-delete=yes,boot=yes,device-name=tee09-instance-20250221-042942,image=projects/ubuntu-os-cloud/global/images/ubuntu-2204-jammy-v20250112,mode=rw,size=20,type=hyperdisk-balanced \
     --no-shielded-secure-boot \
     --shielded-vtpm \
     --shielded-integrity-monitoring \
