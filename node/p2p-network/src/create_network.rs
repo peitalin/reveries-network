@@ -5,16 +5,10 @@ use std::{
 };
 use color_eyre::Result;
 use libp2p::{
-    identity,
-    kad,
-    mdns,
-    noise,
-    tcp,
-    yamux,
-    gossipsub,
-    StreamProtocol,
+    gossipsub, identity, kad, mdns, multiaddr::Multiaddr, noise, tcp, yamux, PeerId, StreamProtocol
 };
 use tokio::sync::{mpsc, RwLock};
+use tracing::{debug, warn};
 use std::sync::Arc;
 
 pub use crate::types::UmbralPeerId;
@@ -39,7 +33,10 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
+pub async fn new<'a>(
+    secret_key_seed: Option<usize>,
+    bootstrap_nodes: Vec<(String, Multiaddr)>,
+) -> Result<(
     NodeClient<'a>,
     mpsc::Receiver<NetworkEvent>,
     NetworkEvents<'a>
@@ -82,11 +79,11 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                 gossipsub::MessageId::from(s.finish().to_string())
             };
 
-            // local peer discovery with mdns
-            let mdns = mdns::tokio::Behaviour::new(
-                mdns::Config::default(),
-                peer_id
-            )?;
+            // // local peer discovery with mdns
+            // let mdns = mdns::tokio::Behaviour::new(
+            //     mdns::Config::default(),
+            //     peer_id
+            // )?;
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
@@ -105,11 +102,45 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                 gossipsub_config
             )?;
 
+            // Configure Kademlia for peer discovery
+            let mut kademlia = kad::Behaviour::new(
+                peer_id,
+                kad::store::MemoryStore::new(key.public().to_peer_id())
+            );
+
+            // Enable Kademlia record publishing
+            kademlia.set_mode(Some(kad::Mode::Server));
+
+            // Add bootstrap nodes to Kademlia
+            for (peer_id_str, addr) in &bootstrap_nodes {
+                debug!("Adding bootstrap node: {} at {}", peer_id_str, addr);
+
+                // For direct addresses without peer IDs, just add the address
+                if peer_id_str.is_empty() {
+                    kademlia.add_address(&peer_id, addr.clone());
+                    debug!("Added bootstrap address: {}", addr);
+                } else {
+                    // If we have a peer ID, parse it and add both peer and address
+                    match peer_id_str.parse::<PeerId>() {
+                        Ok(bootstrap_peer_id) => {
+                            kademlia.add_address(&bootstrap_peer_id, addr.clone());
+                            debug!("Added bootstrap peer: {} at {}", bootstrap_peer_id, addr);
+                        }
+                        Err(e) => warn!("Failed to parse bootstrap peer ID: {}", e),
+                    }
+                }
+            }
+
+            // Start the bootstrap process
+            if !bootstrap_nodes.is_empty() {
+                match kademlia.bootstrap() {
+                    Ok(_) => debug!("Started Kademlia bootstrap process"),
+                    Err(e) => warn!("Failed to bootstrap Kademlia DHT: {}", e),
+                }
+            }
+
             Ok(Behaviour {
-                kademlia: kad::Behaviour::new(
-                    peer_id,
-                    kad::store::MemoryStore::new(key.public().to_peer_id())
-                ),
+                kademlia,
                 heartbeat: HeartbeatBehaviour::new(
                     // send_timeout should be larger than idle_timeout
                     HeartbeatConfig {
@@ -126,7 +157,7 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                mdns: mdns,
+                // mdns: mdns,
                 gossipsub: gossipsub,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
@@ -141,13 +172,6 @@ pub async fn new<'a>(secret_key_seed: Option<usize>) -> Result<(
             c.with_idle_connection_timeout(Duration::from_secs(u64::MAX))
         )
         .build();
-
-
-    //// set Kademlia server mode
-    swarm.behaviour_mut()
-        .kademlia
-        .set_mode(Some(kad::Mode::Server));
-
 
     let container_manager = Arc::new(RwLock::new(
         ContainerManager::new(
