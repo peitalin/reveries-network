@@ -90,7 +90,16 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
                 qresult => println!("<NetworkEvent>: {:?}", qresult)
-            }
+            },
+            // Add handling for routing table updates
+            kad::Event::RoutingUpdated { peer, addresses, .. } => {
+                debug!("{} {}", self.nname(), format!("Kademlia discovered peer {:?} at {:?}", peer, addresses));
+                // Add or update peers as they're discovered through the DHT
+                for addr in addresses.iter() {
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer, addr.clone());
+                }
+            },
+
             // ignore other Kademlia events
             _kad_event => {}
         }

@@ -3,7 +3,7 @@ use libp2p::{
     swarm::SwarmEvent
 };
 use colored::Colorize;
-use tracing::{trace, info};
+use tracing::{trace, info, warn, debug};
 use crate::behaviour::BehaviourEvent;
 use super::NetworkEvents;
 
@@ -35,33 +35,51 @@ impl<'a> NetworkEvents<'a> {
                 }
             }
 
-            //// mDNS Peer Discovery events
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns_event)) => {
-                match mdns_event {
-                    mdns::Event::Discovered(list) => {
-                        for (peer_id, multiaddr) in list {
-                            info!("{} {}", self.nname(), format!("mDNS adding peer {:?}", peer_id));
-                            self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                        }
-                    }
-                    mdns::Event::Expired(list) => {
-                        for (peer_id, multiaddr) in list {
-                            self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
-                        }
-                    }
-                }
-            }
+            // //// mDNS Peer Discovery events
+            // SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns_event)) => {
+            //     match mdns_event {
+            //         mdns::Event::Discovered(list) => {
+            //             for (peer_id, multiaddr) in list {
+            //                 info!("{} {}", self.nname(), format!("mDNS adding peer {:?}", peer_id));
+            //                 self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+            //             }
+            //         }
+            //         mdns::Event::Expired(list) => {
+            //             for (peer_id, multiaddr) in list {
+            //                 self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
+            //             }
+            //         }
+            //     }
+            // }
 
             //// Swarm connection events
-            SwarmEvent::NewListenAddr { .. } => {}
-            SwarmEvent::Dialing { .. } => {}
-            SwarmEvent::IncomingConnection { .. } => {},
-            SwarmEvent::ConnectionEstablished { .. } => { }
+            SwarmEvent::NewListenAddr { address, .. } => {
+                info!("{} {}", self.nname(), format!("New listen address: {}", address));
+            }
+            SwarmEvent::Dialing { peer_id, .. } => {
+                info!("{} {}", self.nname(), format!("Dialing peer: {:?}", peer_id));
+            }
+            SwarmEvent::IncomingConnection { local_addr, send_back_addr, .. } => {
+                info!("{} {}", self.nname(), format!("Incoming connection from {} to {}", send_back_addr, local_addr));
+            }
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                info!("{} {}", self.nname(), format!("Connection established with peer: {:?}", peer_id));
+
+                // Try to bootstrap Kademlia when we establish a new connection
+                if let Err(e) = self.swarm.behaviour_mut().kademlia.bootstrap() {
+                    warn!("{} Failed to bootstrap Kademlia: {}", self.nname(), e);
+                }
+            }
             SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::IncomingConnectionError { .. } => { }
-            SwarmEvent::OutgoingConnectionError { .. } => { }
-            SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                info!("{} {}", self.nname(), format!("ConnectionClosed with peer: {:?}", peer_id).red());
+
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                warn!("{} {}", self.nname(), format!("OutgoingConnectionError with peer: {:?}, error: {:?}", peer_id, error).red());
+                // Log the error but don't remove addresses - let Kademlia handle its own routing table
+            }
+
+            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}, cause: {:?}", peer_id, cause).red());
                 // TODO: Do not remove vessel peers if connection is lost right away.
                 // put them in a queue for reincarnating and remove only after they
                 // have been reincarnated in a new vessel

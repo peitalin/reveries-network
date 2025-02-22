@@ -139,6 +139,11 @@ impl<'a> NetworkEvents<'a> {
     }
 
     pub async fn listen_for_network_events(mut self) {
+        // Start listening on the specified address
+        for addr in self.swarm.listeners() {
+            info!("{} {}", self.nname(), format!("Listening on {}", addr));
+        }
+
         loop {
             tokio::select! {
                 _ = self.peer_heartbeat_checker.tick() => {

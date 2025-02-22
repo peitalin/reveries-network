@@ -15,6 +15,6 @@ pub struct Opt {
     #[clap(long)]
     pub rpc_port: Option<usize>,
 
-    // #[clap(long, value_parser, num_args = 1.., value_delimiter = ',')]
-    // pub topics: Option<Vec<String>>,
+    #[clap(long)]
+    pub bootstrap_peers: Vec<String>,  // Format: "peer_id@ip:port"
 }

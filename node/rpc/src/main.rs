@@ -4,6 +4,7 @@ mod commands;
 
 use color_eyre::Result;
 use clap::Parser;
+use libp2p::Multiaddr;
 
 use p2p_network::create_network;
 use commands::Opt;
@@ -24,12 +25,35 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
 
-    // Create p2p network and node
+    // Define bootstrap nodes - these should be your stable, always-online nodes
+    // let bootstrap_nodes = vec![
+    //     "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X@0.0.0.0:8001"
+    // ];
+    let bootstrap_nodes: Vec<(String, Multiaddr)> = opt.bootstrap_peers
+        .iter()
+        .filter_map(|addr_str| {
+            // Parse multiaddr format: /ip4/ip/tcp/port/p2p/peer_id
+            let addr: Multiaddr = addr_str.parse().ok()?;
+
+            // Extract peer ID from the multiaddr
+            let peer_id = addr.iter()
+                .find_map(|p| {
+                    if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
+                        Some(peer_id.to_string())
+                    } else {
+                        None
+                    }
+                })?;
+
+            Some((peer_id, addr))
+        })
+        .collect();
+
     let (
         mut node_client,
         network_events_receiver,
         network_event_loop,
-    ) = create_network::new(opt.secret_key_seed).await?;
+    ) = create_network::new(opt.secret_key_seed, bootstrap_nodes).await?;
 
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
