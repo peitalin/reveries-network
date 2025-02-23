@@ -2312,6 +2312,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "delay_map"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df941644b671f05f59433e481ba0d31ac10e3667de725236a4c0d587c496fba1"
+dependencies = [
+ "futures",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "der"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2458,6 +2469,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "discv5"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4b4e7798d2ff74e29cee344dc490af947ae657d6ab5273dde35d58ce06a4d71"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "alloy-rlp",
+ "arrayvec",
+ "ctr",
+ "delay_map",
+ "enr",
+ "fnv",
+ "futures",
+ "hashlink",
+ "hex",
+ "hkdf",
+ "lazy_static",
+ "lru",
+ "more-asserts",
+ "parking_lot",
+ "rand 0.8.5",
+ "smallvec",
+ "socket2 0.5.8",
+ "tokio",
+ "tracing",
+ "uint 0.10.0",
+ "zeroize",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2593,6 +2635,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "enr"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "851bd664a3d3a3c175cff92b2f0df02df3c541b4895d0ae307611827aae46152"
+dependencies = [
+ "alloy-rlp",
+ "base64 0.22.1",
+ "bytes",
+ "ed25519-dalek",
+ "hex",
+ "k256",
+ "log",
+ "rand 0.8.5",
+ "serde",
+ "sha3",
+ "zeroize",
 ]
 
 [[package]]
@@ -4365,6 +4426,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-identify"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8c06862544f02d05d62780ff590cc25a75f5c2b9df38ec7a370dcae8bb873cf"
+dependencies = [
+ "asynchronous-codec",
+ "either",
+ "futures",
+ "futures-bounded",
+ "futures-timer",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "quick-protobuf",
+ "quick-protobuf-codec",
+ "smallvec",
+ "thiserror 2.0.11",
+ "tracing",
+]
+
+[[package]]
 name = "libp2p-identity"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4851,6 +4933,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "more-asserts"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fafa6961cabd9c63bcd77a45d7e3b7f3b552b70417831fb0f56db717e72407e"
+
+[[package]]
 name = "multiaddr"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5331,10 +5419,12 @@ dependencies = [
  "clap 4.5.28",
  "color-eyre",
  "colored",
+ "discv5",
  "futures",
  "hex",
  "lazy_static",
  "libp2p",
+ "libp2p-identify",
  "libp2p-kad",
  "nanoid",
  "rand 0.8.5",
@@ -7784,6 +7874,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 
