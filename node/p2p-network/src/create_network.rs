@@ -5,10 +5,19 @@ use std::{
 };
 use color_eyre::Result;
 use libp2p::{
-    gossipsub, identity, kad, mdns, multiaddr::Multiaddr, noise, tcp, yamux, PeerId, StreamProtocol
+    gossipsub,
+    identity,
+    kad,
+    mdns,
+    multiaddr::Multiaddr,
+    noise,
+    tcp,
+    yamux,
+    PeerId,
+    StreamProtocol
 };
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 use std::sync::Arc;
 
 pub use crate::types::UmbralPeerId;
@@ -79,21 +88,23 @@ pub async fn new<'a>(
                 gossipsub::MessageId::from(s.finish().to_string())
             };
 
-            // // local peer discovery with mdns
-            // let mdns = mdns::tokio::Behaviour::new(
-            //     mdns::Config::default(),
-            //     peer_id
-            // )?;
+            // local peer discovery with mdns
+            let mdns = mdns::tokio::Behaviour::new(
+                mdns::Config::default(),
+                peer_id
+            )?;
 
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
-                // This sets the kind of message validation. The default is Strict (enforce message signing)
-                // disables duplicate messages from being propagated
-                // .message_id_fn(message_id_fn)
-                .duplicate_cache_time(Duration::from_secs(5)) // 5 seconds
-                // duplicate cache time not working with message_id_fn
-                // content-address messages. No two messages of the same content will be propagated.
+                // Increase mesh parameters for better connectivity
+                .mesh_n(12)          // Target number of peers in mesh (default is 6)
+                .mesh_n_low(8)       // Lower bound for mesh peers (default is 4)
+                .mesh_n_high(16)     // Upper bound for mesh peers (default is 12)
+                .gossip_lazy(6)      // Number of peers to gossip to (default is 3)
+                .history_length(10)  // Length of message cache (default is 5)
+                .history_gossip(3)   // Number of history messages to gossip (default is 3)
+                .duplicate_cache_time(Duration::from_secs(5))
                 .build()
                 .map_err(|e| SendError(e.to_string()))?;
 
@@ -111,20 +122,30 @@ pub async fn new<'a>(
             // Enable Kademlia record publishing
             kademlia.set_mode(Some(kad::Mode::Server));
 
+            // Make ourselves discoverable
+            let record_key = kad::RecordKey::new(&peer_id.to_string());
+            if let Err(e) = kademlia.start_providing(record_key.clone()) {
+                warn!("Failed to start providing peer ID: {}", e);
+            }
+
+            // Store our addresses in the DHT after we start listening
+            // We'll do this in swarm_handlers.rs when we get NewListenAddr events
+            // since we don't know our addresses yet
+
             // Add bootstrap nodes to Kademlia
             for (peer_id_str, addr) in &bootstrap_nodes {
-                debug!("Adding bootstrap node: {} at {}", peer_id_str, addr);
+                info!("Adding bootstrap node: {} at {}", peer_id_str, addr);
 
                 // For direct addresses without peer IDs, just add the address
                 if peer_id_str.is_empty() {
                     kademlia.add_address(&peer_id, addr.clone());
-                    debug!("Added bootstrap address: {}", addr);
+                    info!("Added bootstrap address: {}", addr);
                 } else {
                     // If we have a peer ID, parse it and add both peer and address
                     match peer_id_str.parse::<PeerId>() {
                         Ok(bootstrap_peer_id) => {
                             kademlia.add_address(&bootstrap_peer_id, addr.clone());
-                            debug!("Added bootstrap peer: {} at {}", bootstrap_peer_id, addr);
+                            info!("Added bootstrap peer: {} at {}", bootstrap_peer_id, addr);
                         }
                         Err(e) => warn!("Failed to parse bootstrap peer ID: {}", e),
                     }
@@ -157,7 +178,7 @@ pub async fn new<'a>(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                // mdns: mdns,
+                mdns: mdns,
                 gossipsub: gossipsub,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
@@ -206,8 +227,6 @@ pub async fn new<'a>(
         ),
     ))
 }
-
-
 
 pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     libp2p::PeerId,

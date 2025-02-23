@@ -1,5 +1,7 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use std::str::Split;
+use color_eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use libp2p::PeerId;
 use crate::{short_peer_id, types::GossipTopic};
@@ -15,26 +17,14 @@ impl UmbralPeerId {
     pub(crate) fn short_peer_id(&self) -> String {
         short_peer_id(&self)
     }
-}
 
-impl From<String> for UmbralPeerId {
-    fn from(s: String) -> Self {
+    pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
+        let s: String = s.into();
         if s.starts_with(UMBRAL_KEY_PREFIX) {
             let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
+            Ok(UmbralPeerId(ssplit[1].to_string()))
         } else {
-            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
-        }
-    }
-}
-
-impl From<&str> for UmbralPeerId {
-    fn from<'a>(s: &'a str) -> Self {
-        if s.starts_with(UMBRAL_KEY_PREFIX) {
-            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
-        } else {
-            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
+            Err(eyre::anyhow!("Invalid UmbralPeerId: {}. Must begin with {}", s, UMBRAL_KEY_PREFIX))
         }
     }
 }

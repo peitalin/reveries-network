@@ -88,8 +88,8 @@ impl<'a> NodeClient<'a> {
         // In case a listen address was provided use it, otherwise listen on any address.
         let addr = match listen_address {
             Some(addr) => addr,
-            // None => "/ip4/0.0.0.0/tcp/0".parse()?,
-            None => "/ip4/0.0.0.0/udp/0/quic-v1".parse()?,
+            None => "/ip4/0.0.0.0/tcp/0".parse()?,
+            // None => "/ip4/0.0.0.0/udp/0/quic-v1".parse()?,
         };
 
         self.command_sender
@@ -227,10 +227,10 @@ impl<'a> NodeClient<'a> {
                 // 3. confirm shutdown of old vessel
                 // 4. then broadcast topic switch to new Agent with new nonce
 
-                if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
+                if let Some(_anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
                     info!("Decrypted LLM API keys, querying LLM (paused)");
                     // let response = test_claude_query(
-                    //     anthropic_api_key,
+                    //     _anthropic_api_key,
                     //     "What is your name and what do you do?",
                     //     &agent_secrets_json.context
                     // ).await.unwrap();

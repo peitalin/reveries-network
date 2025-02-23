@@ -1,6 +1,6 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use libp2p::core::Multiaddr;
+use libp2p::Multiaddr;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "libp2p example")]
@@ -10,11 +10,11 @@ pub struct Opt {
     pub secret_key_seed: Option<usize>,
 
     #[clap(long)]
-    pub listen_address: Option<Multiaddr>,
-
-    #[clap(long)]
     pub rpc_port: Option<usize>,
 
-    #[clap(long)]
+    #[clap(long, value_delimiter = ',')]  // Allow comma-separated values
+    pub listen_address: Vec<Multiaddr>,
+
+    #[clap(long, value_delimiter = ',')]
     pub bootstrap_peers: Vec<String>,  // Format: "peer_id@ip:port"
 }

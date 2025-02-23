@@ -1,8 +1,7 @@
-
 use std::collections::HashMap;
 use color_eyre::eyre::anyhow;
 use libp2p::gossipsub;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use crate::{get_node_name, short_peer_id};
 use crate::types::{
     AgentNameWithNonce,
@@ -125,9 +124,6 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }
-            gossipsub::Event::GossipsubNotSupported {..} => {}
-            gossipsub::Event::SlowPeer {..} => {}
-            gossipsub::Event::Unsubscribed { peer_id, topic } => {}
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
                 // TODO: check TEE attestation from Peer before adding peer to channel
@@ -136,7 +132,20 @@ impl<'a> NetworkEvents<'a> {
                 //
                 // if peer is registered on multiple kfrag broadcasts, blacklist them.
                 // Peers should be on just 1 kfrag broadcast channel.
-                // We can enforce this if the binary runs in a TEE + check binary hash
+                // We can enforce this if the binary runs in a TEE + check binary hash               info!("{} Gossipsub peer subscribed: {:?} to {:?}", self.nname(), peer_id, topic);
+
+                // Add to peer manager when they subscribe
+                self.peer_manager.insert_peer_info(peer_id);
+
+                // Try to connect if we're not already connected
+                if self.should_dial_peer(&peer_id) {
+                    if let Err(e) = self.swarm.dial(peer_id) {
+                        warn!("{} Failed to dial subscribed peer: {}", self.nname(), e);
+                    }
+                }
+
+                // Add them as an explicit peer for better mesh connectivity
+                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 
                 match topic.into() {
                     GossipTopic::BroadcastKfrag(
@@ -146,8 +155,12 @@ impl<'a> NetworkEvents<'a> {
                     ) => {},
                     _ => {}
                 }
-
             }
+            gossipsub::Event::Unsubscribed { peer_id, topic } => {
+                info!("{} Gossipsub peer unsubscribed: {:?} from {:?}", self.nname(), peer_id, topic);
+            }
+            gossipsub::Event::GossipsubNotSupported {..} => {}
+            gossipsub::Event::SlowPeer {..} => {}
         }
     }
 

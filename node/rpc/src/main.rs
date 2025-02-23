@@ -58,7 +58,9 @@ async fn main() -> Result<()> {
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
     // Tell network to start listening for peers on the network
-    node_client.start_listening_to_network(opt.listen_address).await?;
+    for addr in opt.listen_address {
+        node_client.start_listening_to_network(Some(addr)).await?;
+    }
     // TODO: redudant step, automatically start listening and finding peers later
 
     // Subscribe and listen to gossip network for messages

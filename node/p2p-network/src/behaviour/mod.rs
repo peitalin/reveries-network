@@ -23,8 +23,8 @@ pub struct Behaviour {
     /// Stores Umbra public keys for peers, and storing agent secret ciphertexts
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 
-    // /// Local peer discovery via mDNS
-    // pub mdns: mdns::tokio::Behaviour,
+    /// Local peer discovery via mDNS
+    pub mdns: mdns::tokio::Behaviour,
 
     /// Handles regular heartbeats from peers
     pub heartbeat: heartbeat_behaviour::HeartbeatBehaviour,

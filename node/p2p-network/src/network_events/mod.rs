@@ -182,12 +182,20 @@ impl<'a> NetworkEvents<'a> {
             .config
             .max_time_before_rotation();
 
+
+        let connected_peers = self.swarm.connected_peers()
+            .map(|p| format!("{}", get_node_name(p)))
+            .collect::<Vec<String>>();
+
+        info!("{} connected peers: {:?}", self.nname(), connected_peers);
+
+
         let peer_ids = self.peer_manager.get_connected_peers()
             .iter()
             .map(|p| format!("{}", get_node_name(p.0)))
             .collect::<Vec<String>>();
 
-        info!("{} connected peers: {:?}", self.nname(), peer_ids);
+        info!("{} peer_info peers: {:?}", self.nname(), peer_ids);
 
         let mut failed_agents_placeholder = vec![];
         let peer_info = self.peer_manager.peer_info.clone();
