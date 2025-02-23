@@ -8,13 +8,12 @@ use libp2p::{
     gossipsub,
     identity,
     kad,
-    mdns,
     multiaddr::Multiaddr,
     noise,
     tcp,
     yamux,
     PeerId,
-    StreamProtocol
+    StreamProtocol,
 };
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn, info};
@@ -88,12 +87,6 @@ pub async fn new<'a>(
                 gossipsub::MessageId::from(s.finish().to_string())
             };
 
-            // local peer discovery with mdns
-            let mdns = mdns::tokio::Behaviour::new(
-                mdns::Config::default(),
-                peer_id
-            )?;
-
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
@@ -122,43 +115,23 @@ pub async fn new<'a>(
             // Enable Kademlia record publishing
             kademlia.set_mode(Some(kad::Mode::Server));
 
-            // Make ourselves discoverable
-            let record_key = kad::RecordKey::new(&peer_id.to_string());
-            if let Err(e) = kademlia.start_providing(record_key.clone()) {
-                warn!("Failed to start providing peer ID: {}", e);
-            }
-
-            // Store our addresses in the DHT after we start listening
-            // We'll do this in swarm_handlers.rs when we get NewListenAddr events
-            // since we don't know our addresses yet
-
             // Add bootstrap nodes to Kademlia
             for (peer_id_str, addr) in &bootstrap_nodes {
-                info!("Adding bootstrap node: {} at {}", peer_id_str, addr);
-
-                // For direct addresses without peer IDs, just add the address
-                if peer_id_str.is_empty() {
-                    kademlia.add_address(&peer_id, addr.clone());
-                    info!("Added bootstrap address: {}", addr);
-                } else {
-                    // If we have a peer ID, parse it and add both peer and address
-                    match peer_id_str.parse::<PeerId>() {
-                        Ok(bootstrap_peer_id) => {
-                            kademlia.add_address(&bootstrap_peer_id, addr.clone());
-                            info!("Added bootstrap peer: {} at {}", bootstrap_peer_id, addr);
-                        }
-                        Err(e) => warn!("Failed to parse bootstrap peer ID: {}", e),
-                    }
+                if let Ok(bootstrap_peer_id) = peer_id_str.parse::<PeerId>() {
+                    kademlia.add_address(&bootstrap_peer_id, addr.clone());
                 }
             }
 
             // Start the bootstrap process
             if !bootstrap_nodes.is_empty() {
-                match kademlia.bootstrap() {
-                    Ok(_) => debug!("Started Kademlia bootstrap process"),
-                    Err(e) => warn!("Failed to bootstrap Kademlia DHT: {}", e),
-                }
+                kademlia.bootstrap().ok();
             }
+
+            // Create identify behavior
+            let identify = libp2p_identify::Behaviour::new(libp2p_identify::Config::new(
+                "/my-node/1.0.0".to_string(),
+                key.public(),
+            ));
 
             Ok(Behaviour {
                 kademlia,
@@ -178,8 +151,8 @@ pub async fn new<'a>(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                mdns: mdns,
                 gossipsub: gossipsub,
+                identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
                         StreamProtocol::new("/file-exchange/1"),

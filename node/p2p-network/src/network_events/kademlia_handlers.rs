@@ -55,9 +55,9 @@ impl<'a> NetworkEvents<'a> {
                     kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, ..  })
                 )) => {
                     let k = std::str::from_utf8(record.key.as_ref()).unwrap();
-                    let maybe_umbral_pk_key = UmbralPeerId::from_string(k);
 
-                    if let Ok(umbral_pk_key) = maybe_umbral_pk_key  {
+                    // Handle Umbral keys
+                    if let Ok(umbral_pk_key) = UmbralPeerId::from_string(k) {
                         if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_key) {
                             match serde_json::from_slice::<UmbralPublicKeyResponse>(&record.value) {
                                 Ok(umbral_pk_response) => {
@@ -74,7 +74,30 @@ impl<'a> NetworkEvents<'a> {
                         }
                     }
 
-                    // Add a new handler for when we find records
+                    // Handle peer records
+                    if k.starts_with("peers:") {
+                        if let Ok(peer_list) = serde_json::from_slice::<Vec<PeerId>>(&record.value) {
+                            info!("{} Found peer list in DHT: {:?}", self.nname(), peer_list);
+                            for peer_id in peer_list {
+                                // Add to peer manager
+                                self.peer_manager.insert_peer_info(peer_id);
+
+                                // Try to connect
+                                if self.should_dial_peer(&peer_id) {
+                                    if let Err(e) = self.swarm.dial(peer_id) {
+                                        warn!("{} Failed to dial peer from DHT record: {}", self.nname(), e);
+                                    }
+                                }
+
+                                // Query for their addresses
+                                self.swarm.behaviour_mut().kademlia.get_providers(
+                                    kad::RecordKey::new(&peer_id.to_string())
+                                );
+                            }
+                        }
+                    }
+
+                    // Handle address records
                     if let Some(peer_id) = record.publisher {
                         if let Ok(addrs) = serde_json::from_slice::<Vec<Multiaddr>>(&record.value) {
                             for addr in addrs {
@@ -126,11 +149,7 @@ impl<'a> NetworkEvents<'a> {
 
                     // Try to connect to each discovered peer
                     for peer_info in &ok.peers {
-                        let peer_id = peer_info.peer_id;  // Extract PeerId from PeerInfo
-
-                        // Add ourselves as a provider for this peer
-                        self.swarm.behaviour_mut().kademlia
-                            .start_providing(kad::RecordKey::new(&peer_id.to_string())).ok();
+                        let peer_id = peer_info.peer_id;
 
                         // Try to connect
                         if self.should_dial_peer(&peer_id) {
@@ -138,12 +157,6 @@ impl<'a> NetworkEvents<'a> {
                                 warn!("{} Failed to dial discovered peer: {}", self.nname(), e);
                             }
                         }
-                    }
-
-                    // Also look for providers of these peers
-                    for peer_info in ok.peers {
-                        self.swarm.behaviour_mut().kademlia
-                            .get_providers(kad::RecordKey::new(&peer_info.peer_id.to_string()));
                     }
                 }
                 qresult => println!("<NetworkEvent>: {:?}", qresult)
@@ -173,10 +186,14 @@ impl<'a> NetworkEvents<'a> {
                     info!("{} Already connected to peer: {:?}", self.nname(), peer);
                 }
 
-                // Look for more peers near this one
+                // Request their routing table
                 self.swarm.behaviour_mut().kademlia.get_closest_peers(peer);
 
-                // Also try to get this peer's providers
+                // Also try to get their stored records
+                let key = kad::RecordKey::new(&format!("peers:{}", peer));
+                self.swarm.behaviour_mut().kademlia.get_record(key);
+
+                // And look for any providers they know about
                 self.swarm.behaviour_mut().kademlia.get_providers(kad::RecordKey::new(&peer.to_string()));
             },
 

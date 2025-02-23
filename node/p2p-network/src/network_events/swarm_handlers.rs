@@ -1,8 +1,8 @@
 use libp2p::{
-    mdns,
     kad,
+    swarm::SwarmEvent,
     Multiaddr,
-    swarm::SwarmEvent
+    multiaddr,
 };
 use colored::Colorize;
 use tracing::{trace, info, warn, debug};
@@ -38,53 +38,32 @@ impl<'a> NetworkEvents<'a> {
                 }
             }
 
-            // //// mDNS Peer Discovery events
-            // SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns_event)) => {
-            //     match mdns_event {
-            //         mdns::Event::Discovered(list) => {
-            //             for (peer_id, multiaddr) in list {
-            //                 info!("{} {}", self.nname(), format!("mDNS discovered peer {:?} at {:?}", peer_id, multiaddr));
-            //                 self.swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr.clone());
+            //// Identify events
+            SwarmEvent::Behaviour(BehaviourEvent::Identify(libp2p_identify::Event::Received { peer_id, info, .. })) => {
+                info!("{} Identified peer: {:?}", self.nname(), peer_id);
+                info!("{} Peer protocols: {:?}", self.nname(), info.protocols);
 
-            //                 // Add to peer manager when discovered
-            //                 self.peer_manager.insert_peer_info(peer_id);
+                // Add their listen addresses to Kademlia
+                for addr in info.listen_addrs {
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                }
 
-            //                 // Try to connect if we're not already connected
-            //                 if self.should_dial_peer(&peer_id) {
-            //                     if let Err(e) = self.swarm.dial(peer_id) {
-            //                         warn!("{} Failed to dial discovered peer: {}", self.nname(), e);
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //         mdns::Event::Expired(list) => {
-            //             for (peer_id, multiaddr) in list {
-            //                 info!("{} {}", self.nname(), format!("mDNS expired peer {:?} at {:?}", peer_id, multiaddr));
-            //                 self.swarm.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr);
-            //             }
-            //         }
-            //     }
-            // }
+                // Extract peer ID from observed address if it contains one
+                if let Some(multiaddr::Protocol::P2p(observed_peer_id)) = info.observed_addr
+                    .iter()
+                    .find(|p| matches!(p, multiaddr::Protocol::P2p(_)))
+                {
+                    if self.should_dial_peer(&observed_peer_id) {
+                        if let Err(e) = self.swarm.dial(observed_peer_id) {
+                            warn!("{} Failed to dial identified peer: {}", self.nname(), e);
+                        }
+                    }
+                }
+            }
 
             //// Swarm connection events
             SwarmEvent::NewListenAddr { address, .. } => {
                 info!("{} {}", self.nname(), format!("New listen address: {}", address));
-
-                // Store our new address in the DHT
-                let record_key = kad::RecordKey::new(&self.peer_id.to_string());
-                let our_addresses: Vec<_> = self.swarm.listeners().cloned().collect();
-
-                if let Err(e) = self.swarm.behaviour_mut().kademlia.put_record(
-                    kad::Record {
-                        key: record_key,
-                        value: serde_json::to_vec(&our_addresses).unwrap(),
-                        publisher: Some(self.peer_id),
-                        expires: None,
-                    },
-                    kad::Quorum::One
-                ) {
-                    warn!("{} Failed to put record: {}", self.nname(), e);
-                }
             }
             SwarmEvent::Dialing { peer_id, .. } => {
                 info!("{} {}", self.nname(), format!("Dialing peer: {:?}", peer_id));
@@ -109,28 +88,8 @@ impl<'a> NetworkEvents<'a> {
 
                 // Start providing our peer ID
                 self.swarm.behaviour_mut().kademlia.start_providing(kad::RecordKey::new(&self.peer_id.to_string())).ok();
-
-                // Get our listen addresses and publish them
-                let our_addresses: Vec<Multiaddr> = self.swarm.listeners().cloned().collect();
-                if !our_addresses.is_empty() {
-                    let key = kad::RecordKey::new(&format!("addr:{}", self.peer_id));
-                    let value = serde_json::to_vec(&our_addresses).unwrap_or_default();
-
-                    self.swarm.behaviour_mut().kademlia.put_record(
-                        kad::Record {
-                            key,
-                            value,
-                            publisher: Some(self.peer_id),
-                            expires: None,
-                        },
-                        kad::Quorum::One
-                    ).ok();
-                }
-
-                // Also try to get the peer's stored records
-                let peer_addr_key = kad::RecordKey::new(&format!("addr:{}", peer_id));
-                self.swarm.behaviour_mut().kademlia.get_record(peer_addr_key);
             }
+
             SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::IncomingConnectionError { .. } => { }
 
