@@ -89,8 +89,10 @@ impl<'a> PeerManager<'a> {
     //////////////////////
 
     pub fn insert_peer_info(&mut self, peer_id: PeerId) {
-        self.peer_info
-            .insert(peer_id, PeerInfo::new(peer_id, self.avg_window));
+        self.peer_info.insert(
+            peer_id,
+            PeerInfo::new(peer_id, self.avg_window)
+        );
     }
 
     pub fn remove_peer_info(&mut self, peer_id: &PeerId) {

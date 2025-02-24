@@ -17,7 +17,7 @@ use futures::{StreamExt, FutureExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, debug, error, warn};
 
-use crate::get_node_name;
+use crate::{get_node_name, TryPeerId};
 use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use crate::types::{
     AgentNameWithNonce,
@@ -401,9 +401,10 @@ impl<'a> NodeClient<'a> {
                 self.unsubscribe_topics(topics).await.ok();
                 Err(anyhow!("No Umbral Pubkey Peers found. Not connected to any peers."))
             }
-            Some(new_vessel_pk) => {
+            Some(next_vessel_pk) => {
 
-                let bob_pk = new_vessel_pk.umbral_public_key;
+                let bob_pk = next_vessel_pk.umbral_public_key;
+                let next_vessel_peer_id = next_vessel_pk.umbral_peer_id.clone().try_into_peer_id()?;
 
                 // Alice generates reencryption key fragments for Ursulas (MPC nodes)
                 info!("Generating fragments for new vessel: ({total_frags},{threshold})");
@@ -413,43 +414,41 @@ impl<'a> NodeClient<'a> {
                     total_frags
                 );
 
-                for (i, kfrag) in kfrags.into_iter().enumerate() {
 
+                for (i, kfrag) in kfrags.into_iter().enumerate() {
                     let topic = GossipTopic::BroadcastKfrag(
                         agent_name_nonce.clone(),
                         total_frags,
                         i
                     );
-
-                    self.command_sender
-                        .send(NodeCommand::BroadcastKfrags(
-                            KeyFragmentMessage {
-                                topic: topic,
-                                frag_num: i,
-                                threshold: threshold,
-                                total_frags: total_frags,
-                                kfrag: kfrag,
-                                verifying_pk: self.umbral_key.verifying_pk,
-                                alice_pk: self.umbral_key.public_key,
-                                bob_pk, // bob_pk
-                                vessel_peer_id: self.peer_id,
-                                next_vessel_peer_id: new_vessel_pk.umbral_peer_id.clone().into(),
-                                capsule: umbral_capsule.clone(),
-                                ciphertext: umbral_ciphertext.clone(),
-                            }
-                        )).await?;
+                    self.command_sender.send(
+                        NodeCommand::BroadcastKfrags(KeyFragmentMessage {
+                            topic: topic,
+                            frag_num: i,
+                            threshold: threshold,
+                            total_frags: total_frags,
+                            kfrag: kfrag,
+                            verifying_pk: self.umbral_key.verifying_pk,
+                            alice_pk: self.umbral_key.public_key,
+                            bob_pk, // bob_pk
+                            vessel_peer_id: self.peer_id,
+                            next_vessel_peer_id: next_vessel_peer_id,
+                            capsule: umbral_capsule.clone(),
+                            ciphertext: umbral_ciphertext.clone(),
+                        })
+                    ).await?;
                 }
 
                 info!("{}", format!(
                     "Next Vessel: {} {} {}",
-                    get_node_name(&new_vessel_pk.umbral_peer_id.clone().into()),
-                    new_vessel_pk.umbral_peer_id.short_peer_id(),
-                    new_vessel_pk.umbral_public_key,
+                    get_node_name(&next_vessel_peer_id),
+                    next_vessel_pk.umbral_peer_id.short_peer_id(),
+                    next_vessel_pk.umbral_public_key,
                 ).yellow());
 
                 // unsubscribe from the kfrag broadcast topics
                 self.unsubscribe_topics(topics).await.ok();
-                Ok(new_vessel_pk.to_owned())
+                Ok(next_vessel_pk.to_owned())
             }
         }
     }

@@ -28,11 +28,8 @@ pub struct Behaviour {
     /// The Behaviour to identify peers.
     pub identify: libp2p_identify::Behaviour,
 
-    // /// Identifies and periodically requests `BlockHeight` from connected nodes
-    // peer_report: peer_report::Behaviour,
-
-    // /// Node discovery
-    // discovery: discovery::Behaviour,
+    // /// Node discovery combining Kademlia and mDNS
+    // pub discovery: discovery::Behaviour,
 
     /// Message propagation for threshold key generation and proxy re-encryption
     pub gossipsub: gossipsub::Behaviour

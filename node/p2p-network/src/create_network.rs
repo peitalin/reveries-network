@@ -90,13 +90,6 @@ pub async fn new<'a>(
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
-                // Increase mesh parameters for better connectivity
-                .mesh_n(12)          // Target number of peers in mesh (default is 6)
-                .mesh_n_low(8)       // Lower bound for mesh peers (default is 4)
-                .mesh_n_high(16)     // Upper bound for mesh peers (default is 12)
-                .gossip_lazy(6)      // Number of peers to gossip to (default is 3)
-                .history_length(10)  // Length of message cache (default is 5)
-                .history_gossip(3)   // Number of history messages to gossip (default is 3)
                 .duplicate_cache_time(Duration::from_secs(5))
                 .build()
                 .map_err(|e| SendError(e.to_string()))?;
@@ -155,7 +148,7 @@ pub async fn new<'a>(
                 identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
-                        StreamProtocol::new("/file-exchange/1"),
+                        StreamProtocol::new("/1up-kfrags-reqres/1.0.0"),
                         libp2p::request_response::ProtocolSupport::Full,
                     )],
                     libp2p::request_response::Config::default()

@@ -4,8 +4,13 @@ mod network_events;
 pub mod node_client;
 pub mod types;
 
+use color_eyre::{Result, eyre::anyhow};
 use serde::{Deserialize, Serialize};
-
+use libp2p::{
+    multiaddr,
+    PeerId,
+    Multiaddr,
+};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -34,6 +39,36 @@ pub fn short_peer_id<T: ToString>(peer_id: T) -> String {
 pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
     std::fs::read(path)
         .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
+}
+
+pub trait TryPeerId {
+    /// Tries convert `Self` into `PeerId`.
+    fn try_into_peer_id(&self) -> Result<PeerId>;
+}
+
+impl TryPeerId for Multiaddr {
+    fn try_into_peer_id(&self) -> Result<PeerId> {
+        self.iter().last().and_then(|p| match p {
+            multiaddr::Protocol::P2p(peer_id) => Some(peer_id),
+            multiaddr::Protocol::Dnsaddr(multiaddr) => {
+                tracing::warn!(
+                    "synchronous recursive dnsaddr resolution is not yet supported: {:?}",
+                    multiaddr
+                );
+                None
+            }
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("dnsaddr error"))
+    }
+}
+
+pub fn is_dialable(multiaddr: &Multiaddr) -> bool {
+    // Check if the multiaddr is dialable
+    match multiaddr.protocol_stack().next() {
+        None => false,
+        Some(protocol) => protocol != "p2p",
+    }
 }
 
 // TODO: temporary convenience functions

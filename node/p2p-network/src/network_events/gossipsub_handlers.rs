@@ -136,16 +136,15 @@ impl<'a> NetworkEvents<'a> {
 
                 // Add to peer manager when they subscribe
                 self.peer_manager.insert_peer_info(peer_id);
+                // Add them as an explicit peer for better mesh connectivity
+                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 
-                // Try to connect if we're not already connected
+                // Use gossipsub as a backup protocol for discovering peers
                 if self.should_dial_peer(&peer_id) {
                     if let Err(e) = self.swarm.dial(peer_id) {
                         warn!("{} Failed to dial subscribed peer: {}", self.nname(), e);
                     }
                 }
-
-                // Add them as an explicit peer for better mesh connectivity
-                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 
                 match topic.into() {
                     GossipTopic::BroadcastKfrag(

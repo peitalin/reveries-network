@@ -4,7 +4,7 @@ use std::str::Split;
 use color_eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use libp2p::PeerId;
-use crate::{short_peer_id, types::GossipTopic};
+use crate::{short_peer_id, types::GossipTopic, TryPeerId};
 use umbral_pre::KeyFrag;
 
 
@@ -53,13 +53,13 @@ impl From<&PeerId> for UmbralPeerId {
     }
 }
 
-impl Into<PeerId> for UmbralPeerId {
-    fn into(self) -> PeerId {
+impl TryPeerId for UmbralPeerId {
+    fn try_into_peer_id(&self) -> Result<PeerId> {
         // slice off the UMBRAL_KEY_PREFIX first
         let umbral_peer_id_str = self.to_string();
         let peer_id_str = &umbral_peer_id_str.as_str()[UMBRAL_KEY_PREFIX.len()..];
         PeerId::from_str(peer_id_str)
-            .expect("Error unwrapping UmbralPeerId to PeerId")
+            .map_err(|e| eyre::anyhow!(e.to_string()))
     }
 }
 
