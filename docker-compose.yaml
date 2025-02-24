@@ -19,7 +19,7 @@ services:
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
         --bootstrap-peers "/dns4/node2/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
         '
-    ## note bootstrap-peers uses /dns4/node2, not /ip4/127.0.0.1
+    ## note bootstrap-peers in docker uses /dns4/node2, not /ip4/127.0.0.1
 
   node2:
     image: 1up
