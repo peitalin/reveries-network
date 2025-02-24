@@ -14,7 +14,6 @@ run-runtime-tee2:
     cargo build --features tdx_enabled
     sudo ./target/debug/runtime test-tee
 
-
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
 
@@ -27,6 +26,15 @@ node1:
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
 
+# Runs node1 in Production with node2's IP as bootstrap node
+node1-prod:
+    cargo run --bin rpc -- \
+        --secret-key-seed 1 \
+        --rpc-port 8001 \
+        --listen-address "/ip4/0.0.0.0/tcp/9001" \
+        --bootstrap-peers "/ip4/34.143.149.238/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
+
+
 # Runs node 2
 node2:
     cargo run --bin rpc -- \
@@ -34,6 +42,15 @@ node2:
         --rpc-port 8002 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
+# Runs node2 in Production with node1's IP as bootstrap node
+node2-prod:
+    cargo run --bin rpc -- \
+        --secret-key-seed 2 \
+        --rpc-port 8002 \
+        --listen-address "/ip4/0.0.0.0/tcp/9002" \
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
 
 # Runs node 3
 node3:
@@ -43,6 +60,13 @@ node3:
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
+node3-prod:
+    cargo run --bin rpc -- \
+        --secret-key-seed 3 \
+        --rpc-port 8003 \
+        --listen-address "/ip4/0.0.0.0/tcp/9003" \
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
 # Runs node 4
 node4:
     cargo run --bin rpc -- \
@@ -51,6 +75,13 @@ node4:
         --listen-address "/ip4/0.0.0.0/tcp/9004" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
+node4-prod:
+    cargo run --bin rpc -- \
+        --secret-key-seed 4 \
+        --rpc-port 8004 \
+        --listen-address "/ip4/0.0.0.0/tcp/9004" \
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
 # Runs node 5
 node5:
     cargo run --bin rpc -- \
@@ -58,6 +89,13 @@ node5:
         --rpc-port 8005 \
         --listen-address "/ip4/0.0.0.0/tcp/9005" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
+node5-prod:
+    cargo run --bin rpc -- \
+        --secret-key-seed 5 \
+        --rpc-port 8005 \
+        --listen-address "/ip4/0.0.0.0/tcp/9005" \
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 
 
@@ -113,6 +151,7 @@ trigger-node-failure node_port:
         --rpc-server-address 0.0.0.0:{{node_port}} \
         trigger-node-failure \
 
+
 get-node-states:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:8001 \
@@ -120,17 +159,10 @@ get-node-states:
         --ports 8001,8002,8003,8004
 
 
-test-rpc node_port:
-    curl -X POST http://0.0.0.0:{{node_port}} \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","method":"get_node_state","params":[],"id":1}'
-
-
 subscribe-heartbeat node_port:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:{{node_port}} \
         subscribe-heartbeat
-
 
 telemetry:
     cargo run --bin telemetry

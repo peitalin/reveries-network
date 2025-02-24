@@ -54,7 +54,7 @@ variable "service_account_email" {
 
 locals {
   timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
-  node_commands = ["node1", "node2", "node3"]
+  node_commands = ["node1", "node2", "node3", "node4", "node5"]
 
   ### Multizone deployment: Get regions from zones
   # regions = [for zone in var.zones : substr(zone, 0, length(zone)-2)]
@@ -68,7 +68,7 @@ locals {
     cd ~
 
     # Install system dependencies
-    sudo apt-get update && sudo apt-get install -y \
+    apt-get update && apt-get install -y \
       build-essential \
       curl \
       git \
@@ -81,11 +81,11 @@ locals {
     sudo rustup default stable
 
     # Install Just
-    cargo install just
-    # sudo snap install just --classic
+    # cargo install just
+    sudo snap install just --classic
 
     # Clone the repository
-    git clone https://${var.github_token}@github.com/${var.github_repo}.git ~/
+    git clone https://${var.github_token}@github.com/${var.github_repo}.git ~/1up-network
     cd ~/1up-network
     git checkout ${var.repo_branch}
 
@@ -103,14 +103,28 @@ provider "google-beta" {
   region = substr(var.zone, 0, length(var.zone)-2)
 }
 
-# Static IP addresses for each node
-resource "google_compute_address" "static_ips" {
-  provider = google-beta
-  count    = 3
-  name     = "tee-node${count.index + 1}-${local.timestamp}-ip"
-  region   = substr(var.zone, 0, length(var.zone)-2)
-  ### Multizone deployment:
-  # region   = local.regions[count.index]
+# Static IP address for node1
+resource "google_compute_address" "node1_static_ip" {
+  provider     = google-beta
+  name         = "tee-node1-static-ip"
+  region       = substr(var.zone, 0, length(var.zone)-2)
+  address_type = "EXTERNAL"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Static IP address for node2
+resource "google_compute_address" "node2_static_ip" {
+  provider     = google-beta
+  name         = "tee-node2-static-ip"
+  region       = substr(var.zone, 0, length(var.zone)-2)
+  address_type = "EXTERNAL"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Add this firewall rule for RPC port
@@ -122,12 +136,12 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "80", "8000-9000"]  # port 22 for SSH
+    ports    = ["22", "80", "8000-9999"]  # port 22 for SSH
   }
 
   allow {
     protocol = "udp"
-    ports    = ["22", "80", "8000-9000"]
+    ports    = ["22", "80", "8000-9999"]
   }
 
   source_ranges = ["0.0.0.0/0"]
@@ -146,7 +160,7 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 
 resource "google_compute_instance" "tdx_instances" {
   provider = google-beta
-  count    = 3
+  count    = 5
   name     = "tee-node${count.index + 1}-${local.timestamp}"
   machine_type = "c3-standard-4"
   zone         = var.zone
@@ -171,9 +185,11 @@ resource "google_compute_instance" "tdx_instances" {
   }
 
   network_interface {
-    network = "default"  # Using default VPC network
+    network = "default"
     access_config {
-      nat_ip = google_compute_address.static_ips[count.index].address
+      # Use static IPs for node1 and node2, ephemeral IPs for nodes 3-5
+      nat_ip = count.index == 0 ? google_compute_address.node1_static_ip.address : (
+               count.index == 1 ? google_compute_address.node2_static_ip.address : null)
     }
   }
 
@@ -209,7 +225,7 @@ resource "google_compute_instance" "tdx_instances" {
   deletion_protection = false
 }
 
-  ### Multizone deployment:
+### Multizone deployment:
 # Output variables for monitoring
 # output "instance_details" {
 #   description = "Details for all instances"
@@ -237,7 +253,15 @@ output "instance_names" {
 
 output "instance_ips" {
   description = "The external IPs of the instances"
-  value       = google_compute_address.static_ips[*].address
+  value = [
+    for i, instance in google_compute_instance.tdx_instances : {
+      node     = "node${i + 1}"
+      ip_type  = i < 2 ? "static" : "ephemeral"
+      ip       = i == 0 ? google_compute_address.node1_static_ip.address : (
+                 i == 1 ? google_compute_address.node2_static_ip.address :
+                 instance.network_interface[0].access_config[0].nat_ip)
+    }
+  ]
 }
 
 output "instance_zone" {
