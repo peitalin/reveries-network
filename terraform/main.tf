@@ -65,8 +65,10 @@ locals {
     # Basic logging to syslog
     exec 1> >(logger -s -t $(basename $0)) 2>&1
 
+    cd ~
+
     # Install system dependencies
-    apt-get update && apt-get install -y \
+    sudo apt-get update && sudo apt-get install -y \
       build-essential \
       curl \
       git \
@@ -76,14 +78,15 @@ locals {
       rustup
 
     # Set up Rust
-    rustup default stable
+    sudo rustup default stable
 
     # Install Just
-    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+    cargo install just
+    # sudo snap install just --classic
 
     # Clone the repository
-    git clone https://${var.github_token}@github.com/${var.github_repo}.git
-    cd 1up-network
+    git clone https://${var.github_token}@github.com/${var.github_repo}.git ~/
+    cd ~/1up-network
     git checkout ${var.repo_branch}
 
     # Run the justfile command for this node

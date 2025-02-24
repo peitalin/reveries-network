@@ -15,7 +15,7 @@ use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
     AgentNameWithNonce,
-    UmbralPublicKeyResponse
+    NodeVesselStatus
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
 use p2p_network::get_node_name;
@@ -96,7 +96,7 @@ pub async fn run_server<'a: 'static>(
                     threshold,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
-            Ok::<UmbralPublicKeyResponse, RpcError>(result)
+            Ok::<NodeVesselStatus, RpcError>(result)
         }
     })?;
 

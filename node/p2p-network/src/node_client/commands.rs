@@ -13,19 +13,17 @@ use crate::types::{
     FragmentResponseEnum,
     KeyFragmentMessage,
     TopicSwitch,
-    UmbralPublicKeyResponse
+    NodeVesselStatus
 };
 use super::container_manager::RestartReason;
 
 
 pub enum NodeCommand {
 
-    /// Gets Umbral PublicKey(s) of peers that hold Agent fragments from Kademlia
-    /// Looks up which peers hold an AgentNameWithNonce's fragments, then retrieves their
-    /// PRE key from Kademlia
-    GetPeerUmbralPublicKeys {
-        agent_name_nonce: AgentNameWithNonce,
-        sender: mpsc::Sender<UmbralPublicKeyResponse>,
+    /// Gets they VesselStatus (which agent nodes are hosting),
+    /// and Umbral PublicKey(s) of peers from Kademlia
+    GetPeerNodeVesselStatuses {
+        sender: mpsc::Sender<NodeVesselStatus>,
     },
 
     /// Gets Peers that are subscribed to the Kfrag Broadcast channel for an agent

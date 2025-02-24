@@ -4,7 +4,6 @@ use color_eyre::Result;
 use libp2p::{
     gossipsub,
     kad,
-    mdns,
     request_response,
     swarm::NetworkBehaviour
 };
@@ -23,20 +22,14 @@ pub struct Behaviour {
     /// Stores Umbra public keys for peers, and storing agent secret ciphertexts
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 
-    // /// Local peer discovery via mDNS
-    // pub mdns: mdns::tokio::Behaviour,
-
     /// Handles regular heartbeats from peers
     pub heartbeat: heartbeat_behaviour::HeartbeatBehaviour,
 
-    // /// The Behaviour to identify peers.
-    // identify: identify::Behaviour,
+    /// The Behaviour to identify peers.
+    pub identify: libp2p_identify::Behaviour,
 
-    // /// Identifies and periodically requests `BlockHeight` from connected nodes
-    // peer_report: peer_report::Behaviour,
-
-    // /// Node discovery
-    // discovery: discovery::Behaviour,
+    // /// Node discovery combining Kademlia and mDNS
+    // pub discovery: discovery::Behaviour,
 
     /// Message propagation for threshold key generation and proxy re-encryption
     pub gossipsub: gossipsub::Behaviour

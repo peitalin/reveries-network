@@ -4,8 +4,14 @@ mod network_events;
 pub mod node_client;
 pub mod types;
 
+use color_eyre::{Result, eyre::anyhow};
+use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
-
+use libp2p::{
+    multiaddr,
+    PeerId,
+    Multiaddr,
+};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -19,14 +25,30 @@ impl std::fmt::Display for SendError {
     }
 }
 
+impl From<HashSet<PeerId>> for SendError {
+    fn from(hset: HashSet<PeerId>) -> Self {
+        SendError(anyhow!("sender.send(providers) err: {:?}", hset).to_string())
+    }
+}
+
+impl From<umbral_pre::CapsuleFragVerificationError> for SendError {
+    fn from(e: umbral_pre::CapsuleFragVerificationError) -> Self {
+        SendError(e.to_string())
+    }
+}
+
+impl From<(umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)> for SendError {
+    fn from(e: (umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)) -> Self {
+        SendError(e.0.to_string())
+    }
+}
+
 pub fn short_peer_id<T: ToString>(peer_id: T) -> String {
     let peer_id_str = peer_id.to_string();
-    // TODO: add stricter PeerId checks
     if peer_id_str.len() < 10 {
-        panic!("Not a valid PeerId")
+        tracing::warn!("Not a valid PeerId")
     }
     let peer_id_end = peer_id_str.chars().rev().take(6).collect::<String>();
-    // let start = &peer_id_str[..4];
     let end = peer_id_end.chars().rev().collect::<String>();
     format!("PeerId(..{})", end)
 }
@@ -34,6 +56,36 @@ pub fn short_peer_id<T: ToString>(peer_id: T) -> String {
 pub fn read_file_from_path<'a>(path: &'a str) -> color_eyre::Result<Vec<u8>> {
     std::fs::read(path)
         .map_err(|e| color_eyre::eyre::anyhow!(e.to_string()))
+}
+
+pub trait TryPeerId {
+    /// Tries convert `Self` into `PeerId`.
+    fn try_into_peer_id(&self) -> Result<PeerId>;
+}
+
+impl TryPeerId for Multiaddr {
+    fn try_into_peer_id(&self) -> Result<PeerId> {
+        self.iter().last().and_then(|p| match p {
+            multiaddr::Protocol::P2p(peer_id) => Some(peer_id),
+            multiaddr::Protocol::Dnsaddr(multiaddr) => {
+                tracing::warn!(
+                    "synchronous recursive dnsaddr resolution is not yet supported: {:?}",
+                    multiaddr
+                );
+                None
+            }
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("dnsaddr error"))
+    }
+}
+
+pub fn is_dialable(multiaddr: &Multiaddr) -> bool {
+    // Check if the multiaddr is dialable
+    match multiaddr.protocol_stack().next() {
+        None => false,
+        Some(protocol) => protocol != "p2p",
+    }
 }
 
 // TODO: temporary convenience functions

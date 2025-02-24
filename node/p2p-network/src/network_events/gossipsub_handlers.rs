@@ -1,9 +1,7 @@
-
-use std::collections::HashMap;
-use color_eyre::eyre::anyhow;
+use color_eyre::{Result, eyre::anyhow};
 use libp2p::gossipsub;
-use tracing::{debug, info};
-use crate::{get_node_name, short_peer_id};
+use tracing::{debug, info, warn};
+use crate::{get_node_name, short_peer_id, SendError};
 use crate::types::{
     AgentNameWithNonce,
     CapsuleFragmentMessage,
@@ -13,6 +11,10 @@ use crate::types::{
     PrevTopic,
     RespawnId,
     TopicSwitch,
+    NodeVesselStatus,
+    AgentVesselInfo,
+    VesselStatus,
+    VesselPeerId,
 };
 use crate::create_network::NODE_SEED_NUM;
 use super::NetworkEvents;
@@ -21,7 +23,7 @@ use super::NetworkEvents;
 
 impl<'a> NetworkEvents<'a> {
     // When receiving a Gossipsub event/message
-    pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) {
+    pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) -> Result<()> {
         match gevent {
             gossipsub::Event::Message {
                 propagation_source: propagation_peer_id,
@@ -41,14 +43,12 @@ impl<'a> NetworkEvents<'a> {
                     // When a node receives Kfrags in a broadcast/multicast
                     GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num)  => {
 
-                        let k: KeyFragmentMessage = serde_json::from_slice(&message.data)
-                            .expect("Error deserializing KeyFragmentMessage");
-
+                        let k: KeyFragmentMessage = serde_json::from_slice(&message.data)?;
                         let verified_kfrag = k.kfrag.verify(
                             &k.verifying_pk,
                             Some(&k.alice_pk),
                             Some(&k.bob_pk)
-                        ).expect("err verifying kfrag");
+                        ).map_err(SendError::from)?;
 
                         // all nodes store cfrags locally
                         // nodes should also inform the vessel_node that they hold a fragment
@@ -69,13 +69,31 @@ impl<'a> NetworkEvents<'a> {
                             }
                         );
 
-                        if !self.peer_manager.peer_info_has_agent(&k.vessel_peer_id) {
-                            self.peer_manager.set_peer_info_agent_vessel(
-                                &agent_name_nonce,
-                                &total_frags,
-                                k.vessel_peer_id,
-                                k.next_vessel_peer_id,
-                            );
+                        if let Some(peer_info) = self.peer_manager.peer_info.get(&k.vessel_peer_id) {
+                            match &peer_info.agent_vessel {
+                                None => {
+                                    let agent_vessel_info = AgentVesselInfo {
+                                        agent_name_nonce: agent_name_nonce.clone(),
+                                        total_frags,
+                                        next_vessel_peer_id: k.next_vessel_peer_id,
+                                        current_vessel_peer_id: k.vessel_peer_id,
+                                    };
+
+                                    self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
+
+                                    // Put signed vessel status
+                                    let status = NodeVesselStatus {
+                                        peer_id: k.vessel_peer_id,
+                                        umbral_public_key: k.alice_pk,
+                                        agent_vessel_info: Some(agent_vessel_info),
+                                        vessel_status: VesselStatus::ActiveVessel,
+                                    };
+                                    self.put_signed_vessel_status(status)?;
+                                }
+                                Some(existing_agent) => {
+                                    panic!("can't replace existing agent in node: {:?}", existing_agent);
+                                }
+                            }
                         }
 
                         // If node is not next vessel, let vessel node know it holds a fragment
@@ -97,10 +115,8 @@ impl<'a> NetworkEvents<'a> {
 
                     }
                     GossipTopic::TopicSwitch => {
-                        let ts: TopicSwitch = serde_json::from_slice(&message.data)
-                            .expect("Error deserializing TopicSwitch");
 
-                        println!("Received GossipTopic::TopicSwitch");
+                        let ts: TopicSwitch = serde_json::from_slice(&message.data)?;
                         let agent_name_nonce = ts.next_topic.agent_name_nonce;
                         let total_frags = ts.next_topic.total_frags;
 
@@ -108,8 +124,7 @@ impl<'a> NetworkEvents<'a> {
                         NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
                         let frag_num = self.seed % total_frags;
                         // assert_eq!(frag_num, NODE_SEED_NUM.take());
-                        println!("total_frags: {}", total_frags);
-                        println!("frag_num: {}", frag_num);
+                        info!("GossipTopic::TopicSwitch total_frags({}) frag_num({})", total_frags, frag_num);
 
                         let topic = GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num);
                         self.subscribe_topics(&vec![topic.to_string()]);
@@ -121,13 +136,10 @@ impl<'a> NetworkEvents<'a> {
                     }
                     // Nothing else to do for GossipTopic::Unknown
                     GossipTopic::Unknown => {
-                        println!("Unknown topic: {:?}", message.data);
+                        debug!("Unknown topic: {:?}", message.data);
                     }
                 }
             }
-            gossipsub::Event::GossipsubNotSupported {..} => {}
-            gossipsub::Event::SlowPeer {..} => {}
-            gossipsub::Event::Unsubscribed { peer_id, topic } => {}
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
                 // TODO: check TEE attestation from Peer before adding peer to channel
@@ -136,7 +148,21 @@ impl<'a> NetworkEvents<'a> {
                 //
                 // if peer is registered on multiple kfrag broadcasts, blacklist them.
                 // Peers should be on just 1 kfrag broadcast channel.
-                // We can enforce this if the binary runs in a TEE + check binary hash
+                // We can enforce this if the binary runs in a TEE + check binary hash               info!("{} Gossipsub peer subscribed: {:?} to {:?}", self.nname(), peer_id, topic);
+
+                // Add to peer manager when they subscribe
+                self.peer_manager.insert_peer_info(peer_id);
+                // Add them as an explicit peer for better mesh connectivity
+                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+
+                info!("{} gossipsub::Subscribed peer {:?}", self.nname(), peer_id);
+
+                // Use gossipsub as a backup protocol for discovering peers
+                if self.should_dial_peer(&peer_id) {
+                    if let Err(e) = self.swarm.dial(peer_id) {
+                        warn!("{} Failed to dial subscribed peer: {}", self.nname(), e);
+                    }
+                }
 
                 match topic.into() {
                     GossipTopic::BroadcastKfrag(
@@ -146,15 +172,19 @@ impl<'a> NetworkEvents<'a> {
                     ) => {},
                     _ => {}
                 }
-
             }
+            gossipsub::Event::Unsubscribed { peer_id, topic } => {
+                info!("{} Gossipsub peer unsubscribed: {:?} from {:?}", self.nname(), peer_id, topic);
+            }
+            gossipsub::Event::GossipsubNotSupported {..} => {}
+            gossipsub::Event::SlowPeer {..} => {}
         }
+        Ok(())
     }
 
-    pub(crate) async fn broadcast_topic_switch(&mut self, topic_switch: &TopicSwitch) {
+    pub(crate) async fn broadcast_topic_switch(&mut self, topic_switch: &TopicSwitch) -> Result<()> {
 
-        let gossip_topic_bytes = serde_json::to_vec(&topic_switch)
-            .expect("serde error");
+        let gossip_topic_bytes = serde_json::to_vec(&topic_switch)?;
 
         self.swarm
             .behaviour_mut()
@@ -170,6 +200,7 @@ impl<'a> NetworkEvents<'a> {
         if let Some(prev_topic) = &topic_switch.prev_topic {
             self.remove_prev_vessel_peer(prev_topic);
         }
+        Ok(())
     }
 
     pub(crate) fn remove_prev_vessel_peer(&mut self, prev_topic: &PrevTopic) {

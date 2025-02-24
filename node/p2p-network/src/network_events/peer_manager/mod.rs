@@ -17,7 +17,7 @@ pub(crate) struct PeerInfo {
     pub peer_id: PeerId,
     pub heartbeat_data: heartbeat_data::HeartBeatData,
     /// name of the Agent this peer is currently hosting (if any)
-    pub agent_vessel: Option<AgentVesselTransferInfo>,
+    pub agent_vessel: Option<AgentVesselInfo>,
     pub client_version: Option<String>,
 }
 
@@ -33,15 +33,15 @@ impl PeerInfo {
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AgentVesselTransferInfo {
+pub struct AgentVesselInfo {
     pub agent_name_nonce: AgentNameWithNonce,
     pub total_frags: usize,
-    pub prev_vessel_peer_id: PeerId,
+    pub current_vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub struct AgentFragment {
+struct AgentFragment {
     pub agent_name_nonce: AgentNameWithNonce,
     frag_num: usize
 }
@@ -89,8 +89,10 @@ impl<'a> PeerManager<'a> {
     //////////////////////
 
     pub fn insert_peer_info(&mut self, peer_id: PeerId) {
-        self.peer_info
-            .insert(peer_id, PeerInfo::new(peer_id, self.avg_window));
+        self.peer_info.insert(
+            peer_id,
+            PeerInfo::new(peer_id, self.avg_window)
+        );
     }
 
     pub fn remove_peer_info(&mut self, peer_id: &PeerId) {
@@ -107,11 +109,15 @@ impl<'a> PeerManager<'a> {
 
     pub fn set_peer_info_agent_vessel(
         &mut self,
-        agent_name_nonce: &AgentNameWithNonce,
-        total_frags: &usize,
-        current_vessel_peer_id: PeerId,
-        next_vessel_peer_id: PeerId,
+        agent_vessel_info: &AgentVesselInfo,
     ) {
+        let AgentVesselInfo {
+            agent_name_nonce,
+            total_frags,
+            current_vessel_peer_id,
+            next_vessel_peer_id,
+        } = agent_vessel_info;
+
         info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&current_vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
@@ -119,11 +125,11 @@ impl<'a> PeerManager<'a> {
         match self.peer_info.get_mut(&current_vessel_peer_id) {
             None => {},
             Some(peer_info) => {
-                peer_info.agent_vessel = Some(AgentVesselTransferInfo {
+                peer_info.agent_vessel = Some(AgentVesselInfo {
                     agent_name_nonce: agent_name_nonce.clone(),
                     total_frags: total_frags.clone(),
-                    prev_vessel_peer_id: current_vessel_peer_id,
-                    next_vessel_peer_id: next_vessel_peer_id,
+                    current_vessel_peer_id: current_vessel_peer_id.clone(),
+                    next_vessel_peer_id: next_vessel_peer_id.clone(),
                 })
             }
         }
@@ -131,7 +137,7 @@ impl<'a> PeerManager<'a> {
         println!("self.peer_id {}", self.peer_id);
         println!("next_vessel_peer_id {}", next_vessel_peer_id);
 
-        if current_vessel_peer_id == self.peer_id {
+        if current_vessel_peer_id == &self.peer_id {
             self.vessel_agent = Some(serde_json::json!({
                 "agent_name_nonce": agent_name_nonce.clone().to_string(),
                 "total_frags": total_frags.clone(),
@@ -141,10 +147,6 @@ impl<'a> PeerManager<'a> {
                 "next_vessel_node_name":  get_node_name(&next_vessel_peer_id),
             }));
         }
-    }
-
-    pub fn get_connected_peers(&self) -> &HashMap<PeerId, PeerInfo> {
-        &self.peer_info
     }
 
     pub fn update_peer_heartbeat(&mut self, peer_id: PeerId, tee_payload: TeeAttestation) {

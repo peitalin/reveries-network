@@ -92,7 +92,7 @@ impl<'a> NetworkEvents<'a> {
                 request_id,
                 error,
                 peer,
-                connection_id,
+                ..
             } => {
                 match self.pending.request_fragments.remove(&request_id) {
                     None => tracing::warn!("RequestId {} not found for {}", request_id, peer),

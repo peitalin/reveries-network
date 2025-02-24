@@ -5,13 +5,21 @@ use std::{
 };
 use color_eyre::Result;
 use libp2p::{
-    gossipsub, identity, kad, mdns, multiaddr::Multiaddr, noise, tcp, yamux, PeerId, StreamProtocol
+    dns,
+    gossipsub,
+    identity,
+    kad,
+    multiaddr::Multiaddr,
+    noise,
+    tcp,
+    yamux,
+    PeerId,
+    StreamProtocol,
 };
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, warn};
 use std::sync::Arc;
 
-pub use crate::types::UmbralPeerId;
+pub use crate::types::VesselPeerId;
 use crate::SendError;
 use crate::types::NetworkEvent;
 use crate::behaviour::Behaviour;
@@ -61,7 +69,7 @@ pub async fn new<'a>(
     let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
     // Swarm Setup
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys.clone())
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -70,6 +78,7 @@ pub async fn new<'a>(
         )?
         // QUIC has it's own connection timeout.
         .with_quic()
+        .with_dns()?
         .with_behaviour(|key| {
 
             // To content-address message, we can take the hash of message and use it as an ID.
@@ -79,21 +88,10 @@ pub async fn new<'a>(
                 gossipsub::MessageId::from(s.finish().to_string())
             };
 
-            // // local peer discovery with mdns
-            // let mdns = mdns::tokio::Behaviour::new(
-            //     mdns::Config::default(),
-            //     peer_id
-            // )?;
-
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(Duration::from_secs(1))
                 .validation_mode(gossipsub::ValidationMode::Strict)
-                // This sets the kind of message validation. The default is Strict (enforce message signing)
-                // disables duplicate messages from being propagated
-                // .message_id_fn(message_id_fn)
-                .duplicate_cache_time(Duration::from_secs(5)) // 5 seconds
-                // duplicate cache time not working with message_id_fn
-                // content-address messages. No two messages of the same content will be propagated.
+                .duplicate_cache_time(Duration::from_secs(5))
                 .build()
                 .map_err(|e| SendError(e.to_string()))?;
 
@@ -111,33 +109,22 @@ pub async fn new<'a>(
             // Enable Kademlia record publishing
             kademlia.set_mode(Some(kad::Mode::Server));
 
-            // Add bootstrap nodes to Kademlia
+            // Add bootstrap nodes to Kademlia and attempt DNS resolution
             for (peer_id_str, addr) in &bootstrap_nodes {
-                debug!("Adding bootstrap node: {} at {}", peer_id_str, addr);
-
-                // For direct addresses without peer IDs, just add the address
-                if peer_id_str.is_empty() {
-                    kademlia.add_address(&peer_id, addr.clone());
-                    debug!("Added bootstrap address: {}", addr);
-                } else {
-                    // If we have a peer ID, parse it and add both peer and address
-                    match peer_id_str.parse::<PeerId>() {
-                        Ok(bootstrap_peer_id) => {
-                            kademlia.add_address(&bootstrap_peer_id, addr.clone());
-                            debug!("Added bootstrap peer: {} at {}", bootstrap_peer_id, addr);
-                        }
-                        Err(e) => warn!("Failed to parse bootstrap peer ID: {}", e),
+                if let Ok(bootstrap_peer_id) = peer_id_str.parse::<PeerId>() {
+                    kademlia.add_address(&bootstrap_peer_id, addr.clone());
+                    // Try to bootstrap immediately
+                    if let Err(e) = kademlia.bootstrap() {
+                        tracing::warn!("Failed to bootstrap Kademlia: {}", e);
                     }
                 }
             }
 
-            // Start the bootstrap process
-            if !bootstrap_nodes.is_empty() {
-                match kademlia.bootstrap() {
-                    Ok(_) => debug!("Started Kademlia bootstrap process"),
-                    Err(e) => warn!("Failed to bootstrap Kademlia DHT: {}", e),
-                }
-            }
+            // Create identify behavior
+            let identify = libp2p_identify::Behaviour::new(libp2p_identify::Config::new(
+                "/my-node/1.0.0".to_string(),
+                key.public(),
+            ));
 
             Ok(Behaviour {
                 kademlia,
@@ -157,11 +144,11 @@ pub async fn new<'a>(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                // mdns: mdns,
                 gossipsub: gossipsub,
+                identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
-                        StreamProtocol::new("/file-exchange/1"),
+                        StreamProtocol::new("/1up-kfrags-reqres/1.0.0"),
                         libp2p::request_response::ProtocolSupport::Full,
                     )],
                     libp2p::request_response::Config::default()
@@ -196,6 +183,7 @@ pub async fn new<'a>(
             seed,
             swarm,
             peer_id,
+            id_keys,
             &node_name,
             umbral_key,
             command_receiver,
@@ -206,8 +194,6 @@ pub async fn new<'a>(
         ),
     ))
 }
-
-
 
 pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     libp2p::PeerId,

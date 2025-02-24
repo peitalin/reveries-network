@@ -1,75 +1,83 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use color_eyre::{Result, eyre, eyre::anyhow};
 use serde::{Deserialize, Serialize};
-use libp2p::PeerId;
-use crate::{short_peer_id, types::GossipTopic};
+use libp2p::{
+    identity,
+    PeerId
+};
+use crate::{short_peer_id, TryPeerId};
+use crate::types::{
+    AgentNameWithNonce,
+    GossipTopic,
+};
 use umbral_pre::KeyFrag;
+
+use super::AgentVesselInfo;
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct UmbralPeerId(pub String);
+pub struct VesselPeerId(pub String);
 
-const UMBRAL_KEY_PREFIX: &'static str = "umbral_pubkey_";
+const VESSEL_KAD_KEY_PREFIX: &'static str = "vessel_peer_id_";
 
-impl UmbralPeerId {
+impl VesselPeerId {
     pub(crate) fn short_peer_id(&self) -> String {
-        short_peer_id(&self)
+        short_peer_id(&self.0)
     }
-}
 
-impl From<String> for UmbralPeerId {
-    fn from(s: String) -> Self {
-        if s.starts_with(UMBRAL_KEY_PREFIX) {
-            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
+    pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
+        let s: String = s.into();
+        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
+            let ssplit = s.split(VESSEL_KAD_KEY_PREFIX).collect::<Vec<&str>>();
+            Ok(VesselPeerId(ssplit[1].to_string()))
         } else {
-            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
+            Err(eyre::anyhow!("Invalid VesselPeerId: {}. Must begin with {}", s, VESSEL_KAD_KEY_PREFIX))
+        }
+    }
+
+    pub fn is_kademlia_key<S: Into<String>>(s: S) -> Result<Self> {
+        let s: String = s.into();
+        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
+            let ssplit = s.split(VESSEL_KAD_KEY_PREFIX).collect::<Vec<&str>>();
+            Ok(VesselPeerId(ssplit[1].to_string()))
+        } else {
+            Err(eyre::anyhow!("Invalid VesselPeerId kademlia key: {}. Must begin with {}", s, VESSEL_KAD_KEY_PREFIX))
         }
     }
 }
 
-impl From<&str> for UmbralPeerId {
-    fn from<'a>(s: &'a str) -> Self {
-        if s.starts_with(UMBRAL_KEY_PREFIX) {
-            let ssplit = s.split(UMBRAL_KEY_PREFIX).collect::<Vec<&str>>();
-            UmbralPeerId(ssplit[1].to_string())
-        } else {
-            panic!("Invalid UmbralPeerId: {}. Must begin with {}", UMBRAL_KEY_PREFIX, s)
-        }
-    }
-}
-
-impl Into<String> for UmbralPeerId {
+impl Into<String> for VesselPeerId {
     fn into(self) -> String {
-        format!("{}{}", UMBRAL_KEY_PREFIX, self.0)
+        format!("{}{}", VESSEL_KAD_KEY_PREFIX, self.0)
     }
 }
 
-impl Display for UmbralPeerId {
+impl Display for VesselPeerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", UMBRAL_KEY_PREFIX, self.0)
+        write!(f, "{}{}", VESSEL_KAD_KEY_PREFIX, self.0)
     }
 }
 
-impl From<PeerId> for UmbralPeerId {
+impl From<PeerId> for VesselPeerId {
     fn from(p: PeerId) -> Self {
-        UmbralPeerId(p.to_string())
+        VesselPeerId(p.to_string())
     }
 }
 
-impl From<&PeerId> for UmbralPeerId {
+impl From<&PeerId> for VesselPeerId {
     fn from(p: &PeerId) -> Self {
-        UmbralPeerId(p.to_string())
+        VesselPeerId(p.to_string())
     }
 }
 
-impl Into<PeerId> for UmbralPeerId {
-    fn into(self) -> PeerId {
-        // slice off the UMBRAL_KEY_PREFIX first
+impl TryPeerId for VesselPeerId {
+    fn try_into_peer_id(&self) -> Result<PeerId> {
+        // slice off the VESSEL_KAD_KEY_PREFIX first
         let umbral_peer_id_str = self.to_string();
-        let peer_id_str = &umbral_peer_id_str.as_str()[UMBRAL_KEY_PREFIX.len()..];
+        let peer_id_str = &umbral_peer_id_str.as_str()[VESSEL_KAD_KEY_PREFIX.len()..];
         PeerId::from_str(peer_id_str)
-            .expect("Error unwrapping UmbralPeerId to PeerId")
+            .map_err(|e| eyre::anyhow!(e.to_string()))
     }
 }
 
@@ -122,13 +130,78 @@ impl Display for CapsuleFragmentMessage {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct UmbralPublicKeyResponse {
-    pub umbral_peer_id: UmbralPeerId,
+pub struct NodeVesselStatus {
+    pub peer_id: PeerId,
     pub umbral_public_key: umbral_pre::PublicKey,
+    pub agent_vessel_info: Option<AgentVesselInfo>,
+    pub vessel_status: VesselStatus,
 }
 
-impl Display for UmbralPublicKeyResponse {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum VesselStatus {
+    // nodes that should never host agent
+    NeverVessel,
+    // nodes that are able to host agent, but empty at the moment
+    EmptyVessel,
+    // nodes that are currently hosting an agent
+    ActiveVessel
+}
+
+impl Display for NodeVesselStatus  {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UmbralPublicKeyResponse({}, {})", self.umbral_peer_id, self.umbral_public_key)
+        write!(f, "NodeVesselStatus({}, {})", self.peer_id, self.umbral_public_key)
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RespawnId {
+    prev_agent: AgentNameWithNonce,
+    next_vessel_peer_id: libp2p::PeerId,
+}
+
+impl RespawnId {
+    pub fn new(
+        prev_agent: &AgentNameWithNonce,
+        next_vessel_peer_id: &libp2p::PeerId,
+    ) -> Self {
+        Self {
+            prev_agent: prev_agent.clone(),
+            next_vessel_peer_id: next_vessel_peer_id.clone(),
+        }
+    }
+
+    pub fn get_request_id(&self) -> String {
+        let respawn_id = hex::encode(format!("{}{}", self.prev_agent, self.next_vessel_peer_id));
+        respawn_id
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedVesselStatus {
+    pub node_vessel_status: NodeVesselStatus,
+    pub signature: Vec<u8>,
+}
+
+impl SignedVesselStatus {
+    pub fn new(status: NodeVesselStatus, id_keys: &identity::Keypair) -> Result<Self> {
+        let status_bytes = serde_json::to_vec(&status)?;
+        let signature = id_keys.sign(&status_bytes)?;
+        Ok(Self {
+            node_vessel_status: status,
+            signature: signature.to_vec(),
+        })
+    }
+
+    pub fn verify(&self, publisher_id: &PeerId) -> Result<()> {
+        let status_bytes = serde_json::to_vec(&self.node_vessel_status)?;
+
+        // Convert PeerId bytes to PublicKey
+        let public_key = identity::PublicKey::try_decode_protobuf(&publisher_id.to_bytes())
+            .map_err(|e| eyre::anyhow!("Failed to decode public key: {}", e))?;
+
+        if !public_key.verify(&status_bytes, &self.signature) {
+            return Err(eyre::anyhow!("Invalid vessel status signature"));
+        }
+        Ok(())
     }
 }

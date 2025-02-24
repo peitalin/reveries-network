@@ -25,14 +25,10 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
 
-    // Define bootstrap nodes - these should be your stable, always-online nodes
-    // let bootstrap_nodes = vec![
-    //     "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X@0.0.0.0:8001"
-    // ];
     let bootstrap_nodes: Vec<(String, Multiaddr)> = opt.bootstrap_peers
         .iter()
         .filter_map(|addr_str| {
-            // Parse multiaddr format: /ip4/ip/tcp/port/p2p/peer_id
+            // Parse multiaddr format: /ip4/node1/tcp/port/p2p/peer_id
             let addr: Multiaddr = addr_str.parse().ok()?;
 
             // Extract peer ID from the multiaddr
@@ -58,7 +54,9 @@ async fn main() -> Result<()> {
     // Spawn the network task to listen to incoming commands, run in the background.
     tokio::task::spawn(network_event_loop.listen_for_network_events());
     // Tell network to start listening for peers on the network
-    node_client.start_listening_to_network(opt.listen_address).await?;
+    for addr in opt.listen_address {
+        node_client.start_listening_to_network(Some(addr)).await?;
+    }
     // TODO: redudant step, automatically start listening and finding peers later
 
     // Subscribe and listen to gossip network for messages

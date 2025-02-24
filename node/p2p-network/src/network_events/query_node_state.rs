@@ -4,7 +4,6 @@ use super::NetworkEvents;
 impl<'a> NetworkEvents<'a> {
     pub(super) async fn query_node_state(&mut self) -> serde_json::Value {
 
-        // self.peer_manager.peer_info
         let peer_info = self.peer_manager.peer_info
             .iter()
             .map(|(peer_id, peer_info)| {
@@ -35,7 +34,7 @@ impl<'a> NetworkEvents<'a> {
                             "agent_vessel": {
                                 "agent_name_nonce": av.agent_name_nonce.to_string(),
                                 "next_vessel": get_node_name(&av.next_vessel_peer_id),
-                                "prev_vessel": get_node_name(&av.prev_vessel_peer_id),
+                                "current_vessel": get_node_name(&av.current_vessel_peer_id),
                                 "total_frags": av.total_frags,
                             },
                             "heartbeat_data": {
@@ -46,8 +45,6 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }).collect::<Vec<serde_json::Value>>();
-
-        println!("kfrag_broadcast_peers {:?}", self.peer_manager.kfrag_broadcast_peers);
 
         // self.peer_manager.kfrag_broadcast_peers
         let broadcast_peers = self.peer_manager.kfrag_broadcast_peers

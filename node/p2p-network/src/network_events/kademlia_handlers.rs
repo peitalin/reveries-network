@@ -1,25 +1,62 @@
-use libp2p::kad;
+use libp2p::{
+    kad,
+    PeerId,
+};
+use color_eyre::Result;
 use tracing::{info, warn, debug};
 use crate::get_node_name;
 use crate::types::{
-    UmbralPeerId,
-    UmbralPublicKeyResponse,
+    VesselPeerId,
+    NodeVesselStatus,
+    SignedVesselStatus,
 };
 use super::NetworkEvents;
 
 
 //// Kademlia only used for tracking Umbral PublicKeys (Proxy Reencryption) for each PeerId
 impl<'a> NetworkEvents<'a> {
-    pub(super) async fn handle_kademlia_event(&mut self, kad_event: kad::Event) {
+
+    pub(crate) fn should_dial_peer(&self, peer_id: &PeerId) -> bool {
+        // Don't dial:
+        // 1. Ourselves
+        // 2. Already connected peers
+        if peer_id == &self.peer_id || self.swarm.is_connected(peer_id) {
+            debug!("{} Already connected to peer: {:?}", self.nname(), peer_id);
+            return false;
+        }
+        true
+    }
+
+    pub(super) async fn handle_kademlia_event(&mut self, kad_event: kad::Event) -> Result<()> {
         match kad_event {
-            // GetProviders event
+
+            // Add handling for routing table updates
+            kad::Event::RoutingUpdated { peer: peer_id, addresses, .. } => {
+                tracing::info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
+                if self.should_dial_peer(&peer_id) {
+                    self.peer_manager.insert_peer_info(peer_id);
+                    for addr in addresses.iter() {
+                        info!("RoutingUpdated: adding Kademlia peer: {:?}", addr);  // This shows us learning about other peers
+                        self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                    }
+                    // Then we try to connect to the newly discovered peer
+                    if let Err(e) = self.swarm.dial(peer_id) {
+                        warn!("{} Failed to dial discovered peer: {}", self.nname(), e);
+                    }
+                }
+            },
+
             kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
-                kad::QueryResult::GetProviders(p) => match p {
-                    Ok(kad::GetProvidersOk::FoundProviders { providers, .. }) => {
+                kad::QueryResult::StartProviding(..) => {}
+                kad::QueryResult::GetClosestPeers(Ok(_ok)) => {}
+                // GetProviders event
+                kad::QueryResult::GetProviders(Ok(p)) => match p {
+                    kad::GetProvidersOk::FoundProviders { providers, .. } => {
                         if let Some(sender) = self.pending.get_providers.remove(&id) {
+
                             // send providers back
-                            sender.send(providers).expect("Receiver not to be dropped");
-                            // Finish the query. We are only interested in the first result.
+                            sender.send(providers).map_err(crate::SendError::from)?;
+
                             self.swarm
                                 .behaviour_mut()
                                 .kademlia
@@ -28,81 +65,63 @@ impl<'a> NetworkEvents<'a> {
                                 .finish();
                         }
                     }
-                    Ok(kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. }) => {},
-                    Err(err) => {
-                        warn!("Failed to get providers: {err:?}");
-                    }
+                    kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {},
                 }
                 kad::QueryResult::GetRecord(Ok(
-                    kad::GetRecordOk::FoundRecord(kad::PeerRecord {
-                        record: kad::Record { key, value, .. },
-                        ..
-                    })
+                    kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, ..  })
                 )) => {
-                    let k = std::str::from_utf8(key.as_ref()).unwrap();
-                    let umbral_pk_peer_id_key: UmbralPeerId = k.into();
-
-                    if let Some(sender) = self.pending.get_umbral_pks.remove(&umbral_pk_peer_id_key) {
-                        match serde_json::from_slice::<UmbralPublicKeyResponse>(&value) {
-                            Ok(umbral_pk_response) => {
-                                sender.send(umbral_pk_response).await.ok();
+                    let kad_key = std::str::from_utf8(record.key.as_ref())?;
+                    // select the vessel kademlia keys
+                    if let Ok(vessel_key) = VesselPeerId::is_kademlia_key(kad_key) {
+                        if let Some(sender) = self.pending.get_node_vessel_status.remove(&vessel_key) {
+                            match serde_json::from_slice::<SignedVesselStatus>(&record.value) {
+                                Ok(signed_status) => {
+                                    // Verify signature
+                                    if let Some(publisher) = record.publisher {
+                                        signed_status.verify(&publisher)?;
+                                        sender.send(signed_status.node_vessel_status).await?;
+                                    } else {
+                                        warn!("Record missing publisher ID");
+                                    }
+                                }
+                                Err(e) => warn!("{}", e.to_string()),
                             }
-                            Err(_e) => println!("Err deserializing UmbralPublicKeyResponse"),
                         }
-                        self.swarm
-                            .behaviour_mut()
-                            .kademlia
-                            .query_mut(&id)
-                            .unwrap()
-                            .finish();
                     }
+                    // Finish kademlia query
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .query_mut(&id)
+                        .unwrap()
+                        .finish();
                 }
-                kad::QueryResult::GetRecord(..) => {}
                 kad::QueryResult::PutRecord(..) => {}
-                kad::QueryResult::StartProviding(..) => {}
-                kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer, .. })) => {
-                    if peer == self.peer_id {
-                        debug!(
-                            "Kademlia BootstrapOk: Publishing Umbral PK for {:?} {}\n",
-                            get_node_name(&peer),
+                kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
+                    if peer_id == self.peer_id {
+                        debug!("BootstrapOk: publishing NodeVesselStatus and Umbral PK {:?} {}\n",
+                            get_node_name(&peer_id),
                             self.umbral_key.public_key
                         );
 
-                        let umbral_pk_response = UmbralPublicKeyResponse {
-                            umbral_peer_id: UmbralPeerId::from(peer),
+                        let node_vessel_status = NodeVesselStatus {
+                            peer_id: peer_id,
                             umbral_public_key: self.umbral_key.public_key,
+                            agent_vessel_info: None, // None initially
+                            vessel_status: self.vessel_status,
                         };
-                        let umbral_public_key_bytes = serde_json::to_vec(&umbral_pk_response)
-                            .expect("serializing Umbral PRE key");
-
-                        self.swarm
-                            .behaviour_mut()
-                            .kademlia
-                            .put_record(
-                                kad::Record {
-                                    key: kad::RecordKey::new(&umbral_pk_response.umbral_peer_id.to_string()),
-                                    value: umbral_public_key_bytes,
-                                    publisher: Some(peer),
-                                    expires: None,
-                                },
-                                kad::Quorum::One
-                            ).expect("No store error.");
+                        // Publish signed vessel status during bootstrap
+                        self.put_signed_vessel_status(node_vessel_status)?;
                     }
                 }
-                qresult => println!("<NetworkEvent>: {:?}", qresult)
-            },
-            // Add handling for routing table updates
-            kad::Event::RoutingUpdated { peer, addresses, .. } => {
-                debug!("{} {}", self.nname(), format!("Kademlia discovered peer {:?} at {:?}", peer, addresses));
-                // Add or update peers as they're discovered through the DHT
-                for addr in addresses.iter() {
-                    self.swarm.behaviour_mut().kademlia.add_address(&peer, addr.clone());
-                }
+                qresult => warn!("{}: {:?}", self.nname(), qresult)
             },
 
             // ignore other Kademlia events
             _kad_event => {}
         }
+
+        Ok(())
     }
 }
 
