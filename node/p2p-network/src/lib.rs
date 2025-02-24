@@ -5,6 +5,7 @@ pub mod node_client;
 pub mod types;
 
 use color_eyre::{Result, eyre::anyhow};
+use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use libp2p::{
     multiaddr,
@@ -24,14 +25,30 @@ impl std::fmt::Display for SendError {
     }
 }
 
+impl From<HashSet<PeerId>> for SendError {
+    fn from(hset: HashSet<PeerId>) -> Self {
+        SendError(anyhow!("sender.send(providers) err: {:?}", hset).to_string())
+    }
+}
+
+impl From<umbral_pre::CapsuleFragVerificationError> for SendError {
+    fn from(e: umbral_pre::CapsuleFragVerificationError) -> Self {
+        SendError(e.to_string())
+    }
+}
+
+impl From<(umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)> for SendError {
+    fn from(e: (umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)) -> Self {
+        SendError(e.0.to_string())
+    }
+}
+
 pub fn short_peer_id<T: ToString>(peer_id: T) -> String {
     let peer_id_str = peer_id.to_string();
-    // TODO: add stricter PeerId checks
     if peer_id_str.len() < 10 {
-        panic!("Not a valid PeerId")
+        tracing::warn!("Not a valid PeerId")
     }
     let peer_id_end = peer_id_str.chars().rev().take(6).collect::<String>();
-    // let start = &peer_id_str[..4];
     let end = peer_id_end.chars().rev().collect::<String>();
     format!("PeerId(..{})", end)
 }

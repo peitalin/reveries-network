@@ -15,6 +15,7 @@ use futures::StreamExt;
 use libp2p::{
     gossipsub::IdentTopic,
     kad,
+    identity,
     request_response,
     swarm::Swarm,
     PeerId
@@ -35,14 +36,15 @@ use crate::types::{
     GossipTopic,
     NetworkEvent,
     RespawnId,
-    TopicSwitch,
-    UmbralPeerId,
-    UmbralPublicKeyResponse
+    VesselPeerId,
+    AgentVesselInfo,
+    NodeVesselStatus,
+    VesselStatus,
+    SignedVesselStatus,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
-use crate::network_events::peer_manager::AgentVesselTransferInfo;
 use runtime::reencrypt::UmbralKey;
 use peer_manager::PeerManager;
 use tokio::time;
@@ -53,7 +55,9 @@ pub struct NetworkEvents<'a> {
     swarm: Swarm<Behaviour>,
     seed: usize,
     peer_id: PeerId, // This node's PeerId
+    id_keys: identity::Keypair,
     node_name: &'a str,
+    vessel_status: VesselStatus,
     // Umbral fragments
     umbral_key: UmbralKey,
 
@@ -79,9 +83,9 @@ struct PendingRequests {
         kad::QueryId,
         oneshot::Sender<HashSet<PeerId>>
     >,
-    get_umbral_pks: HashMap<
-        UmbralPeerId,
-        mpsc::Sender<UmbralPublicKeyResponse>
+    get_node_vessel_status: HashMap<
+        VesselPeerId,
+        mpsc::Sender<NodeVesselStatus>
     >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
@@ -94,7 +98,7 @@ impl PendingRequests {
     fn new() -> Self {
         Self {
             get_providers: Default::default(),
-            get_umbral_pks: Default::default(),
+            get_node_vessel_status: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }
@@ -107,6 +111,7 @@ impl<'a> NetworkEvents<'a> {
         seed: usize,
         swarm: Swarm<Behaviour>,
         peer_id: PeerId,
+        id_keys: identity::Keypair,
         node_name: &'a str,
         umbral_key: UmbralKey,
         command_receiver: mpsc::Receiver<NodeCommand>,
@@ -120,7 +125,9 @@ impl<'a> NetworkEvents<'a> {
             seed,
             swarm,
             peer_id,
+            id_keys,
             node_name: &node_name,
+            vessel_status: VesselStatus::EmptyVessel, // TODO: pass config to set vessel_status
             umbral_key: umbral_key,
             command_receiver,
             chat_cmd_receiver,
@@ -139,11 +146,10 @@ impl<'a> NetworkEvents<'a> {
     }
 
     pub async fn listen_for_network_events(mut self) {
-        // Start listening on the specified address
+        // Start listening on specified addresses
         for addr in self.swarm.listeners() {
             info!("{} {}", self.nname(), format!("Listening on {}", addr));
         }
-
         loop {
             tokio::select! {
                 _ = self.peer_heartbeat_checker.tick() => {
@@ -156,7 +162,7 @@ impl<'a> NetworkEvents<'a> {
                         .expect("error handling heartbeat failure");
                 }
                 swarm_event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(swarm_event).await;
+                    self.handle_swarm_event(swarm_event).await.expect("swarm handler error");
                 },
                 hb = self.internal_heartbeat_fail_receiver.recv() => match hb {
                     // internal Heartbeat failure
@@ -182,20 +188,11 @@ impl<'a> NetworkEvents<'a> {
             .config
             .max_time_before_rotation();
 
-
         let connected_peers = self.swarm.connected_peers()
             .map(|p| format!("{}", get_node_name(p)))
             .collect::<Vec<String>>();
 
         info!("{} connected peers: {:?}", self.nname(), connected_peers);
-
-
-        let peer_ids = self.peer_manager.get_connected_peers()
-            .iter()
-            .map(|p| format!("{}", get_node_name(p.0)))
-            .collect::<Vec<String>>();
-
-        info!("{} peer_info peers: {:?}", self.nname(), peer_ids);
 
         let mut failed_agents_placeholder = vec![];
         let peer_info = self.peer_manager.peer_info.clone();
@@ -211,15 +208,15 @@ impl<'a> NetworkEvents<'a> {
 
                 if let None = &peer_info.agent_vessel {
                     println!("{} failed but wasn't hosting an agent.", node_name);
-                    // TODO remove peer kfrags, will disconnect automatically after timeout
-                    // self.remove_peer(peer_id);
+                    // will automatically remove_peer() after timeout
+                    // self.remove_peer(&peer_id);
                 }
 
-                if let Some(AgentVesselTransferInfo {
+                if let Some(AgentVesselInfo {
                     agent_name_nonce: prev_agent,
                     total_frags,
                     next_vessel_peer_id,
-                    prev_vessel_peer_id
+                    current_vessel_peer_id
                 }) = &peer_info.agent_vessel {
 
                     let next_agent = AgentNameWithNonce(prev_agent.0.clone(), prev_agent.1 + 1);
@@ -232,7 +229,7 @@ impl<'a> NetworkEvents<'a> {
                     failed_agents_placeholder.push(prev_agent);
 
                     // mark as respawning...
-                    let respawn_id = RespawnId::new(prev_agent, prev_vessel_peer_id);
+                    let respawn_id = RespawnId::new(prev_agent, current_vessel_peer_id);
                     self.pending.respawns.insert(respawn_id.clone());
 
                     ////////////////////////////////////////////////
@@ -251,15 +248,15 @@ impl<'a> NetworkEvents<'a> {
                         // Dispatch a Respawn(agent_name) event to NetworkEvents
                         // - regenerates PRE ciphertexts, kfrags, and reencryption keys
                         // - re-broadcasts the new PRE fragments to peers
-                        let _ = self.network_event_sender
+                        self.network_event_sender
                             .send(NetworkEvent::RespawnRequest(
-                                AgentVesselTransferInfo {
+                                AgentVesselInfo {
                                     agent_name_nonce: prev_agent.clone(),
                                     total_frags: *total_frags,
                                     next_vessel_peer_id: *next_vessel_peer_id,
-                                    prev_vessel_peer_id: prev_vessel_peer_id.clone()
+                                    current_vessel_peer_id: current_vessel_peer_id.clone()
                                 }
-                            )).await;
+                            )).await?;
 
                         info!("{} '{}' {} {}", "Respawning agent".blue(),
                             prev_agent.to_string().green(),
@@ -357,11 +354,11 @@ impl<'a> NetworkEvents<'a> {
         self.peer_manager.remove_peer_info(peer_id);
         // Remove peer from GossipSub
         self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-        // Remove UmbralPeerId of the Peer on Kademlia
+        // Remove VesselPeerId of the Peer on Kademlia
         self.swarm
             .behaviour_mut()
             .kademlia
-            .remove_record(&kad::RecordKey::new(&UmbralPeerId::from(peer_id).to_string()));
+            .remove_record(&kad::RecordKey::new(&VesselPeerId::from(peer_id).to_string()));
     }
 
     fn save_peer(&mut self,
@@ -379,6 +376,22 @@ impl<'a> NetworkEvents<'a> {
         self.swarm.behaviour_mut()
             .heartbeat
             .trigger_heartbeat_failure().await;
+    }
+
+    fn put_signed_vessel_status(&mut self, status: NodeVesselStatus) -> Result<()> {
+        let signed_status = SignedVesselStatus::new(status.clone(), &self.id_keys)?;
+
+        self.swarm.behaviour_mut().kademlia.put_record(
+            kad::Record {
+                key: kad::RecordKey::new(&VesselPeerId::from(status.peer_id).to_string()),
+                value: serde_json::to_vec(&signed_status)?,
+                publisher: Some(status.peer_id),
+                expires: None,
+            },
+            kad::Quorum::One
+        )?;
+
+        Ok(())
     }
 
 }

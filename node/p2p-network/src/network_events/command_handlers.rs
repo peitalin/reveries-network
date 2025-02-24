@@ -3,18 +3,20 @@ use libp2p::{
     PeerId
 };
 use color_eyre::eyre::anyhow;
-use colored::Colorize;
 use tracing::info;
 
 use crate::node_client::NodeCommand;
 use crate::types::{
+    AgentVesselInfo,
     FragmentRequestEnum,
     FragmentResponseEnum,
     GossipTopic,
     TopicHash,
-    UmbralPeerId
+    NodeVesselStatus,
+    VesselStatus,
+    VesselPeerId
 };
-use crate::{short_peer_id};
+use crate::short_peer_id;
 use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
 use super::NetworkEvents;
@@ -23,23 +25,20 @@ use super::NetworkEvents;
 impl<'a> NetworkEvents<'a> {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
-            NodeCommand::GetPeerUmbralPublicKeys { sender, agent_name_nonce } => {
+            NodeCommand::GetPeerNodeVesselStatuses { sender, .. } => {
 
-                let public_keys = self.peer_manager
-                    .get_connected_peers()
-                    .iter()
-                    .map(|(peer_id, _peer_info)| peer_id)
-                    .collect::<Vec<&PeerId>>();
+                let public_keys = self.swarm.connected_peers()
+                    .cloned()
+                    .collect::<Vec<PeerId>>();
 
                 for peer_id in public_keys {
-                    // Umbral PKs are derived deterministically from the same seed as PeerId
-                    // So we can store Umbral Pks and PeerIds on kademlia
-                    let umbral_pk_kademlia_key = UmbralPeerId::from(peer_id);
-                    let _query_id = self.swarm.behaviour_mut()
+                    // add prefix as kademlia key
+                    let vessel_kademlia_key = VesselPeerId::from(peer_id);
+                    self.swarm.behaviour_mut()
                         .kademlia
-                        .get_record(kad::RecordKey::new(&umbral_pk_kademlia_key.to_string()));
+                        .get_record(kad::RecordKey::new(&vessel_kademlia_key.to_string()));
 
-                    self.pending.get_umbral_pks.insert(umbral_pk_kademlia_key, sender.clone());
+                    self.pending.get_node_vessel_status.insert(vessel_kademlia_key, sender.clone());
                 };
             }
             NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
@@ -91,7 +90,7 @@ impl<'a> NetworkEvents<'a> {
             }
             NodeCommand::BroadcastSwitchTopic(ts, sender) => {
 
-                self.broadcast_topic_switch(&ts).await;
+                self.broadcast_topic_switch(&ts).await.ok();
 
                 // get all peers subscribe to topic
                 let all_peers = self.swarm
@@ -127,13 +126,36 @@ impl<'a> NetworkEvents<'a> {
                         panic!("Message must be GossipTopic::BroadcastKfrag, got: {}", msg.topic);
                     }
                 };
+                let agent_vessel_info = AgentVesselInfo {
+                    agent_name_nonce: agent_name_nonce.clone(),
+                    total_frags: msg.total_frags,
+                    current_vessel_peer_id: msg.vessel_peer_id,
+                    next_vessel_peer_id: msg.next_vessel_peer_id,
+                };
+
                 // set broadcaster's peer info
-                self.peer_manager.set_peer_info_agent_vessel(
-                    &agent_name_nonce,
-                    &msg.total_frags,
-                    msg.vessel_peer_id, // vessel_peer_id
-                    msg.next_vessel_peer_id // next_vessel_peer_id
-                );
+                self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
+
+                // Update vessel status on Kademlia DHT
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .put_record(
+                        kad::Record {
+                            key: kad::RecordKey::new(&VesselPeerId::from(msg.vessel_peer_id).to_string()),
+                            value: serde_json::to_vec(
+                                    &NodeVesselStatus {
+                                        peer_id: msg.vessel_peer_id,
+                                        umbral_public_key: msg.alice_pk, // vessel's public key
+                                        agent_vessel_info: Some(agent_vessel_info),
+                                        vessel_status: VesselStatus::ActiveVessel,
+                                    }
+                                ).expect("serde_json::to_vec(node_vessel_status)"),
+                            publisher: Some(msg.vessel_peer_id),
+                            expires: None,
+                        },
+                        kad::Quorum::One
+                ).expect("put_record err");
 
                 let kfrag_msg = serde_json::to_vec(&KeyFragmentMessage::from(msg))
                     .expect("serde err");
@@ -224,6 +246,5 @@ impl<'a> NetworkEvents<'a> {
                 sender.send(node_state).ok();
             }
         }
-
     }
 }

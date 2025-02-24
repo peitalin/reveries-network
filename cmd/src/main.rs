@@ -27,7 +27,7 @@ use tracing::{debug, info, warn, error};
 use rpc::rpc_client::{parse_url, create_rpc_client};
 use p2p_network::{
     node_client::RestartReason,
-    types::UmbralPublicKeyResponse,
+    types::NodeVesselStatus,
     get_node_name,
     short_peer_id,
 };
@@ -94,9 +94,11 @@ async fn main() -> Result<()> {
                 secret_key_seed as usize
             );
 
-            let UmbralPublicKeyResponse {
-                umbral_peer_id,
+            let NodeVesselStatus {
+                peer_id,
                 umbral_public_key,
+                agent_vessel_info,
+                vessel_status
             } = client.request(
                 "spawn_agent",
                 rpc_params![
@@ -108,8 +110,8 @@ async fn main() -> Result<()> {
 
             info!("{}\n{}",
                 format!("Spawned Agent. Next Vessel: {}\n{}",
-                    get_node_name(&umbral_peer_id.clone().try_into_peer_id()?),
-                    short_peer_id(&umbral_peer_id),
+                    get_node_name(&peer_id),
+                    short_peer_id(&peer_id),
                 ).yellow(),
                 format!(
                     "Umbral PublicKey: {}",

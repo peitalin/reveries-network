@@ -25,14 +25,10 @@ async fn main() -> Result<()> {
 
     let opt = Opt::parse();
 
-    // Define bootstrap nodes - these should be your stable, always-online nodes
-    // let bootstrap_nodes = vec![
-    //     "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X@0.0.0.0:8001"
-    // ];
     let bootstrap_nodes: Vec<(String, Multiaddr)> = opt.bootstrap_peers
         .iter()
         .filter_map(|addr_str| {
-            // Parse multiaddr format: /ip4/ip/tcp/port/p2p/peer_id
+            // Parse multiaddr format: /ip4/node1/tcp/port/p2p/peer_id
             let addr: Multiaddr = addr_str.parse().ok()?;
 
             // Extract peer ID from the multiaddr

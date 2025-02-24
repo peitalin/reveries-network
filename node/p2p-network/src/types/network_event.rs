@@ -1,8 +1,7 @@
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
-use crate::network_events::peer_manager::AgentVesselTransferInfo;
+use crate::network_events::peer_manager::AgentVesselInfo;
 use crate::types::{AgentNameWithNonce, FragmentNumber, RespawnId};
 use crate::SendError;
 
@@ -16,7 +15,7 @@ pub enum NetworkEvent {
         channel: ResponseChannel<FragmentResponseEnum>
     },
     RespawnRequest(
-        AgentVesselTransferInfo,
+        AgentVesselInfo,
     ),
     SaveKfragProviderRequest {
         agent_name_nonce: AgentNameWithNonce,

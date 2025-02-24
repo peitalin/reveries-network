@@ -1,23 +1,18 @@
-use libp2p::{
-    kad,
-    swarm::SwarmEvent,
-    Multiaddr,
-    multiaddr,
-};
+use color_eyre::Result;
 use colored::Colorize;
+use libp2p::swarm::SwarmEvent;
 use tracing::{trace, info, warn, debug};
 use crate::behaviour::BehaviourEvent;
 use super::NetworkEvents;
-use serde_json;
 
 
 impl<'a> NetworkEvents<'a> {
-    pub(super) async fn handle_swarm_event(&mut self, swarm_event: SwarmEvent<BehaviourEvent>) {
+    pub(super) async fn handle_swarm_event(&mut self, swarm_event: SwarmEvent<BehaviourEvent>) -> Result<()> {
         match swarm_event {
 
             //// Kademlia events for storing Umbral PRE pubkeys
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kademlia_event)) => {
-                self.handle_kademlia_event(kademlia_event).await;
+                self.handle_kademlia_event(kademlia_event).await?;
             }
 
             //// Request Response events for transferring frags
@@ -27,7 +22,7 @@ impl<'a> NetworkEvents<'a> {
 
             //// GossipSub events for PRE broadcasts
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossip_event)) => {
-                self.handle_gossipsub_event(gossip_event).await;
+                self.handle_gossipsub_event(gossip_event).await?;
             }
 
             //// Heartbeat Protocol events
@@ -45,7 +40,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::Behaviour(BehaviourEvent::Identify(
                 libp2p_identify::Event::Received { peer_id, info, .. }
             )) => {
-                info!("{} Identified peer: {:?}", self.nname(), peer_id);
+                info!("{} Identified and adding peer: {:?}", self.nname(), peer_id);
                 for addr in info.listen_addrs {
                     self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
                 }
@@ -53,36 +48,32 @@ impl<'a> NetworkEvents<'a> {
 
             //// Swarm connection events
             SwarmEvent::NewListenAddr { address, .. } => {
-                info!("{} {}", self.nname(), format!("New listen address: {}", address));
+                debug!("{} {}", self.nname(), format!("New listen address: {}", address));
             }
             SwarmEvent::Dialing { peer_id, .. } => {
-                info!("{} {}", self.nname(), format!("Dialing peer: {:?}", peer_id));
+                debug!("{} {}", self.nname(), format!("Dialing peer: {:?}", peer_id));
             }
             SwarmEvent::IncomingConnection { local_addr, send_back_addr, .. } => {
-                info!("{} {}", self.nname(), format!("Incoming connection from {} to {}", send_back_addr, local_addr));
+                debug!("{} {}", self.nname(), format!("Incoming connection from {} to {}", send_back_addr, local_addr));
             }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                info!("{} {}", self.nname(), format!("Connection established with peer: {:?}", peer_id));
-                // Add peer to peer manager
+                debug!("{} {}", self.nname(), format!("Connection established with peer: {:?}", peer_id));
                 self.peer_manager.insert_peer_info(peer_id);
             }
-
             SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::IncomingConnectionError { .. } => { }
-
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 warn!("{} {}", self.nname(), format!("OutgoingConnectionError with peer: {:?}, error: {:?}", peer_id, error).red());
             }
-
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}", peer_id).red());
-                // Remove from peer manager when connection closes
-                self.peer_manager.remove_peer_info(&peer_id);
+                // Remove from peer manager after heartbeat timeout, not when connection closes
             }
-
             //// Unhandled SwarmEvents
             swarm_event => trace!("Unhandled SwarmEvent: {swarm_event:?}"),
         }
+
+        Ok(())
     }
 }
 

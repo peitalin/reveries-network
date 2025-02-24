@@ -5,6 +5,7 @@ use std::{
 };
 use color_eyre::Result;
 use libp2p::{
+    dns,
     gossipsub,
     identity,
     kad,
@@ -16,10 +17,9 @@ use libp2p::{
     StreamProtocol,
 };
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, warn, info};
 use std::sync::Arc;
 
-pub use crate::types::UmbralPeerId;
+pub use crate::types::VesselPeerId;
 use crate::SendError;
 use crate::types::NetworkEvent;
 use crate::behaviour::Behaviour;
@@ -69,7 +69,7 @@ pub async fn new<'a>(
     let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
     // Swarm Setup
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys.clone())
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -78,6 +78,7 @@ pub async fn new<'a>(
         )?
         // QUIC has it's own connection timeout.
         .with_quic()
+        .with_dns()?
         .with_behaviour(|key| {
 
             // To content-address message, we can take the hash of message and use it as an ID.
@@ -108,16 +109,15 @@ pub async fn new<'a>(
             // Enable Kademlia record publishing
             kademlia.set_mode(Some(kad::Mode::Server));
 
-            // Add bootstrap nodes to Kademlia
+            // Add bootstrap nodes to Kademlia and attempt DNS resolution
             for (peer_id_str, addr) in &bootstrap_nodes {
                 if let Ok(bootstrap_peer_id) = peer_id_str.parse::<PeerId>() {
                     kademlia.add_address(&bootstrap_peer_id, addr.clone());
+                    // Try to bootstrap immediately
+                    if let Err(e) = kademlia.bootstrap() {
+                        tracing::warn!("Failed to bootstrap Kademlia: {}", e);
+                    }
                 }
-            }
-
-            // Start the bootstrap process
-            if !bootstrap_nodes.is_empty() {
-                kademlia.bootstrap().ok();
             }
 
             // Create identify behavior
@@ -183,6 +183,7 @@ pub async fn new<'a>(
             seed,
             swarm,
             peer_id,
+            id_keys,
             &node_name,
             umbral_key,
             command_receiver,
