@@ -25,6 +25,7 @@ node1:
         --secret-key-seed 1 \
         --rpc-port 8001 \
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
+        --bootstrap-peers "/ip4/127.0.0.1/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
 
 # Runs node 2
 node2:
@@ -52,7 +53,6 @@ node4:
 
 # Runs node 5
 node5:
-    @echo 'Running Node 5';
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
         --rpc-port 8005 \
@@ -67,7 +67,6 @@ spawn-agent node_port:
         spawn-agent \
         --total-frags 3 \
         --threshold 2
-
 
 
 
@@ -135,3 +134,7 @@ subscribe-heartbeat node_port:
 
 telemetry:
     cargo run --bin telemetry
+
+
+run-react:
+    cd ./telemetry/heartbeat-monitor && npm run dev

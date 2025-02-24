@@ -34,7 +34,7 @@ COPY ./cmd  ./cmd
 COPY ./node ./node
 COPY ./telemetry ./telemetry
 
-COPY ./.env ./.env
+# COPY ./.env ./.env
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./Cargo.lock ./Cargo.lock
 
