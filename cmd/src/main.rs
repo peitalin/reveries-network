@@ -20,6 +20,7 @@ use jsonrpsee::{
     ws_client::WsClientBuilder,
 };
 use libp2p::PeerId;
+use p2p_network::TryPeerId;
 use serde_json::Value;
 use tracing::{debug, info, warn, error};
 
@@ -107,7 +108,7 @@ async fn main() -> Result<()> {
 
             info!("{}\n{}",
                 format!("Spawned Agent. Next Vessel: {}\n{}",
-                    get_node_name(&umbral_peer_id.clone().into()),
+                    get_node_name(&umbral_peer_id.clone().try_into_peer_id()?),
                     short_peer_id(&umbral_peer_id),
                 ).yellow(),
                 format!(
