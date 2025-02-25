@@ -19,17 +19,6 @@ variable "zone" {
   default     = "asia-southeast1-a"
 }
 
-### Multizone deployment
-# variable "zones" {
-#   description = "GCP Zones for deployment"
-#   type        = list(string)
-#   default     = [
-#     "asia-southeast1-a",
-#     "us-central1-a",
-#     "europe-west4-a"
-#   ]
-# }
-
 variable "github_token" {
   description = "GitHub Personal Access Token"
   type        = string
@@ -61,9 +50,6 @@ variable "home_dir" {
 locals {
   timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
   node_commands = ["node1-prod", "node2-prod", "node3-prod", "node4-prod", "node5-prod"]
-
-  ### Multizone deployment: Get regions from zones
-  # regions = [for zone in var.zones : substr(zone, 0, length(zone)-2)]
 
   startup_script = <<-EOF
     #!/bin/bash
@@ -154,16 +140,12 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 # https://cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations#intel-tdx
 # Currently, TDX enabled VMs can only be created via gcloud or Rest API:
 # https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud
-
 resource "google_compute_instance" "tdx_instances" {
   provider = google-beta
-  count    = 3
+  count    = 5
   name     = "tee-node${count.index + 1}-${local.timestamp}"
   machine_type = "c3-standard-4"
   zone         = var.zone
-  ### Multizone deployment:
-  # zone        = var.zones[count.index]
-
 
   // Enable Confidential Computing
   confidential_instance_config {
@@ -221,27 +203,6 @@ resource "google_compute_instance" "tdx_instances" {
 
   deletion_protection = false
 }
-
-### Multizone deployment:
-# Output variables for monitoring
-# output "instance_details" {
-#   description = "Details for all instances"
-#   value = [
-#     for i in range(3) : {
-#       name = google_compute_instance.tdx_instances[i].name
-#       zone = var.zones[i]
-#       ip   = google_compute_address.static_ips[i].address
-#       monitoring_command = "gcloud compute instances tail-serial-port-output ${google_compute_instance.tdx_instances[i].name} --zone=${var.zones[i]}"
-#     }
-#   ]
-# }
-
-# output "monitoring_commands" {
-#   description = "Commands to monitor startup script output for each instance"
-#   value = [
-#     for i in range(3) : "gcloud compute instances tail-serial-port-output ${google_compute_instance.tdx_instances[i].name} --zone=${var.zones[i]}"
-#   ]
-# }
 
 output "instance_names" {
   description = "The names of the instances"

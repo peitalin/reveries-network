@@ -10,6 +10,7 @@
 # node dependencies
 */*/node_modules
 */*/dist
+*/*/.vite
 
 # terraform secrets
 *.tfvars
