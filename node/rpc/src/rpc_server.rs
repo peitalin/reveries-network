@@ -51,7 +51,7 @@ pub async fn run_server<'a: 'static>(
 ) -> color_eyre::Result<SocketAddr> {
 
 	let server = Server::builder()
-        .set_message_buffer_capacity(10)
+        .set_message_buffer_capacity(20)
         .build(format!("0.0.0.0:{}", rpc_port))
         .await?;
 

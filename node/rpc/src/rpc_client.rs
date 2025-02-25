@@ -1,4 +1,3 @@
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use color_eyre::{eyre, Result};
 
@@ -6,16 +5,14 @@ use jsonrpsee::client_transport::ws::{Url, WsTransportClientBuilder};
 use jsonrpsee::core::client::{Client, ClientBuilder};
 
 
-pub fn parse_url(rpc_port: u16) -> Result<Url> {
-    let addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), rpc_port);
-    let server_addr = SocketAddr::new(addr.0, addr.1);
-    Url::parse(&format!("ws://{}", server_addr))
+pub fn parse_url(socket_addr: &SocketAddr) -> Result<Url> {
+    Url::parse(&format!("ws://{}", socket_addr))
         .map_err(|e| eyre::anyhow!(e.to_string()))
 }
 
-pub async fn create_rpc_client(rpc_port: u16) -> Result<Client> {
-
-    let url = parse_url(rpc_port)?;
+pub async fn create_rpc_client(socket_addr: &SocketAddr) -> Result<Client> {
+    let url = parse_url(socket_addr)?;
+    println!("connecting to {}", url);
 
     let (
         tx,
