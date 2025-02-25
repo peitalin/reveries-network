@@ -41,10 +41,10 @@ variable "service_account_email" {
   type        = string
 }
 
-variable "home_dir" {
+variable "app_dir" {
   description = "user's home directory"
   type        = string
-  default     = "/home/n6378056"
+  default     = "/app"
 }
 
 locals {
@@ -57,7 +57,7 @@ locals {
     # Basic logging to syslog
     exec 1> >(logger -s -t $(basename $0)) 2>&1
 
-    cd ~
+    cd ${var.app_dir}
 
     # Install system dependencies
     apt-get update && apt-get install -y \
@@ -69,15 +69,16 @@ locals {
       libtss2-dev \
       rustup
 
-    # Set up Rust
+    # Install Rust
+    rustup install stable
     rustup default stable
 
     # Install Just
     sudo snap install just --classic
 
     # Clone the repository
-    sudo git clone https://${var.github_token}@github.com/${var.github_repo}.git ${var.home_dir}/1up-network
-    cd ${var.home_dir}/1up-network
+    sudo git clone https://${var.github_token}@github.com/${var.github_repo}.git ${var.app_dir}/1up-network
+    cd ${var.app_dir}/1up-network
     git checkout ${var.repo_branch}
 
     # # Run the justfile command for this node
@@ -140,6 +141,7 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 # https://cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations#intel-tdx
 # Currently, TDX enabled VMs can only be created via gcloud or Rest API:
 # https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#gcloud
+
 resource "google_compute_instance" "tdx_instances" {
   provider = google-beta
   count    = 5
