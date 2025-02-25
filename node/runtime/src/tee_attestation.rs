@@ -19,7 +19,7 @@ pub fn generate_tee_attestation(log: bool) -> Result<(QuoteV4, Vec<u8>)> {
         println!("Attestation Report raw bytes: 0x{}", hex::encode(&raw_report));
         log_quote_v4_attestation(&attestation_report);
     }
-    println!("\nThis is NOT a mock TDX Attestation");
+    println!("\nThis is a REAL TDX Attestation");
     let attestation_bytes = raw_report;
     Ok((attestation_report, attestation_bytes))
 }

@@ -44,7 +44,7 @@ variable "github_repo" {
 variable "repo_branch" {
   description = "Repository branch to clone"
   type        = string
-  default     = "main"
+  default     = "develop"
 }
 
 variable "service_account_email" {
@@ -52,9 +52,15 @@ variable "service_account_email" {
   type        = string
 }
 
+variable "home_dir" {
+  description = "user's home directory"
+  type        = string
+  default     = "/home/n6378056"
+}
+
 locals {
   timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
-  node_commands = ["node1", "node2", "node3", "node4", "node5"]
+  node_commands = ["node1-prod", "node2-prod", "node3-prod", "node4-prod", "node5-prod"]
 
   ### Multizone deployment: Get regions from zones
   # regions = [for zone in var.zones : substr(zone, 0, length(zone)-2)]
@@ -78,19 +84,18 @@ locals {
       rustup
 
     # Set up Rust
-    sudo rustup default stable
+    rustup default stable
 
     # Install Just
-    # cargo install just
     sudo snap install just --classic
 
     # Clone the repository
-    git clone https://${var.github_token}@github.com/${var.github_repo}.git ~/1up-network
-    cd ~/1up-network
+    sudo git clone https://${var.github_token}@github.com/${var.github_repo}.git ${var.home_dir}/1up-network
+    cd ${var.home_dir}/1up-network
     git checkout ${var.repo_branch}
 
-    # Run the justfile command for this node
-    just %NODE_COMMAND%
+    # # Run the justfile command for this node
+    # just %NODE_COMMAND%
   EOF
 }
 
@@ -109,10 +114,6 @@ resource "google_compute_address" "node1_static_ip" {
   name         = "tee-node1-static-ip"
   region       = substr(var.zone, 0, length(var.zone)-2)
   address_type = "EXTERNAL"
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 # Static IP address for node2
@@ -121,10 +122,6 @@ resource "google_compute_address" "node2_static_ip" {
   name         = "tee-node2-static-ip"
   region       = substr(var.zone, 0, length(var.zone)-2)
   address_type = "EXTERNAL"
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 # Add this firewall rule for RPC port
@@ -160,7 +157,7 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 
 resource "google_compute_instance" "tdx_instances" {
   provider = google-beta
-  count    = 5
+  count    = 3
   name     = "tee-node${count.index + 1}-${local.timestamp}"
   machine_type = "c3-standard-4"
   zone         = var.zone

@@ -14,6 +14,9 @@ run-runtime-tee2:
     cargo build --features tdx_enabled
     sudo ./target/debug/runtime test-tee
 
+build-tdx:
+    cargo build --features tdx_enabled
+
 run-cait:
     cargo run --release --bin cait -- 100 300 1000000
 
@@ -28,7 +31,8 @@ node1:
 
 # Runs node1 in Production with node2's IP as bootstrap node
 node1-prod:
-    cargo run --bin rpc -- \
+    cargo build --features tdx_enabled
+    ./target/debug/rpc \
         --secret-key-seed 1 \
         --rpc-port 8001 \
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
@@ -45,11 +49,12 @@ node2:
 
 # Runs node2 in Production with node1's IP as bootstrap node
 node2-prod:
-    cargo run --bin rpc -- \
+    cargo build --features tdx_enabled
+    ./target/debug/rpc \
         --secret-key-seed 2 \
         --rpc-port 8002 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
-        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+        --bootstrap-peers "/ip4/34.124.247.137/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 
 # Runs node 3
@@ -101,49 +106,18 @@ node5-prod:
 
 spawn-agent node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:{{node_port}} \
+        --rpc-server-address http://0.0.0.0:{{node_port}} \
         spawn-agent \
         --total-frags 3 \
         --threshold 2
 
 
-
-peers1 agent_nonce:
+spawn-agent-prod:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
-        get-kfrag-broadcast-peers \
-        --agent-name beatrix \
-        --agent-nonce {{agent_nonce}}
-
-peers2 agent_nonce:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8002 \
-        get-kfrag-broadcast-peers \
-        --agent-name beatrix \
-        --agent-nonce {{agent_nonce}}
-
-
-peers3 agent_nonce:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8003 \
-        get-kfrag-broadcast-peers \
-        --agent-name beatrix \
-        --agent-nonce {{agent_nonce}}
-
-peers4 agent_nonce:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8004 \
-        get-kfrag-broadcast-peers \
-        --agent-name beatrix \
-        --agent-nonce {{agent_nonce}}
-
-peers5 agent_nonce:
-    cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8005 \
-        get-kfrag-broadcast-peers \
-        --agent-name beatrix \
-        --agent-nonce {{agent_nonce}}
-
+        --rpc-server-address http://35.198.200.224:8001 \
+        spawn-agent \
+        --total-frags 3 \
+        --threshold 2
 
 
 trigger-node-failure node_port:
@@ -170,3 +144,9 @@ telemetry:
 
 run-react:
     cd ./telemetry/heartbeat-monitor && npm run dev
+
+
+terraform-destroy:
+    cd terraform && terraform destroy \
+    -target=google_compute_instance.tdx_instances \
+    -target=google_compute_firewall.allow_rpc_ports

@@ -52,10 +52,11 @@ pub async fn run_server<'a: 'static>(
 
 	let server = Server::builder()
         .set_message_buffer_capacity(10)
-        .build(format!("0.0.0.0:{}", rpc_port))
+        .build(format!("http://0.0.0.0:{}", rpc_port))
         .await?;
 
 	let addr = server.local_addr()?;
+    println!("RPC server running on {}", addr);
 	let mut rpc_module = RpcModule::new(());
 
     ////////////////////////////////////////////////////
