@@ -54,7 +54,7 @@ node2-prod:
         --secret-key-seed 2 \
         --rpc-port 8002 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
-        --bootstrap-peers "/ip4/34.124.247.137/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 
 # Runs node 3
@@ -66,7 +66,8 @@ node3:
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 node3-prod:
-    cargo run --bin rpc -- \
+    cargo build --features tdx_enabled
+    ./target/debug/rpc \
         --secret-key-seed 3 \
         --rpc-port 8003 \
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
@@ -81,7 +82,8 @@ node4:
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 node4-prod:
-    cargo run --bin rpc -- \
+    cargo build --features tdx_enabled
+    ./target/debug/rpc \
         --secret-key-seed 4 \
         --rpc-port 8004 \
         --listen-address "/ip4/0.0.0.0/tcp/9004" \
@@ -96,7 +98,8 @@ node5:
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 node5-prod:
-    cargo run --bin rpc -- \
+    cargo build --features tdx_enabled
+    ./target/debug/rpc \
         --secret-key-seed 5 \
         --rpc-port 8005 \
         --listen-address "/ip4/0.0.0.0/tcp/9005" \
@@ -106,7 +109,7 @@ node5-prod:
 
 spawn-agent node_port:
     cargo run --bin cmd -- \
-        --rpc-server-address http://0.0.0.0:{{node_port}} \
+        --rpc-server-address 0.0.0.0:{{node_port}} \
         spawn-agent \
         --total-frags 3 \
         --threshold 2
@@ -114,7 +117,7 @@ spawn-agent node_port:
 
 spawn-agent-prod:
     cargo run --bin cmd -- \
-        --rpc-server-address http://35.198.200.224:8001 \
+        --rpc-server-address 34.124.247.137:8001 \
         spawn-agent \
         --total-frags 3 \
         --threshold 2
@@ -150,3 +153,8 @@ terraform-destroy:
     cd terraform && terraform destroy \
     -target=google_compute_instance.tdx_instances \
     -target=google_compute_firewall.allow_rpc_ports
+
+test-rpc-connection:
+    cargo run --bin cmd -- \
+        --rpc-server-address 34.124.247.137:8001 \
+        get-node-states --ports 8001
