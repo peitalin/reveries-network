@@ -8,13 +8,6 @@ impl<'a> NetworkEvents<'a> {
 
         info!("{}Broadcasting message {:?}", self.nname(), message);
 
-        // testing TEE
-        let (
-            _tee_quote ,
-            _tee_quote_bytes
-        ) = runtime::tee_attestation::generate_tee_attestation(true)
-            .expect("tee attestation generation err");
-
         match self.topics.get(&message.topic.to_string()) {
             Some(topic) => {
 

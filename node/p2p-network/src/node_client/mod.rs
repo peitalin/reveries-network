@@ -96,7 +96,8 @@ impl<'a> NodeClient<'a> {
             .send(NodeCommand::StartListening { addr, sender })
             .await?;
 
-        receiver.await?.map_err(|e| anyhow!(e.to_string()))
+        receiver.await?
+            .map_err(|e| anyhow!("failed to listen to network: {}", e.to_string()))
     }
 
     pub async fn listen_to_network_events(
