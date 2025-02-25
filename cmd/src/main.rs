@@ -20,7 +20,6 @@ use jsonrpsee::{
     ws_client::WsClientBuilder,
 };
 use libp2p::PeerId;
-use p2p_network::TryPeerId;
 use serde_json::Value;
 use tracing::{debug, info, warn, error};
 
@@ -46,12 +45,13 @@ async fn main() -> Result<()> {
     });
 
     let cmd = Cmd::parse();
+    let ip = cmd.rpc_server_address.ip();
     let port = cmd.rpc_server_address.port();
 
     match cmd.argument {
 
         CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
-            let client = create_rpc_client(port).await?;
+            let client = create_rpc_client(&cmd.rpc_server_address).await?;
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
                 "get_kfrag_broadcast_peers",
                 rpc_params![
@@ -80,15 +80,12 @@ async fn main() -> Result<()> {
             threshold,
         } => {
 
-            let client = create_rpc_client(port).await?;
+            let client = create_rpc_client(&cmd.rpc_server_address).await?;
             // Read local AgentSecretJson file and send to node over a secure channel/TLS.
             // TODO: user will send this over a secure channel and commit the hash onchain
             // along with some payment.
             // TODO: use port as seed for prototyping
-            let secret_key_seed = port.to_string().chars().last()
-                .unwrap_or('1')
-                .to_digit(10)
-                .unwrap_or(1);
+            let secret_key_seed = port % 10;
 
             let agent_secrets_json = runtime::llm::read_agent_secrets(
                 secret_key_seed as usize
@@ -122,7 +119,7 @@ async fn main() -> Result<()> {
         }
 
         CliArgument::TriggerNodeFailure => {
-            let client = create_rpc_client(port).await?;
+            let client = create_rpc_client(&cmd.rpc_server_address).await?;
             match client.request::<RestartReason, ArrayParams>(
                 "trigger_node_failure",
                 rpc_params![]
@@ -142,7 +139,7 @@ async fn main() -> Result<()> {
 
             for port_str in ports {
                 let port = port_str.parse::<u16>().unwrap();
-                match create_rpc_client(port).await {
+                match create_rpc_client(&cmd.rpc_server_address).await {
                     Ok(c) => clients.push((port, c)),
                     Err(_) => error!("Cannot connect to port {}, skipping.", port_str),
                 }
@@ -172,7 +169,7 @@ async fn main() -> Result<()> {
 
         CliArgument::Websocket => {
 
-            let url = parse_url(port)?;
+            let url = parse_url(&cmd.rpc_server_address)?;
             let ws_client = WsClientBuilder::default().build(&url).await?;
 
             // Subscription with multiple parameters
@@ -191,7 +188,7 @@ async fn main() -> Result<()> {
 
         CliArgument::SubscribeHeartbeat => {
 
-            let url = parse_url(port)?;
+            let url = parse_url(&cmd.rpc_server_address)?;
             let ws_client = WsClientBuilder::default().build(&url).await?;
             info!("SubscribeHeartbeat to: {}", url);
 
