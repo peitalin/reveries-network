@@ -14,7 +14,6 @@ dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 revm = { version = "19.3.0" }
 alloy = { version = "0.3", features = ["full"] }
 hex-literal = "0.4.1"
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto" }
 bcs = "0.1.4"
 
 

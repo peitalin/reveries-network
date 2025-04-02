@@ -61,7 +61,6 @@ async fn main() -> Result<()> {
 
     // Subscribe and listen to gossip network for messages
     node_client.subscribe_topics(vec![
-        "chat".to_string(),
         "topic_switch".to_string(),
     ]).await?;
 
