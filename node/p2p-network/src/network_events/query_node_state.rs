@@ -66,9 +66,9 @@ impl<'a> NetworkEvents<'a> {
         let agent_in_vessel = &self.peer_manager.vessel_agent;
 
         let node_state = serde_json::json!({
-            "_node_name": self.node_name,
-            "_peer_id": self.peer_id,
-            "_umbral_public_key": self.umbral_key.public_key,
+            "_node_name": self.node_id.node_name,
+            "_peer_id": self.node_id.peer_id,
+            "_umbral_public_key": self.node_id.umbral_key.public_key,
             "_pending_respawns": self.pending.respawns,
             "_agent_in_vessel": agent_in_vessel,
             "peer_manager": {

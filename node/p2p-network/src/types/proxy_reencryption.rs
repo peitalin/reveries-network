@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use std::str::FromStr;
-use color_eyre::{Result, eyre, eyre::anyhow};
+use color_eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use libp2p::{
     identity,

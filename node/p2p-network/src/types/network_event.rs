@@ -1,8 +1,8 @@
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use crate::network_events::peer_manager::AgentVesselInfo;
-use crate::types::{AgentNameWithNonce, FragmentNumber, RespawnId};
+use crate::network_events::peer_manager::peer_info::AgentVesselInfo;
+use crate::types::{AgentNameWithNonce, FragmentNumber};
 use crate::SendError;
 
 

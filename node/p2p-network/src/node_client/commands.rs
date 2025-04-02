@@ -20,7 +20,7 @@ use super::container_manager::RestartReason;
 
 pub enum NodeCommand {
 
-    /// Gets they VesselStatus (which agent nodes are hosting),
+    /// Gets the VesselStatus (which agent nodes are hosting),
     /// and Umbral PublicKey(s) of peers from Kademlia
     GetPeerNodeVesselStatuses {
         sender: mpsc::Sender<NodeVesselStatus>,
@@ -97,5 +97,15 @@ pub enum NodeCommand {
 
     GetNodeState {
         sender: oneshot::Sender<serde_json::Value>,
+    },
+
+    /// Gets all addresses this node is listening on
+    GetListeningAddresses {
+        sender: oneshot::Sender<Vec<Multiaddr>>,
+    },
+
+    /// Gets all peers this node is connected to
+    GetConnectedPeers {
+        sender: oneshot::Sender<Vec<PeerId>>,
     },
 }

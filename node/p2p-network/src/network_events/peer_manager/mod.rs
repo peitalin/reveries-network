@@ -1,4 +1,5 @@
-mod heartbeat_data;
+pub mod heartbeat_data;
+pub mod peer_info;
 
 use colored::Colorize;
 use color_eyre::owo_colors::OwoColorize;
@@ -8,37 +9,10 @@ use std::collections::{HashMap, HashSet};
 use tracing::{warn, info};
 
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
-use crate::types::{CapsuleFragmentMessage, FragmentNumber};
+use crate::types::{CapsuleFragmentMessage, FragmentNumber, VesselStatus};
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
+use peer_info::{PeerInfo, AgentVesselInfo};
 
-
-#[derive(Clone, Debug)]
-pub(crate) struct PeerInfo {
-    pub peer_id: PeerId,
-    pub heartbeat_data: heartbeat_data::HeartBeatData,
-    /// name of the Agent this peer is currently hosting (if any)
-    pub agent_vessel: Option<AgentVesselInfo>,
-    pub client_version: Option<String>,
-}
-
-impl PeerInfo {
-    pub fn new(peer_id: PeerId, heartbeat_avg_window: u32) -> Self {
-        Self {
-            peer_id,
-            heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
-            agent_vessel: None,
-            client_version: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AgentVesselInfo {
-    pub agent_name_nonce: AgentNameWithNonce,
-    pub total_frags: usize,
-    pub current_vessel_peer_id: PeerId,
-    pub next_vessel_peer_id: PeerId,
-}
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct AgentFragment {
@@ -46,11 +20,21 @@ struct AgentFragment {
     frag_num: usize
 }
 
+
+// /// Each PRE secret has
+// - a unique ID
+// - ciphertext
+// - peers that hold cfrags
+// - decryptor (some peer ID with a pubkey)
+// - cfrags (private)
+
+
 /// Manages Peers and their events
 #[derive(Debug)]
-pub(crate) struct PeerManager<'a> {
-    pub(crate) node_name: &'a str,
+pub(crate) struct PeerManager {
+    pub(crate) node_name: String,
     pub(crate) peer_id: PeerId,
+    pub(crate) vessel_status: VesselStatus,
     // Tracks agent info if node is a vessel
     pub(crate) vessel_agent: Option<serde_json::Value>,
     // Tracks Vessel Nodes
@@ -70,11 +54,12 @@ pub(crate) struct PeerManager<'a> {
     avg_window: u32
 }
 
-impl<'a> PeerManager<'a> {
-    pub fn new(node_name: &'a str, peer_id: PeerId) -> Self {
+impl PeerManager {
+    pub fn new(node_name: String, peer_id: PeerId) -> Self {
         Self {
-            node_name,
-            peer_id,
+            node_name: node_name,
+            peer_id: peer_id,
+            vessel_status: VesselStatus::EmptyVessel,
             vessel_agent: None,
             kfrag_broadcast_peers: HashMap::new(),
             peers_to_agent_frags: HashMap::new(),
