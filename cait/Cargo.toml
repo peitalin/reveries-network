@@ -3,6 +3,11 @@ name = "cait"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "cait"
+path = "cait/main.rs"
+required-features = ["k256"]
+
 [dependencies]
 ecdsa = { version = "0.16.8", features = ["digest", "hazmat"] }
 elliptic-curve = { version = "0.13.5", features = ["serde"] }

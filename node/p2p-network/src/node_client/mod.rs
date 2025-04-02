@@ -1,6 +1,5 @@
 
 mod commands;
-mod stdin_handlers;
 pub(crate) mod container_manager;
 
 pub use commands::NodeCommand;
@@ -18,11 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, debug, error, warn};
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
-use crate::network_events::peer_manager::AgentVesselInfo;
+use crate::network_events::peer_manager::peer_info::AgentVesselInfo;
+use crate::network_events::NodeIdentity;
 use crate::types::{
     AgentNameWithNonce,
     CapsuleFragmentMessage,
-    ChatMessage,
     GossipTopic,
     KeyFragmentMessage,
     NetworkEvent,
@@ -38,13 +37,10 @@ use runtime::llm::{test_claude_query, AgentSecretsJson};
 
 
 
-
 #[derive(Clone)]
 pub struct NodeClient<'a> {
-    pub peer_id: PeerId,
-    pub node_name: &'a str,
+    pub node_id: NodeIdentity<'a>,
     pub command_sender: mpsc::Sender<NodeCommand>,
-    pub chat_cmd_sender: mpsc::Sender<ChatMessage>,
     // container app state
     container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
     // hb subscriptions for rpc clients
@@ -58,19 +54,15 @@ pub struct NodeClient<'a> {
 
 impl<'a> NodeClient<'a> {
     pub fn new(
-        peer_id: PeerId,
-        node_name: &'a str,
+        node_id: NodeIdentity<'a>,
         command_sender: mpsc::Sender<NodeCommand>,
-        chat_cmd_sender: mpsc::Sender<ChatMessage>,
         umbral_key: UmbralKey,
         container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
         heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     ) -> Self {
         Self {
-            peer_id: peer_id,
-            node_name: node_name,
+            node_id: node_id,
             command_sender: command_sender,
-            chat_cmd_sender: chat_cmd_sender,
             // manages container reboot
             container_manager: container_manager,
             // hb subscriptions for rpc clients
@@ -272,6 +264,16 @@ impl<'a> NodeClient<'a> {
         Ok(())
     }
 
+    // pub async fn spawn_reverie(
+    //     &mut self,
+    //     memory: AgentSecretsJson,
+    //     total_frags: usize,
+    //     threshold: usize,
+    // ) -> Result<()> {
+    //     // Encrypt using PRE
+    //     self.encrypt_secret_and_store(agent_secrets.clone()).ok();
+    // }
+
     /// Client sends AgentSecretsJson over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
     pub async fn spawn_agent(
@@ -280,11 +282,13 @@ impl<'a> NodeClient<'a> {
         total_frags: usize,
         threshold: usize,
     ) -> Result<NodeVesselStatus> {
-        // encrypt using PRE
+        // Encrypt using PRE
         self.encrypt_secret_and_store(agent_secrets.clone()).ok();
         // prove node has decrypted AgentSecret
         // prove node has TEE attestation
         // prove node has re-encrypted AgentSecret
+
+        // Create a unique ID for a "Reverie"–a secret, subconcious memory that alters how a Host behaves
         let agent_name_nonce = AgentNameWithNonce(agent_secrets.agent_name, agent_secrets.agent_nonce);
 
         self.broadcast_switch_topic_nc(TopicSwitch::new(
@@ -428,7 +432,7 @@ impl<'a> NodeClient<'a> {
                             verifying_pk: self.umbral_key.verifying_pk,
                             alice_pk: self.umbral_key.public_key,
                             bob_pk, // bob_pk
-                            vessel_peer_id: self.peer_id,
+                            vessel_peer_id: self.node_id.peer_id,
                             next_vessel_peer_id: next_vessel.peer_id,
                             capsule: umbral_capsule.clone(),
                             ciphertext: umbral_ciphertext.clone(),
@@ -631,7 +635,7 @@ impl<'a> NodeClient<'a> {
                 if total_frags_received < threshold as u32 {
                     warn!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}");
                 } else {
-                    warn!(">>> Not decryptable by user {} with: {}", get_node_name(&self.peer_id), self.umbral_key.public_key);
+                    warn!(">>> Not decryptable by user {} with: {}", self.node_id.node_name, self.umbral_key.public_key);
                     warn!(">>> Decryptable intended for new vessel with: {}", new_vessel_pk.bob_pk);
                 }
                 Err(anyhow!(e.to_string()))
@@ -668,7 +672,7 @@ impl<'a> NodeClient<'a> {
     }
 
     fn nname(&self) -> String {
-        format!("{}{}", self.node_name.yellow(), ">".blue())
+        format!("{}{}", self.node_id.node_name.yellow(), ">".blue())
     }
 
     pub async fn ask_llm(&mut self, question: &str) {

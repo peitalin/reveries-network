@@ -27,8 +27,8 @@ impl<'a> NetworkEvents<'a> {
         match gevent {
             gossipsub::Event::Message {
                 propagation_source: propagation_peer_id,
-                message_id,
                 message,
+                ..
             } => {
 
                 info!(
@@ -61,7 +61,7 @@ impl<'a> NetworkEvents<'a> {
                                 verifying_pk: k.verifying_pk,
                                 alice_pk: k.alice_pk, // vessel
                                 bob_pk: k.bob_pk, // next vessel
-                                sender_peer_id: self.peer_id,
+                                sender_peer_id: self.node_id.peer_id,
                                 vessel_peer_id: propagation_peer_id,
                                 next_vessel_peer_id: k.next_vessel_peer_id,
                                 capsule: k.capsule,
@@ -97,7 +97,7 @@ impl<'a> NetworkEvents<'a> {
                         }
 
                         // If node is not next vessel, let vessel node know it holds a fragment
-                        if self.peer_id != k.next_vessel_peer_id {
+                        if self.node_id.peer_id != k.next_vessel_peer_id {
                             // request-response: let vessel know this peer received a fragment
                             let request_id = self
                                 .swarm
@@ -108,7 +108,7 @@ impl<'a> NetworkEvents<'a> {
                                     FragmentRequestEnum::ProvidingFragment(
                                         agent_name_nonce.clone(),
                                         frag_num,
-                                        self.peer_id // sender_peer_id
+                                        self.node_id.peer_id // sender_peer_id
                                     )
                                 );
                         }
@@ -122,7 +122,7 @@ impl<'a> NetworkEvents<'a> {
 
                         // TODO: replace self.seed with NODE_SEED_NUM global param
                         NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
-                        let frag_num = self.seed % total_frags;
+                        let frag_num = self.node_id.seed % total_frags;
                         // assert_eq!(frag_num, NODE_SEED_NUM.take());
                         info!("GossipTopic::TopicSwitch total_frags({}) frag_num({})", total_frags, frag_num);
 

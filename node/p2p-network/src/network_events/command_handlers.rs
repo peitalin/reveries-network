@@ -188,7 +188,7 @@ impl<'a> NetworkEvents<'a> {
                     .send_request(&peer, FragmentRequestEnum::FragmentRequest(
                         agent_name_nonce,
                         frag_num,
-                        self.peer_id
+                        self.node_id.peer_id
                     ));
 
                 self.pending.request_fragments.insert(request_id, sender);
@@ -244,6 +244,14 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::GetNodeState { sender } => {
                 let node_state = self.query_node_state().await;
                 sender.send(node_state).ok();
+            }
+            NodeCommand::GetListeningAddresses { sender } => {
+                let addresses = self.swarm.listeners().cloned().collect();
+                sender.send(addresses).ok();
+            }
+            NodeCommand::GetConnectedPeers { sender } => {
+                let peers = self.swarm.connected_peers().cloned().collect();
+                sender.send(peers).ok();
             }
         }
     }

@@ -1,4 +1,3 @@
-mod chat;
 mod swarm_handlers;
 mod command_handlers;
 mod gossipsub_handlers;
@@ -31,7 +30,6 @@ use crate::behaviour::heartbeat_behaviour::HeartbeatConfig;
 use crate::node_client::NodeCommand;
 use crate::types::{
     AgentNameWithNonce,
-    ChatMessage,
     FragmentNumber,
     GossipTopic,
     NetworkEvent,
@@ -51,30 +49,54 @@ use tokio::time;
 use time::Duration;
 // use runtime::llm::test_claude_query;
 
-pub struct NetworkEvents<'a> {
-    swarm: Swarm<Behaviour>,
-    seed: usize,
-    peer_id: PeerId, // This node's PeerId
-    id_keys: identity::Keypair,
-    node_name: &'a str,
-    vessel_status: VesselStatus,
-    // Umbral fragments
-    umbral_key: UmbralKey,
 
+#[derive(Clone)]
+pub struct NodeIdentity<'a> {
+    pub node_name: &'a str,
+    pub peer_id: PeerId,
+    pub id_keys: identity::Keypair,
+    seed: usize,
+    umbral_key: UmbralKey,
+}
+
+impl<'a> NodeIdentity<'a> {
+    pub fn new(
+        node_name: &'a str,
+        peer_id: PeerId,
+        id_keys: identity::Keypair,
+        seed: usize,
+        umbral_key: UmbralKey,
+    ) -> Self {
+        Self {
+            node_name,
+            peer_id,
+            id_keys,
+            seed,
+            umbral_key,
+        }
+    }
+}
+
+pub struct NetworkEvents<'a> {
+    // Node identity
+    node_id: NodeIdentity<'a>,
+    // IPFS Swarm
+    swarm: Swarm<Behaviour>,
+    // Command receiver
     command_receiver: mpsc::Receiver<NodeCommand>,
-    chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
+    // Network event sender
     network_event_sender: mpsc::Sender<NetworkEvent>,
     // tracks own heartbeat status
     internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
-
     // tracks peer heartbeats status
     peer_heartbeat_checker: time::Interval,
-    peer_manager: PeerManager<'a>,
-
+    // Peer Manager State
+    peer_manager: PeerManager,
     // pending P2p network requests
     pending: PendingRequests,
+    // GossipSub topics
     topics: HashMap<String, IdentTopic>,
-
+    // Container Manager
     container_manager: Arc<RwLock<ContainerManager>>
 }
 
@@ -106,35 +128,24 @@ impl PendingRequests {
 }
 
 impl<'a> NetworkEvents<'a> {
-
     pub fn new(
-        seed: usize,
         swarm: Swarm<Behaviour>,
-        peer_id: PeerId,
-        id_keys: identity::Keypair,
-        node_name: &'a str,
-        umbral_key: UmbralKey,
+        node_id: NodeIdentity<'a>,
         command_receiver: mpsc::Receiver<NodeCommand>,
-        chat_cmd_receiver: mpsc::Receiver<ChatMessage>,
         network_event_sender: mpsc::Sender<NetworkEvent>,
         internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
         container_manager: Arc<RwLock<ContainerManager>>
     ) -> Self {
-
+        let node_name = node_id.node_name.to_string();
+        let peer_id = node_id.peer_id.clone();
         Self {
-            seed,
             swarm,
-            peer_id,
-            id_keys,
-            node_name: &node_name,
-            vessel_status: VesselStatus::EmptyVessel, // TODO: pass config to set vessel_status
-            umbral_key: umbral_key,
+            node_id,
             command_receiver,
-            chat_cmd_receiver,
             network_event_sender,
             internal_heartbeat_fail_receiver,
             peer_heartbeat_checker: tokio::time::interval(Duration::from_secs(1)),
-            peer_manager: PeerManager::new(&node_name, peer_id),
+            peer_manager: PeerManager::new(node_name, peer_id),
             pending: PendingRequests::new(),
             topics: HashMap::new(),
             container_manager,
@@ -142,7 +153,7 @@ impl<'a> NetworkEvents<'a> {
     }
 
     fn nname(&self) -> String {
-        format!("{}{}", self.node_name.yellow(), ">".blue())
+        format!("{}{}", self.node_id.node_name.yellow(), ">".blue())
     }
 
     pub async fn listen_for_network_events(mut self) {
@@ -171,10 +182,6 @@ impl<'a> NetworkEvents<'a> {
                 },
                 command = self.command_receiver.recv() => match command {
                     Some(c) => self.handle_command(c).await,
-                    None => return
-                },
-                chat_message = self.chat_cmd_receiver.recv() => match chat_message {
-                    Some(cm) => self.broadcast_chat_message(cm).await,
                     None => return
                 },
             }
@@ -229,12 +236,12 @@ impl<'a> NetworkEvents<'a> {
                     failed_agents_placeholder.push(prev_agent);
 
                     // mark as respawning...
-                    let respawn_id = RespawnId::new(prev_agent, current_vessel_peer_id);
+                    let respawn_id = RespawnId::new(&prev_agent, &current_vessel_peer_id);
                     self.pending.respawns.insert(respawn_id.clone());
 
                     ////////////////////////////////////////////////
                     // If this node is the next vessel for the agent
-                    if self.peer_id == *next_vessel_peer_id {
+                    if self.node_id.peer_id == *next_vessel_peer_id {
 
                         // // subscribe to all new agent_nonce channels to broadcast
                         // let new_topics = vec![
@@ -261,11 +268,11 @@ impl<'a> NetworkEvents<'a> {
                         info!("{} '{}' {} {}", "Respawning agent".blue(),
                             prev_agent.to_string().green(),
                             "in new vessel:".blue(),
-                            self.node_name.yellow()
+                            self.node_id.node_name.yellow()
                         );
 
                         // 1) remove Vessel from PeerManagers and Swarm
-                        self.remove_peer(peer_id);
+                        self.remove_peer(&peer_id);
 
                         // 2) broadcast peers, tell peers to update their PeerManager fields as well:
                         // - kfrags_peers
@@ -284,11 +291,11 @@ impl<'a> NetworkEvents<'a> {
                         // self.pending.respawns.remove(&respawn_id_result);
 
                         if self.pending.respawns.contains(&respawn_id) {
-                            info!("Respawn pending: {} -> {}", next_agent, self.node_name);
+                            info!("Respawn pending: {} -> {}", next_agent, self.node_id.node_name);
 
                         } else {
 
-                            let frag_num = self.seed % total_frags;
+                            let frag_num = self.node_id.seed % total_frags;
                             info!("Not the next vessel. Subscribing to next agent on frag_num({})\n", frag_num);
                             // Subscribe to new agent fragments channel
                             self.subscribe_topics(&vec![
@@ -379,7 +386,7 @@ impl<'a> NetworkEvents<'a> {
     }
 
     fn put_signed_vessel_status(&mut self, status: NodeVesselStatus) -> Result<()> {
-        let signed_status = SignedVesselStatus::new(status.clone(), &self.id_keys)?;
+        let signed_status = SignedVesselStatus::new(status.clone(), &self.node_id.id_keys)?;
 
         self.swarm.behaviour_mut().kademlia.put_record(
             kad::Record {

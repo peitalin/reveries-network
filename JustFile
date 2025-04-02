@@ -150,10 +150,12 @@ run-react:
     cd ./telemetry/heartbeat-monitor && npm run dev
 
 
+
 terraform-destroy:
     cd terraform && terraform destroy \
     -target=google_compute_instance.tdx_instances \
     -target=google_compute_firewall.allow_rpc_ports
+
 
 test-rpc-prod:
     cargo run --bin cmd -- \

@@ -1,0 +1,32 @@
+use serde::{Deserialize, Serialize};
+use libp2p::PeerId;
+use crate::types::AgentNameWithNonce;
+use super::heartbeat_data;
+
+#[derive(Clone, Debug)]
+pub(crate) struct PeerInfo {
+    pub peer_id: PeerId,
+    pub heartbeat_data: heartbeat_data::HeartBeatData,
+    /// name of the Agent this peer is currently hosting (if any)
+    pub agent_vessel: Option<AgentVesselInfo>,
+    pub client_version: Option<String>,
+}
+
+impl PeerInfo {
+    pub fn new(peer_id: PeerId, heartbeat_avg_window: u32) -> Self {
+        Self {
+            peer_id,
+            heartbeat_data: heartbeat_data::HeartBeatData::new(heartbeat_avg_window),
+            agent_vessel: None,
+            client_version: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AgentVesselInfo {
+    pub agent_name_nonce: AgentNameWithNonce,
+    pub total_frags: usize,
+    pub current_vessel_peer_id: PeerId,
+    pub next_vessel_peer_id: PeerId,
+}

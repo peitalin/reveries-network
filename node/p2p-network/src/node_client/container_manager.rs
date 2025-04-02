@@ -10,8 +10,6 @@ use tokio::sync::{broadcast, RwLock};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RestartReason {
     ScheduledHeartbeatFailure,
-    HealthCheck,
-    ResourceExhaustion,
     NetworkHeartbeatFailure,
     Error(String),
 }

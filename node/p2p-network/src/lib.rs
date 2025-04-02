@@ -1,3 +1,5 @@
+#![allow(unused_imports, dead_code, unused_variables)]
+
 pub mod behaviour;
 pub mod create_network;
 mod network_events;

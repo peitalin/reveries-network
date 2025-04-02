@@ -20,7 +20,7 @@ impl<'a> NetworkEvents<'a> {
         // Don't dial:
         // 1. Ourselves
         // 2. Already connected peers
-        if peer_id == &self.peer_id || self.swarm.is_connected(peer_id) {
+        if peer_id == &self.node_id.peer_id || self.swarm.is_connected(peer_id) {
             debug!("{} Already connected to peer: {:?}", self.nname(), peer_id);
             return false;
         }
@@ -98,17 +98,17 @@ impl<'a> NetworkEvents<'a> {
                 }
                 kad::QueryResult::PutRecord(..) => {}
                 kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
-                    if peer_id == self.peer_id {
+                    if peer_id == self.node_id.peer_id {
                         debug!("BootstrapOk: publishing NodeVesselStatus and Umbral PK {:?} {}\n",
                             get_node_name(&peer_id),
-                            self.umbral_key.public_key
+                            self.node_id.umbral_key.public_key
                         );
 
                         let node_vessel_status = NodeVesselStatus {
                             peer_id: peer_id,
-                            umbral_public_key: self.umbral_key.public_key,
+                            umbral_public_key: self.node_id.umbral_key.public_key,
                             agent_vessel_info: None, // None initially
-                            vessel_status: self.vessel_status,
+                            vessel_status: self.peer_manager.vessel_status,
                         };
                         // Publish signed vessel status during bootstrap
                         self.put_signed_vessel_status(node_vessel_status)?;

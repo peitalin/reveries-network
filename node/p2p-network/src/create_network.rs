@@ -19,19 +19,15 @@ use libp2p::{
 use tokio::sync::{mpsc, RwLock};
 use std::sync::Arc;
 
-pub use crate::types::VesselPeerId;
 use crate::SendError;
-use crate::types::NetworkEvent;
+use crate::types::{VesselPeerId, NetworkEvent};
 use crate::behaviour::Behaviour;
-use crate::network_events::NetworkEvents;
 use crate::behaviour::heartbeat_behaviour::{
     HeartbeatBehaviour,
     HeartbeatConfig
 };
-use crate::node_client::{
-    NodeClient,
-    ContainerManager
-};
+use crate::network_events::{NetworkEvents, NodeIdentity};
+use crate::node_client::{NodeClient, ContainerManager};
 
 thread_local! {
     pub static NODE_SEED_NUM: std::cell::RefCell<usize> = std::cell::RefCell::new(1);
@@ -66,10 +62,9 @@ pub async fn new<'a>(
     let (heartbeat_sender, heartbeat_receiver) = async_channel::bounded(100);
     let (command_sender, command_receiver) = mpsc::channel(100);
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
-    let (chat_cmd_sender, chat_cmd_receiver) = mpsc::channel(100);
 
     // Swarm Setup
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys.clone())
+    let swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys.clone())
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -166,12 +161,18 @@ pub async fn new<'a>(
         )
     ));
 
-    let node_client = NodeClient::new(
-        peer_id,
+    let node_identity = NodeIdentity::new(
         &node_name,
-        command_sender,
-        chat_cmd_sender,
+        peer_id,
+        id_keys,
+        seed,
         umbral_key.clone(),
+    );
+
+    let node_client = NodeClient::new(
+        node_identity.clone(),
+        command_sender,
+        umbral_key,
         container_manager.clone(),
         heartbeat_receiver,
     );
@@ -180,14 +181,9 @@ pub async fn new<'a>(
         node_client,
         network_events_receiver,
         NetworkEvents::new(
-            seed,
             swarm,
-            peer_id,
-            id_keys,
-            &node_name,
-            umbral_key,
+            node_identity,
             command_receiver,
-            chat_cmd_receiver,
             network_events_sender,
             heartbeat_failure_receiver,
             container_manager
@@ -205,7 +201,6 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     // Create a public/private key pair, either random or based on a seed.
     let (id_keys, umbral_key) = match secret_key_seed {
         Some(seed) => {
-
             let mut bytes = [0u8; 32];
             bytes[0] = seed as u8;
 
@@ -219,7 +214,6 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
             (id_keys, umbral_key)
         },
         None => {
-
             let id_keys = identity::Keypair::generate_ed25519();
             let umbral_key = runtime::reencrypt::UmbralKey::new(None);
             (id_keys, umbral_key)
