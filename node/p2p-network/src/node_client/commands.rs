@@ -47,7 +47,7 @@ pub enum NodeCommand {
     SaveKfragProvider {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer_id: PeerId, // peer who holds the kfrag
+        kfrag_provider_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
     },
 
@@ -74,7 +74,7 @@ pub enum NodeCommand {
     RespondCapsuleFragment {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer_id: PeerId, // peer who sends cfrag back
+        kfrag_provider_peer_id: PeerId, // peer who sends cfrag back
         channel: ResponseChannel<FragmentResponseEnum>,
     },
 

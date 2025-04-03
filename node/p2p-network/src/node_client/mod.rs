@@ -103,7 +103,7 @@ impl<'a> NodeClient<'a> {
                     Some(NetworkEvent::InboundCapsuleFragRequest {
                         agent_name_nonce,
                         frag_num,
-                        sender_peer_id,
+                        kfrag_provider_peer_id,
                         channel
                     }) => {
                         // TODO: check if vessel node for the agent_name is still alive.
@@ -112,7 +112,7 @@ impl<'a> NodeClient<'a> {
                             .send(NodeCommand::RespondCapsuleFragment {
                                 agent_name_nonce,
                                 frag_num,
-                                sender_peer_id,
+                                kfrag_provider_peer_id,
                                 channel
                             })
                             .await
@@ -136,17 +136,17 @@ impl<'a> NodeClient<'a> {
                     Some(NetworkEvent::SaveKfragProviderRequest {
                         agent_name_nonce,
                         frag_num,
-                        sender_peer_id,
+                        kfrag_provider_peer_id,
                         channel
                     }) => {
-                        info!("{} Saving provider {} to peer_manager", self.nname(), sender_peer_id);
+                        info!("{} Saving provider {} to peer_manager", self.nname(), kfrag_provider_peer_id);
                         // Only the broadcast and vessel need to know which nodes have which fragments.
                         // Not necessary for other nodes to keep track of this.
                         self.command_sender
                             .send(NodeCommand::SaveKfragProvider {
                                 agent_name_nonce,
                                 frag_num,
-                                sender_peer_id,
+                                kfrag_provider_peer_id,
                                 channel
                             })
                             .await
@@ -446,7 +446,7 @@ impl<'a> NodeClient<'a> {
                             info!("Success! cfrag({}) from {}\ntotal frags: {}",
                                 // get_node_name(&cfrag.vessel_peer_id),
                                 cfrag.frag_num,
-                                get_node_name(&cfrag.sender_peer_id),
+                                get_node_name(&cfrag.kfrag_provider_peer_id),
                                 total_frags
                             );
 

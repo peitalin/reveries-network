@@ -320,7 +320,7 @@ impl PeerManager {
                     "alice_pk": cfrag.alice_pk,
                     "bob_pk": cfrag.bob_pk,
                     "verifying_pk": cfrag.verifying_pk,
-                    "sender_peer_id": cfrag.sender_peer_id,
+                    "kfrag_provider_peer_id": cfrag.kfrag_provider_peer_id,
                     "vessel_peer_id": cfrag.vessel_peer_id,
                     "next_vessel_peer_id": cfrag.next_vessel_peer_id,
                     "cfrag": format!("{:?}", cfrag.cfrag.to_bytes_simple())[..128],

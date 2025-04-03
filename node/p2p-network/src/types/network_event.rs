@@ -11,7 +11,7 @@ pub enum NetworkEvent {
     InboundCapsuleFragRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer_id: PeerId,
+        kfrag_provider_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
     RespawnRequest(
@@ -20,7 +20,7 @@ pub enum NetworkEvent {
     SaveKfragProviderRequest {
         agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
-        sender_peer_id: PeerId,
+        kfrag_provider_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
     },
 }

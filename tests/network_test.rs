@@ -8,6 +8,7 @@ use jsonrpsee::core::client::ClientT;
 use serde_json::Value;
 use std::process::{Command, Child};
 use tracing::{info, warn};
+use std::collections::HashSet;
 
 // Import crates from the project
 use p2p_network::create_network;
@@ -305,7 +306,8 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Get node state from all nodes
-    let mut cfrags: Vec<Value> = vec![];
+    let mut has_fragments = false;
+    let mut all_cfrags = Vec::new();
 
     for (i, client) in clients.iter().enumerate() {
         let state: Value = client
@@ -315,13 +317,16 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
             )
             .await?;
 
-        // Check if any node has fragments in their state
+        info!("Node {} state: {}", i + 1, serde_json::to_string_pretty(&state)?);
+
+        // Extract cfrags from state
         if let Some(peer_manager) = state.get("peer_manager") {
             if let Some(cfrags_summary) = peer_manager.get("1_cfrags_summary") {
                 if let Some(array) = cfrags_summary.as_array() {
-                    if !array.is_empty() {
-                        if let Some(cfrag_json) = array[0].get("cfrag") {
-                            cfrags.push(cfrag_json.clone());
+                    for cfrag_data in array {
+                        if let Some(cfrag) = cfrag_data.get("cfrag") {
+                            has_fragments = true;
+                            all_cfrags.push(cfrag_data.clone());
                         }
                     }
                 }
@@ -329,11 +334,67 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
         }
     }
 
-    let total_cfrags = cfrags.len();
+    let total_cfrags = all_cfrags.len();
     assert!(total_cfrags == 3, "Wrong number of key fragments found");
+    println!("\n==> Found {} cfrags for {} nodes\n", total_cfrags, nodes.len());
+    println!("\nAll cfrags:\n{}", serde_json::to_string_pretty(&all_cfrags)?);
+    println!("\nVerifying unique and common fields across cfrags...");
 
-    println!("\nTotal cfrags({}):\n{}", total_cfrags, serde_json::to_string_pretty(&cfrags)?);
-    println!("\n==> Found {} cfrags for {} nodes (including self)\n", total_cfrags, nodes.len());
+    // Verify that all cfrags have the same values for common fields
+    if all_cfrags.len() > 1 {
+        let first_cfrag = &all_cfrags[0];
+
+        // Fields that should be the same across all cfrags
+        let common_fields = [
+            "alice_pk",
+            "bob_pk",
+            "threshold",
+            "next_vessel_peer_id",
+            "verifying_pk",
+            "vessel_peer_id",
+        ];
+
+        for field in common_fields {
+            let expected_value = first_cfrag["cfrag"][field].clone();
+            for cfrag_data in &all_cfrags[1..] {
+                assert_eq!(
+                    cfrag_data["cfrag"][field],
+                    expected_value,
+                    "Field '{}' should be the same across all cfrags",
+                    field
+                );
+            }
+        }
+
+        // Verify unique fields are different
+        let mut seen_frag_nums = HashSet::new();
+        let mut seen_cfrags = HashSet::new();
+        let mut seen_kfrag_provider_peer_ids = HashSet::new();
+
+        for cfrag_data in &all_cfrags {
+            // Check frag_num uniqueness
+            let frag_num = cfrag_data["cfrag"]["frag_num"].as_u64().unwrap();
+            assert!(
+                seen_frag_nums.insert(frag_num),
+                "Duplicate frag_num found: {}",
+                frag_num
+            );
+
+            // Check cfrag uniqueness
+            let cfrag_value = cfrag_data["cfrag"]["cfrag"].as_str().unwrap();
+            assert!(
+                seen_cfrags.insert(cfrag_value),
+                "Duplicate cfrag found"
+            );
+
+            // Check kfrag_provider_peer_id uniqueness
+            let kfrag_provider_peer_id = cfrag_data["cfrag"]["kfrag_provider_peer_id"].as_str().unwrap();
+            assert!(
+                seen_kfrag_provider_peer_ids.insert(kfrag_provider_peer_id),
+                "Duplicate kfrag_provider_peer_id found"
+            );
+        }
+    }
 
     // TestNode's Drop trait will handle cleanup
     Ok(())

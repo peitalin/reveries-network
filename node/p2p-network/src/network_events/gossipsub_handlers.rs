@@ -62,7 +62,7 @@ impl<'a> NetworkEvents<'a> {
                                 verifying_pk: k.verifying_pk,
                                 alice_pk: k.alice_pk, // vessel
                                 bob_pk: k.bob_pk, // next vessel
-                                sender_peer_id: self.node_id.peer_id,
+                                kfrag_provider_peer_id: self.node_id.peer_id,
                                 vessel_peer_id: propagation_peer_id,
                                 next_vessel_peer_id: k.next_vessel_peer_id,
                                 capsule: k.capsule,
@@ -109,7 +109,7 @@ impl<'a> NetworkEvents<'a> {
                                     FragmentRequestEnum::ProvidingFragment(
                                         agent_name_nonce.clone(),
                                         frag_num,
-                                        self.node_id.peer_id // sender_peer_id
+                                        self.node_id.peer_id // kfrag_provider_peer_id
                                     )
                                 );
                         }

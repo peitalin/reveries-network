@@ -33,13 +33,13 @@ impl<'a> NetworkEvents<'a> {
                             FragmentRequestEnum::FragmentRequest(
                                 agent_name_nonce,
                                 frag_num,
-                                sender_peer_id
+                                kfrag_provider_peer_id
                             ) => {
                                 self.network_event_sender
                                     .send(NetworkEvent::InboundCapsuleFragRequest {
                                         agent_name_nonce,
                                         frag_num,
-                                        sender_peer_id,
+                                        kfrag_provider_peer_id,
                                         channel,
                                     })
                                     .await
@@ -48,13 +48,13 @@ impl<'a> NetworkEvents<'a> {
                             FragmentRequestEnum::ProvidingFragment(
                                 agent_name_nonce,
                                 frag_num,
-                                sender_peer_id
+                                kfrag_provider_peer_id
                             ) => {
                                 self.network_event_sender
                                     .send(NetworkEvent::SaveKfragProviderRequest {
                                         agent_name_nonce,
                                         frag_num,
-                                        sender_peer_id,
+                                        kfrag_provider_peer_id,
                                         channel,
                                     })
                                     .await

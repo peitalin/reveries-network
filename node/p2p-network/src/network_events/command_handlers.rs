@@ -70,7 +70,7 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::SaveKfragProvider {
                 agent_name_nonce,
                 frag_num,
-                sender_peer_id,
+                kfrag_provider_peer_id,
                 channel
             } => {
                 info!(
@@ -78,12 +78,12 @@ impl<'a> NetworkEvents<'a> {
                     self.nname(),
                     agent_name_nonce,
                     frag_num,
-                    short_peer_id(&sender_peer_id)
+                    short_peer_id(&kfrag_provider_peer_id)
                 );
 
                 // Add to PeerManager locally on this node
-                self.peer_manager.insert_kfrag_provider(sender_peer_id.clone(), &agent_name_nonce, frag_num);
-                self.peer_manager.insert_peer_info(sender_peer_id.clone());
+                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), &agent_name_nonce, frag_num);
+                self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
 
                 // confirm saved kfrag peer
                 self.swarm
@@ -213,7 +213,7 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::RespondCapsuleFragment {
                 agent_name_nonce,
                 frag_num,
-                sender_peer_id,
+                kfrag_provider_peer_id,
                 channel
             } => {
                 info!("{} RespondCapsuleFragment for {agent_name_nonce} frag_num: {frag_num}", self.nname());
