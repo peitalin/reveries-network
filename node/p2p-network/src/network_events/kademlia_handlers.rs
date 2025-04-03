@@ -4,11 +4,13 @@ use libp2p::{
 };
 use color_eyre::Result;
 use tracing::{info, warn, debug};
-use crate::get_node_name;
+use crate::{get_node_name, short_peer_id, SendError};
 use crate::types::{
     VesselPeerId,
-    NodeVesselStatus,
+    NodeVesselWithStatus,
     SignedVesselStatus,
+    AgentReverieId,
+    ReverieId,
 };
 use super::NetworkEvents;
 
@@ -32,16 +34,16 @@ impl<'a> NetworkEvents<'a> {
 
             // Add handling for routing table updates
             kad::Event::RoutingUpdated { peer: peer_id, addresses, .. } => {
-                tracing::info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
+                info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
                 if self.should_dial_peer(&peer_id) {
                     self.peer_manager.insert_peer_info(peer_id);
                     for addr in addresses.iter() {
-                        info!("RoutingUpdated: adding Kademlia peer: {:?}", addr);  // This shows us learning about other peers
+                        info!("RoutingUpdated: adding Kademlia peer: {:?}", short_peer_id(peer_id));
                         self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                     }
                     // Then we try to connect to the newly discovered peer
                     if let Err(e) = self.swarm.dial(peer_id) {
-                        warn!("{} Failed to dial discovered peer: {}", self.nname(), e);
+                        warn!("{} Failed to dial peer: {}", short_peer_id(&peer_id), e);
                     }
                 }
             },
@@ -53,9 +55,8 @@ impl<'a> NetworkEvents<'a> {
                 kad::QueryResult::GetProviders(Ok(p)) => match p {
                     kad::GetProvidersOk::FoundProviders { providers, .. } => {
                         if let Some(sender) = self.pending.get_providers.remove(&id) {
-
                             // send providers back
-                            sender.send(providers).map_err(crate::SendError::from)?;
+                            sender.send(providers).map_err(SendError::from)?;
 
                             self.swarm
                                 .behaviour_mut()
@@ -73,12 +74,12 @@ impl<'a> NetworkEvents<'a> {
                     let kad_key = std::str::from_utf8(record.key.as_ref())?;
                     // select the vessel kademlia keys
                     if let Ok(vessel_key) = VesselPeerId::is_kademlia_key(kad_key) {
-                        if let Some(sender) = self.pending.get_node_vessel_status.remove(&vessel_key) {
+                        if let Some(sender) = self.pending.get_node_vessels.remove(&vessel_key) {
                             match serde_json::from_slice::<SignedVesselStatus>(&record.value) {
                                 Ok(signed_status) => {
                                     // Verify signature
-                                    if let Some(publisher) = record.publisher {
-                                        signed_status.verify(&publisher)?;
+                                    if let Some(publisher_peer) = record.publisher {
+                                        signed_status.verify(&publisher_peer)?;
                                         sender.send(signed_status.node_vessel_status).await?;
                                     } else {
                                         warn!("Record missing publisher ID");
@@ -88,9 +89,20 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
+
+                    if let Ok(agent_reverie_key) = AgentReverieId::is_kademlia_key(kad_key) {
+                        if let Some(oneshot_sender) = self.pending.get_agent_reverie_id.remove(&agent_reverie_key) {
+                            match serde_json::from_slice::<ReverieId>(&record.value) {
+                                Ok(reverie_id) => {
+                                    oneshot_sender.send(reverie_id).ok();
+                                }
+                                Err(e) => warn!("{}", e.to_string()),
+                            }
+                        }
+                    }
+
                     // Finish kademlia query
-                    self.swarm
-                        .behaviour_mut()
+                    self.swarm.behaviour_mut()
                         .kademlia
                         .query_mut(&id)
                         .unwrap()
@@ -104,7 +116,7 @@ impl<'a> NetworkEvents<'a> {
                             self.node_id.umbral_key.public_key
                         );
 
-                        let node_vessel_status = NodeVesselStatus {
+                        let node_vessel_status = NodeVesselWithStatus {
                             peer_id: peer_id,
                             umbral_public_key: self.node_id.umbral_key.public_key,
                             agent_vessel_info: None, // None initially

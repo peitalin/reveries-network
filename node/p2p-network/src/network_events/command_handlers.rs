@@ -3,7 +3,7 @@ use libp2p::{
     PeerId
 };
 use color_eyre::eyre::anyhow;
-use tracing::info;
+use tracing::{info, error};
 
 use crate::node_client::NodeCommand;
 use crate::types::{
@@ -12,9 +12,10 @@ use crate::types::{
     FragmentResponseEnum,
     GossipTopic,
     TopicHash,
-    NodeVesselStatus,
+    NodeVesselWithStatus,
     VesselStatus,
-    VesselPeerId
+    VesselPeerId,
+    AgentReverieId
 };
 use crate::short_peer_id;
 use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
@@ -25,26 +26,39 @@ use super::NetworkEvents;
 impl<'a> NetworkEvents<'a> {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
-            NodeCommand::GetPeerNodeVesselStatuses { sender, .. } => {
+            NodeCommand::GetNodeVesselStatusesFromKademlia { sender, .. } => {
 
-                let public_keys = self.swarm.connected_peers()
+                let peers = self.swarm.connected_peers()
                     .cloned()
                     .collect::<Vec<PeerId>>();
 
-                for peer_id in public_keys {
+                for peer_id in peers {
                     // add prefix as kademlia key
                     let vessel_kademlia_key = VesselPeerId::from(peer_id);
                     self.swarm.behaviour_mut()
                         .kademlia
                         .get_record(kad::RecordKey::new(&vessel_kademlia_key.to_string()));
 
-                    self.pending.get_node_vessel_status.insert(vessel_kademlia_key, sender.clone());
+                    self.pending.get_node_vessels.insert(vessel_kademlia_key, sender.clone());
                 };
             }
-            NodeCommand::GetKfragBroadcastPeers { agent_name_nonce, sender } => {
-                match self.peer_manager.get_kfrag_broadcast_peers(&agent_name_nonce) {
+            NodeCommand::GetAgentReverieId {
+                agent_name_nonce,
+                sender,
+            } => {
+                // add prefix as kademlia key
+                let agent_reverie_key = AgentReverieId::from(agent_name_nonce.clone());
+
+                self.swarm.behaviour_mut()
+                    .kademlia
+                    .get_record(kad::RecordKey::new(&agent_reverie_key.to_string()));
+
+                self.pending.get_agent_reverie_id.insert(agent_reverie_key, sender);
+            }
+            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
+                match self.peer_manager.kfrag_providers.get(&agent_name_nonce) {
                     None => {
-                        println!("missing kfrag_peers: {:?}", self.peer_manager.kfrag_broadcast_peers);
+                        error!("missing kfrag_providers: {:?}", self.peer_manager.kfrag_providers);
                         sender.send(std::collections::HashMap::new()).ok();
                     }
                     Some(peers) => {
@@ -52,15 +66,6 @@ impl<'a> NetworkEvents<'a> {
                         sender.send(peers.clone()).ok();
                     }
                 }
-            }
-            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_providers(agent_name_nonce.to_string().into_bytes().into());
-
-                self.pending.get_providers.insert(query_id, sender);
             }
             NodeCommand::SaveKfragProvider {
                 agent_name_nonce,
@@ -76,7 +81,9 @@ impl<'a> NetworkEvents<'a> {
                     short_peer_id(&sender_peer_id)
                 );
 
-                self.save_peer(&sender_peer_id, agent_name_nonce, frag_num);
+                // Add to PeerManager locally on this node
+                self.peer_manager.insert_kfrag_provider(sender_peer_id.clone(), &agent_name_nonce, frag_num);
+                self.peer_manager.insert_peer_info(sender_peer_id.clone());
 
                 // confirm saved kfrag peer
                 self.swarm
@@ -136,25 +143,35 @@ impl<'a> NetworkEvents<'a> {
                 // set broadcaster's peer info
                 self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
 
+                // add prefix as kademlia key
+                let agent_reverie_key = AgentReverieId::from(agent_name_nonce.clone());
+                // Put agent_name_nonce => reverie_id on DHT
+                self.swarm.behaviour_mut().kademlia.put_record(
+                    kad::Record {
+                        key: kad::RecordKey::new(&agent_reverie_key.to_string()),
+                        value: serde_json::to_vec(&msg.reverie_id).expect("serde_json::to_vec(reverie_id)"),
+                        publisher: Some(self.node_id.peer_id),
+                        expires: None,
+                    },
+                    kad::Quorum::Majority
+                ).expect("put_record err");
+
                 // Update vessel status on Kademlia DHT
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .put_record(
-                        kad::Record {
-                            key: kad::RecordKey::new(&VesselPeerId::from(msg.vessel_peer_id).to_string()),
-                            value: serde_json::to_vec(
-                                    &NodeVesselStatus {
-                                        peer_id: msg.vessel_peer_id,
-                                        umbral_public_key: msg.alice_pk, // vessel's public key
-                                        agent_vessel_info: Some(agent_vessel_info),
-                                        vessel_status: VesselStatus::ActiveVessel,
-                                    }
-                                ).expect("serde_json::to_vec(node_vessel_status)"),
-                            publisher: Some(msg.vessel_peer_id),
-                            expires: None,
-                        },
-                        kad::Quorum::One
+                self.swarm.behaviour_mut().kademlia.put_record(
+                    kad::Record {
+                        key: kad::RecordKey::new(&VesselPeerId::from(msg.vessel_peer_id).to_string()),
+                        value: serde_json::to_vec(
+                                &NodeVesselWithStatus {
+                                    peer_id: msg.vessel_peer_id,
+                                    umbral_public_key: msg.alice_pk, // vessel's public key
+                                    agent_vessel_info: Some(agent_vessel_info),
+                                    vessel_status: VesselStatus::ActiveVessel,
+                                }
+                            ).expect("serde_json::to_vec(node_vessel_status)"),
+                        publisher: Some(msg.vessel_peer_id),
+                        expires: None,
+                    },
+                    kad::Quorum::One
                 ).expect("put_record err");
 
                 let kfrag_msg = serde_json::to_vec(&KeyFragmentMessage::from(msg))

@@ -104,7 +104,7 @@ impl UmbralKey {
         );
     }
 
-    pub fn generate_pre_kfrags(
+    pub fn generate_pre_keyfrags(
         &self,
         bob_pk: &PublicKey,
         threshold: usize,
@@ -161,7 +161,7 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
     // Alice generates reencryption key fragments for Bob (MPC node)
     let shares = 3;
     let threshold = 2;
-    let kfrags = alice_pre_key.generate_pre_kfrags(
+    let kfrags = alice_pre_key.generate_pre_keyfrags(
         &bob_pk,
         threshold,
         shares

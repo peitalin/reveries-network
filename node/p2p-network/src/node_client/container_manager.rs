@@ -23,11 +23,8 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-
     pub fn new(max_duration_before_shutdown: Duration) -> Self {
-
         let (shutdown_signal, _) = broadcast::channel(1);
-
         ContainerManager {
             shutdown_signal,
             is_shutting_down: Arc::new(AtomicBool::new(false)),

@@ -125,9 +125,9 @@ export interface NodeState {
       agent_name_nonce: string;
       cfrag: CFrag;
     }>;
-    '2_kfrag_broadcast_peers'?: Array<{
+    '2_kfrag_providers'?: Array<{
       agent_name_nonce: string;
-      kfrag_broadcast_peers: Array<KFragBroadcastPeers>;
+      kfrag_providers: Array<KFragBroadcastPeers>;
     }>;
     '3_peer_info'?: PeerInfo[];
   };
@@ -138,9 +138,9 @@ export interface PeerManagerData {
     agent_name_nonce: string;
     cfrag: CFrag;
   }>;
-  kfrag_broadcast_peers: Array<{
+  kfrag_providers: Array<{
     agent_name_nonce: string;
-    kfrag_broadcast_peers: Array<KFragBroadcastPeers>;
+    kfrag_providers: Array<KFragBroadcastPeers>;
   }>;
   peer_info: PeerInfo[];
 }

@@ -11,7 +11,7 @@ use crate::types::{
     PrevTopic,
     RespawnId,
     TopicSwitch,
-    NodeVesselStatus,
+    NodeVesselWithStatus,
     AgentVesselInfo,
     VesselStatus,
     VesselPeerId,
@@ -50,14 +50,15 @@ impl<'a> NetworkEvents<'a> {
                             Some(&k.bob_pk)
                         ).map_err(SendError::from)?;
 
-                        // all nodes store cfrags locally
+                        let cfrag = umbral_pre::reencrypt(&k.capsule, verified_kfrag).unverify();
+                        // node stores cfrags locally
                         // nodes should also inform the vessel_node that they hold a fragment
                         self.peer_manager.insert_cfrags(
                             &agent_name_nonce,
                             CapsuleFragmentMessage {
                                 frag_num: k.frag_num,
                                 threshold: k.threshold,
-                                cfrag: umbral_pre::reencrypt(&k.capsule, verified_kfrag).unverify(),
+                                cfrag: cfrag,
                                 verifying_pk: k.verifying_pk,
                                 alice_pk: k.alice_pk, // vessel
                                 bob_pk: k.bob_pk, // next vessel
@@ -82,7 +83,7 @@ impl<'a> NetworkEvents<'a> {
                                     self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
 
                                     // Put signed vessel status
-                                    let status = NodeVesselStatus {
+                                    let status = NodeVesselWithStatus {
                                         peer_id: k.vessel_peer_id,
                                         umbral_public_key: k.alice_pk,
                                         agent_vessel_info: Some(agent_vessel_info),
@@ -162,15 +163,6 @@ impl<'a> NetworkEvents<'a> {
                     if let Err(e) = self.swarm.dial(peer_id) {
                         warn!("{} Failed to dial subscribed peer: {}", self.nname(), e);
                     }
-                }
-
-                match topic.into() {
-                    GossipTopic::BroadcastKfrag(
-                        agent_name_nonce,
-                        total_frags,
-                        frag_num
-                    ) => {},
-                    _ => {}
                 }
             }
             gossipsub::Event::Unsubscribed { peer_id, topic } => {

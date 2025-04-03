@@ -26,7 +26,7 @@ use tracing::{debug, info, warn, error};
 use rpc::rpc_client::{parse_url, create_rpc_client};
 use p2p_network::{
     node_client::RestartReason,
-    types::NodeVesselStatus,
+    types::NodeVesselWithStatus,
     get_node_name,
     short_peer_id,
 };
@@ -50,10 +50,10 @@ async fn main() -> Result<()> {
 
     match cmd.argument {
 
-        CliArgument::GetKfragBroadcastPeers { agent_name, agent_nonce } => {
+        CliArgument::GetKfragProviders { agent_name, agent_nonce } => {
             let client = create_rpc_client(&cmd.rpc_server_address).await?;
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
-                "get_kfrag_broadcast_peers",
+                "get_kfrag_providers",
                 rpc_params![
                     agent_name.clone(),
                     agent_nonce.clone()
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
                 secret_key_seed as usize
             );
 
-            let NodeVesselStatus {
+            let NodeVesselWithStatus {
                 peer_id,
                 umbral_public_key,
                 agent_vessel_info,

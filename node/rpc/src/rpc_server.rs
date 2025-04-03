@@ -15,7 +15,7 @@ use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
     AgentNameWithNonce,
-    NodeVesselStatus
+    NodeVesselWithStatus
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
 use p2p_network::get_node_name;
@@ -64,7 +64,7 @@ pub async fn run_server<'a: 'static>(
     ////////////////////////////////////////////////////
 
     let nc = network_client.clone();
-	rpc_module.register_async_method("get_kfrag_broadcast_peers", move |params, _, _| {
+	rpc_module.register_async_method("get_kfrag_providers", move |params, _, _| {
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>()
             .expect("error parsing params");
@@ -73,7 +73,7 @@ pub async fn run_server<'a: 'static>(
         let mut nc = nc.clone();
         async move {
             let peers: HashMap<usize, HashSet<libp2p::PeerId>> = nc
-                .get_kfrag_broadcast_peers(agent_name_nonce).await;
+                .get_kfrag_providers(agent_name_nonce).await;
 
             Ok::<HashMap<usize, HashSet<libp2p::PeerId>>, RpcError>(peers)
         }
@@ -97,7 +97,7 @@ pub async fn run_server<'a: 'static>(
                     threshold,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
-            Ok::<NodeVesselStatus, RpcError>(result)
+            Ok::<NodeVesselWithStatus, RpcError>(result)
         }
     })?;
 

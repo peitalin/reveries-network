@@ -7,7 +7,6 @@ use libp2p::PeerId;
 use runtime::llm::AgentSecretsJson;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use nanoid::nanoid;
 
 use crate::create_network::NODE_SEED_NUM;
 
@@ -16,18 +15,6 @@ pub type AgentNonce = usize;
 pub type FragmentNumber = usize;
 pub type TotalFragments = usize;
 
-pub const TOPIC_DELIMITER: &'static str = "/";
-const NANOID_ALPHABET: [char; 16] = [
-    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f'
-];
-
-pub fn nanoid4() -> String {
-    nanoid!(4, &NANOID_ALPHABET) //=> "4f90"
-}
-
-pub fn reverie_id() -> String {
-    format!("reverie_{}", nanoid!(16, &NANOID_ALPHABET))
-}
 
 lazy_static! {
     //// When broadcasting kfrags, topic format is:

@@ -13,7 +13,8 @@ use crate::types::{
     FragmentResponseEnum,
     KeyFragmentMessage,
     TopicSwitch,
-    NodeVesselStatus
+    NodeVesselWithStatus,
+    ReverieId,
 };
 use super::container_manager::RestartReason;
 
@@ -22,17 +23,14 @@ pub enum NodeCommand {
 
     /// Gets the VesselStatus (which agent nodes are hosting),
     /// and Umbral PublicKey(s) of peers from Kademlia
-    GetPeerNodeVesselStatuses {
-        sender: mpsc::Sender<NodeVesselStatus>,
+    GetNodeVesselStatusesFromKademlia {
+        sender: mpsc::Sender<NodeVesselWithStatus>,
     },
 
-    /// Gets Peers that are subscribed to the Kfrag Broadcast channel for an agent
-    /// Note: Just because peers are subscribed to the same broadcast,
-    /// doesnt meant that peer has the fragments yet. Need to use GetKfragProviders.
-    GetKfragBroadcastPeers {
+    /// Gets the ReverieId for an agent from Kademlia
+    GetAgentReverieId {
         agent_name_nonce: AgentNameWithNonce,
-        // returns: {frag_num: [peer_id]}
-        sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
+        sender: oneshot::Sender<ReverieId>,
     },
 
     /// Gets Peers that hold the Kfrags for an agent.
@@ -40,7 +38,9 @@ pub enum NodeCommand {
     /// KfragBroadcastPeers = peers subscribed to a Kfrag broadcast channel
     GetKfragProviders {
         agent_name_nonce: AgentNameWithNonce,
-        sender: oneshot::Sender<HashSet<PeerId>>,
+        // sender: oneshot::Sender<HashSet<PeerId>>,
+        // returns: {frag_num: [peer_id]}
+        sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
     },
 
     /// Saves the provider of the kfrag for retrieval later

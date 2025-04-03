@@ -46,13 +46,13 @@ impl<'a> NetworkEvents<'a> {
                 }
             }).collect::<Vec<serde_json::Value>>();
 
-        // self.peer_manager.kfrag_broadcast_peers
-        let broadcast_peers = self.peer_manager.kfrag_broadcast_peers
+        // self.peer_manager.kfrag_providers
+        let kfrag_providers = self.peer_manager.kfrag_providers
             .iter()
             .map(|(agent_name, hmap)| {
                 serde_json::json!({
                     "agent_name_nonce": agent_name.to_string(),
-                    "kfrag_broadcast_peers": hmap.iter().map(|(frag_num, peers)| {
+                    "kfrag_providers": hmap.iter().map(|(frag_num, peers)| {
                         serde_json::json!({
                             "frag_num": frag_num,
                             "peers": peers.iter()
@@ -74,8 +74,8 @@ impl<'a> NetworkEvents<'a> {
             "peer_manager": {
                 // get all held agent cfrags
                 "1_cfrags_summary": self.peer_manager.held_cfrags_summary(),
-                // get all kfrag broadcast peers
-                "2_kfrag_broadcast_peers": broadcast_peers,
+                // get all kfrag providers
+                "2_kfrag_providers": kfrag_providers,
                 // peer_info with hb data
                 "3_peer_info": peer_info,
             }

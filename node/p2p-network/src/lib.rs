@@ -5,6 +5,7 @@ pub mod create_network;
 mod network_events;
 pub mod node_client;
 pub mod types;
+pub mod utils;
 
 use color_eyre::{Result, eyre::anyhow};
 use std::collections::HashSet;
@@ -14,6 +15,7 @@ use libp2p::{
     PeerId,
     Multiaddr,
 };
+use tokio::sync::oneshot::error::RecvError;
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -42,6 +44,19 @@ impl From<umbral_pre::CapsuleFragVerificationError> for SendError {
 impl From<(umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)> for SendError {
     fn from(e: (umbral_pre::KeyFragVerificationError, umbral_pre::KeyFrag)) -> Self {
         SendError(e.0.to_string())
+    }
+}
+
+impl From<RecvError> for SendError {
+    fn from(e: RecvError) -> Self {
+        SendError(e.to_string())
+    }
+}
+
+
+impl From<Box<dyn std::error::Error + Send>> for SendError {
+    fn from(e: Box<dyn std::error::Error + Send>) -> Self {
+        SendError(e.to_string())
     }
 }
 

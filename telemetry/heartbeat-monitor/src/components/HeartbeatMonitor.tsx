@@ -35,12 +35,12 @@ const HeartbeatMonitor: React.FC = () => {
   });
 
   const getPeerManagerData = (data: HeartbeatData): PeerManagerData => {
-    if (!data) return { cfrags_summary: [], kfrag_broadcast_peers: [], peer_info: [] };
+    if (!data) return { cfrags_summary: [], kfrag_providers: [], peer_info: [] };
     const nodeState: NodeState = data.node_state || {};
     const peerManager = nodeState.peer_manager || {};
     return {
       cfrags_summary: peerManager['1_cfrags_summary'] || [],
-      kfrag_broadcast_peers: peerManager['2_kfrag_broadcast_peers'] || [],
+      kfrag_providers: peerManager['2_kfrag_providers'] || [],
       peer_info: peerManager['3_peer_info'] || []
     };
   };

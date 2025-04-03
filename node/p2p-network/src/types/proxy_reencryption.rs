@@ -10,6 +10,7 @@ use crate::{short_peer_id, TryPeerId};
 use crate::types::{
     AgentNameWithNonce,
     GossipTopic,
+    ReverieId,
 };
 use umbral_pre::KeyFrag;
 
@@ -84,6 +85,7 @@ impl TryPeerId for VesselPeerId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyFragmentMessage {
     pub topic: GossipTopic,
+    pub reverie_id: ReverieId,
     pub frag_num: usize,
     pub threshold: usize,
     pub total_frags: usize,
@@ -130,7 +132,7 @@ impl Display for CapsuleFragmentMessage {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct NodeVesselStatus {
+pub struct NodeVesselWithStatus {
     pub peer_id: PeerId,
     pub umbral_public_key: umbral_pre::PublicKey,
     pub agent_vessel_info: Option<AgentVesselInfo>,
@@ -147,9 +149,9 @@ pub enum VesselStatus {
     ActiveVessel
 }
 
-impl Display for NodeVesselStatus  {
+impl Display for NodeVesselWithStatus  {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeVesselStatus({}, {})", self.peer_id, self.umbral_public_key)
+        write!(f, "NodeVesselWithStatus({}, {})", self.peer_id, self.umbral_public_key)
     }
 }
 
@@ -178,12 +180,12 @@ impl RespawnId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedVesselStatus {
-    pub node_vessel_status: NodeVesselStatus,
+    pub node_vessel_status: NodeVesselWithStatus,
     pub signature: Vec<u8>,
 }
 
 impl SignedVesselStatus {
-    pub fn new(status: NodeVesselStatus, id_keys: &identity::Keypair) -> Result<Self> {
+    pub fn new(status: NodeVesselWithStatus, id_keys: &identity::Keypair) -> Result<Self> {
         let status_bytes = serde_json::to_vec(&status)?;
         let signature = id_keys.sign(&status_bytes)?;
         Ok(Self {

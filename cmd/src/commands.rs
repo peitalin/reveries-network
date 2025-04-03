@@ -17,7 +17,7 @@ pub(crate) struct Cmd {
 #[derive(Debug, Parser, Clone, Deserialize, Serialize)]
 pub enum CliArgument {
 
-    GetKfragBroadcastPeers {
+    GetKfragProviders {
         #[clap(long)]
         agent_name: String,
         #[clap(long)]

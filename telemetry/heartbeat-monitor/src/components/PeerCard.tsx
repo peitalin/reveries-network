@@ -41,7 +41,7 @@ export const PeerCard: React.FC<PeerCardProps> = ({
             It requests CFrags using the request-response protocol when respawning agents.
           </Footnote>
           <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-            {JSON.stringify(getPeerManagerData(heartbeat).kfrag_broadcast_peers)}
+            {JSON.stringify(getPeerManagerData(heartbeat).kfrag_providers)}
           </pre>
 
           <h4 className="text-sm font-semibold mt-4">CFrag Summary:</h4>

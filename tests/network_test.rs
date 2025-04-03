@@ -76,7 +76,7 @@ async fn test_two_nodes_connecting() -> Result<()> {
     time::sleep(Duration::from_millis(300)).await;
 
     // Get the first node's peer ID
-    let peer1_id = node1_client.peer_id;
+    let peer1_id = node1_client.node_id.peer_id;
 
     // Create a bootstrap multiaddr for the second node to connect to the first
     let bootstrap_addr = format!("{}/p2p/{}", listen_address1, peer1_id);
@@ -126,7 +126,7 @@ async fn test_two_nodes_connecting() -> Result<()> {
     assert!(is_listening2, "Node 2 is not listening on port {}", port2);
 
     // Get node 2's peer ID
-    let peer2_id = node2_client.peer_id;
+    let peer2_id = node2_client.node_id.peer_id;
 
     // Verify that nodes are connected to each other
     // Get node 1's connected peers

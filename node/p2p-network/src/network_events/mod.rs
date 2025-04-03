@@ -36,9 +36,11 @@ use crate::types::{
     RespawnId,
     VesselPeerId,
     AgentVesselInfo,
-    NodeVesselStatus,
+    NodeVesselWithStatus,
     VesselStatus,
     SignedVesselStatus,
+    ReverieId,
+    AgentReverieId,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -105,9 +107,13 @@ struct PendingRequests {
         kad::QueryId,
         oneshot::Sender<HashSet<PeerId>>
     >,
-    get_node_vessel_status: HashMap<
+    get_node_vessels: HashMap<
         VesselPeerId,
-        mpsc::Sender<NodeVesselStatus>
+        mpsc::Sender<NodeVesselWithStatus>
+    >,
+    get_agent_reverie_id: HashMap<
+        AgentReverieId,
+        oneshot::Sender<ReverieId>
     >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
@@ -120,7 +126,8 @@ impl PendingRequests {
     fn new() -> Self {
         Self {
             get_providers: Default::default(),
-            get_node_vessel_status: Default::default(),
+            get_node_vessels: Default::default(),
+            get_agent_reverie_id: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }
@@ -306,7 +313,6 @@ impl<'a> NetworkEvents<'a> {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -357,26 +363,16 @@ impl<'a> NetworkEvents<'a> {
 
     fn remove_peer(&mut self, peer_id: &PeerId) {
         // Remove from PeerManager locally
-        self.peer_manager.remove_kfrags_broadcast_peer(peer_id);
+        self.peer_manager.remove_kfrag_provider(peer_id);
         self.peer_manager.remove_peer_info(peer_id);
         // Remove peer from GossipSub
-        self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+        self.swarm.behaviour_mut()
+            .gossipsub
+            .remove_explicit_peer(&peer_id);
         // Remove VesselPeerId of the Peer on Kademlia
-        self.swarm
-            .behaviour_mut()
+        self.swarm.behaviour_mut()
             .kademlia
             .remove_record(&kad::RecordKey::new(&VesselPeerId::from(peer_id).to_string()));
-    }
-
-    fn save_peer(&mut self,
-        sender_peer_id: &PeerId,
-        agent_name_nonce: AgentNameWithNonce,
-        frag_num: FragmentNumber
-    ) {
-        // Add to PeerManager locally
-        self.peer_manager.insert_peer_agent_fragments(&sender_peer_id, &agent_name_nonce, frag_num);
-        self.peer_manager.insert_kfrags_broadcast_peer(sender_peer_id.clone(), &agent_name_nonce, frag_num);
-        self.peer_manager.insert_peer_info(sender_peer_id.clone());
     }
 
     pub(crate) async fn simulate_heartbeat_failure(&mut self) {
@@ -385,7 +381,7 @@ impl<'a> NetworkEvents<'a> {
             .trigger_heartbeat_failure().await;
     }
 
-    fn put_signed_vessel_status(&mut self, status: NodeVesselStatus) -> Result<()> {
+    fn put_signed_vessel_status(&mut self, status: NodeVesselWithStatus) -> Result<()> {
         let signed_status = SignedVesselStatus::new(status.clone(), &self.node_id.id_keys)?;
 
         self.swarm.behaviour_mut().kademlia.put_record(
