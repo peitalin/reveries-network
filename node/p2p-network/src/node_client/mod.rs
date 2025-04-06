@@ -31,8 +31,9 @@ use crate::types::{
     RespawnId,
     TopicSwitch,
     NodeVesselWithStatus,
-    Reverie,
     VesselStatus,
+    Reverie,
+    ReverieId,
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
@@ -101,7 +102,7 @@ impl<'a> NodeClient<'a> {
                 e = network_event_receiver.recv() => match e {
                     // Reply with the content of the file on incoming requests.
                     Some(NetworkEvent::InboundCapsuleFragRequest {
-                        agent_name_nonce,
+                        reverie_id,
                         frag_num,
                         kfrag_provider_peer_id,
                         channel
@@ -110,7 +111,7 @@ impl<'a> NodeClient<'a> {
                         // if so, then reject request.
                         self.command_sender
                             .send(NodeCommand::RespondCapsuleFragment {
-                                agent_name_nonce,
+                                reverie_id,
                                 frag_num,
                                 kfrag_provider_peer_id,
                                 channel
@@ -134,7 +135,7 @@ impl<'a> NodeClient<'a> {
                     // After broadcasting kfrags, kfrag providers identify the vessel node and
                     // let it know this node has a fragment.
                     Some(NetworkEvent::SaveKfragProviderRequest {
-                        agent_name_nonce,
+                        reverie_id,
                         frag_num,
                         kfrag_provider_peer_id,
                         channel
@@ -144,7 +145,7 @@ impl<'a> NodeClient<'a> {
                         // Not necessary for other nodes to keep track of this.
                         self.command_sender
                             .send(NodeCommand::SaveKfragProvider {
-                                agent_name_nonce,
+                                reverie_id,
                                 frag_num,
                                 kfrag_provider_peer_id,
                                 channel
@@ -331,6 +332,22 @@ impl<'a> NodeClient<'a> {
         }
     }
 
+    pub async fn get_reverie_id_from_agent_name(
+        &self,
+        agent_name_nonce: &AgentNameWithNonce
+    ) -> Option<ReverieId> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::GetAgentReverieId {
+                agent_name_nonce: agent_name_nonce.clone(),
+                sender: sender,
+            })
+            .await.expect("Command receiver not to bee dropped");
+
+        receiver.await.expect("get reverie receiver not to drop")
+    }
+
     pub async fn get_node_vessel_statuses(&self) -> Vec<NodeVesselWithStatus> {
         let (sender, mut receiver) = mpsc::channel(100);
         self.command_sender
@@ -348,12 +365,12 @@ impl<'a> NodeClient<'a> {
 
     pub async fn get_kfrag_providers(
         &mut self,
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
     ) -> HashMap<usize, HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
         self.command_sender
             .send(NodeCommand::GetKfragProviders {
-                agent_name_nonce: agent_name_nonce,
+                reverie_id: reverie_id,
                 sender: sender
             })
             .await
@@ -364,15 +381,13 @@ impl<'a> NodeClient<'a> {
 
     pub async fn request_cfrags(
         &mut self,
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
         current_vessel_peer_id: PeerId
     ) -> Vec<Result<Vec<u8>>> {
 
-        let providers_hmap = self.get_kfrag_providers(
-            agent_name_nonce.clone()
-        ).await;
+        let providers_hmap = self.get_kfrag_providers(reverie_id.clone()).await;
 
-        info!("Finding providers for: {}", agent_name_nonce);
+        info!("Finding providers for: {}", reverie_id);
         info!("filter out vessel peer: {:?}", current_vessel_peer_id);
         info!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
 
@@ -392,14 +407,14 @@ impl<'a> NodeClient<'a> {
 
             // Request key_fragment(n) from each node that holds that fragment.
             let requests = peers.iter().map(|&peer_id| {
-                info!("Requesting {} cfrag({}) from {}", &agent_name_nonce, &frag_num, get_node_name(&peer_id));
+                info!("Requesting {} cfrag({}) from {}", &reverie_id, &frag_num, get_node_name(&peer_id));
                 let nc = self.clone();
-                let agent_name_nonce = agent_name_nonce.clone();
+                let reverie_id = reverie_id.clone();
                 async move {
                     let (sender, receiver) = oneshot::channel();
                     nc.command_sender
                         .send(NodeCommand::RequestCapsuleFragment {
-                            agent_name_nonce,
+                            reverie_id,
                             frag_num: frag_num,
                             peer: peer_id,
                             sender

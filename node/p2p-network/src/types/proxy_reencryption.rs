@@ -106,6 +106,7 @@ pub struct KeyFragmentMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapsuleFragmentMessage {
+    pub agent_name: Option<AgentNameWithNonce>,
     pub frag_num: usize,
     pub threshold: usize,
     pub alice_pk: umbral_pre::PublicKey, // delegator

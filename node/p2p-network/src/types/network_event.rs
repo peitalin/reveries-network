@@ -2,14 +2,14 @@ use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use crate::network_events::peer_manager::peer_info::AgentVesselInfo;
-use crate::types::{AgentNameWithNonce, FragmentNumber};
+use crate::types::{AgentNameWithNonce, FragmentNumber, ReverieId};
 use crate::SendError;
 
 
 #[derive(Debug)]
 pub enum NetworkEvent {
     InboundCapsuleFragRequest {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
@@ -18,7 +18,7 @@ pub enum NetworkEvent {
         AgentVesselInfo,
     ),
     SaveKfragProviderRequest {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId,
         channel: ResponseChannel<FragmentResponseEnum>
@@ -28,12 +28,12 @@ pub enum NetworkEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FragmentRequestEnum {
     FragmentRequest(
-        AgentNameWithNonce,
+        ReverieId,
         FragmentNumber,
         PeerId
     ),
     ProvidingFragment(
-        AgentNameWithNonce,
+        ReverieId,
         FragmentNumber,
         PeerId
     )

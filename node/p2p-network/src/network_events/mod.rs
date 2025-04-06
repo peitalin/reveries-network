@@ -113,7 +113,7 @@ struct PendingRequests {
     >,
     get_agent_reverie_id: HashMap<
         AgentReverieId,
-        oneshot::Sender<ReverieId>
+        oneshot::Sender<Option<ReverieId>>
     >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,

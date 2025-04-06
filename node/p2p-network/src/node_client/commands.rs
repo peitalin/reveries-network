@@ -30,14 +30,14 @@ pub enum NodeCommand {
     /// Gets the ReverieId for an agent from Kademlia
     GetAgentReverieId {
         agent_name_nonce: AgentNameWithNonce,
-        sender: oneshot::Sender<ReverieId>,
+        sender: oneshot::Sender<Option<ReverieId>>,
     },
 
     /// Gets Peers that hold the Kfrags for an agent.
     /// KfragProviders = kfrag holders
     /// KfragBroadcastPeers = peers subscribed to a Kfrag broadcast channel
     GetKfragProviders {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
         // sender: oneshot::Sender<HashSet<PeerId>>,
         // returns: {frag_num: [peer_id]}
         sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
@@ -45,7 +45,8 @@ pub enum NodeCommand {
 
     /// Saves the provider of the kfrag for retrieval later
     SaveKfragProvider {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
+        // agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
@@ -65,14 +66,16 @@ pub enum NodeCommand {
 
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
+        // agent_name_nonce: AgentNameWithNonce,
         frag_num: FragmentNumber,
         peer: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 
     RespondCapsuleFragment {
-        agent_name_nonce: AgentNameWithNonce,
+        reverie_id: ReverieId,
+        // agent_name_nonce: AgentNameWithNonce,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId, // peer who sends cfrag back
         channel: ResponseChannel<FragmentResponseEnum>,

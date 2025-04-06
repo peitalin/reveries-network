@@ -54,8 +54,9 @@ impl<'a> NetworkEvents<'a> {
                         // node stores cfrags locally
                         // nodes should also inform the vessel_node that they hold a fragment
                         self.peer_manager.insert_cfrags(
-                            &agent_name_nonce,
+                            &k.reverie_id,
                             CapsuleFragmentMessage {
+                                agent_name: Some(agent_name_nonce.clone()),
                                 frag_num: k.frag_num,
                                 threshold: k.threshold,
                                 cfrag: cfrag,
@@ -107,7 +108,7 @@ impl<'a> NetworkEvents<'a> {
                                 .send_request(
                                     &k.next_vessel_peer_id,
                                     FragmentRequestEnum::ProvidingFragment(
-                                        agent_name_nonce.clone(),
+                                        k.reverie_id,
                                         frag_num,
                                         self.node_id.peer_id // kfrag_provider_peer_id
                                     )

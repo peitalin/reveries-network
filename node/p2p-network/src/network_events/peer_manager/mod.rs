@@ -9,14 +9,14 @@ use std::collections::{HashMap, HashSet};
 use tracing::{warn, info};
 
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
-use crate::types::{CapsuleFragmentMessage, FragmentNumber, VesselStatus};
+use crate::types::{CapsuleFragmentMessage, FragmentNumber, VesselStatus, ReverieId};
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 use peer_info::{PeerInfo, AgentVesselInfo};
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct AgentFragment {
-    pub agent_name_nonce: AgentNameWithNonce,
+    pub reverie_id: ReverieId,
     frag_num: usize
 }
 
@@ -42,11 +42,11 @@ pub(crate) struct PeerManager {
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
     // pub(crate) peers_holding_kfrags: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Track which Peers are subscribed to whith AgentFragment broadcast channels:
-    pub(crate) kfrag_providers: HashMap<AgentNameWithNonce, HashMap<FragmentNumber, HashSet<PeerId>>>,
+    pub(crate) kfrag_providers: HashMap<ReverieId, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Capsule frags for each Agent (encrypted secret key fragments)
     // also contains ciphtertexts atm.
     // TODO: refactor to move ciphertext to target vessel nodes, away from frag holding nodes
-    pub(crate) cfrags: HashMap<AgentNameWithNonce, CapsuleFragmentMessage>,
+    pub(crate) cfrags: HashMap<ReverieId, CapsuleFragmentMessage>,
     // Tracks which AgentFragments a specific Peer holds, so that when a node dies
     // we know which fragments to delete from a peer
     pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
@@ -188,13 +188,13 @@ impl PeerManager {
     pub fn insert_kfrag_provider(
         &mut self,
         peer_id: PeerId,
-        agent_name_nonce: &AgentNameWithNonce,
+        reverie_id: ReverieId,
         frag_num: usize
     ) {
         // record Peer as Kfrag holder.
-        // make it easy to queyr list of all Peers for a given AgentName
+        // make it easy to query list of all Peers for a given Reverie
         self.kfrag_providers
-            .entry(agent_name_nonce.clone())
+            .entry(reverie_id.clone())
             .and_modify(|hmap| {
                 let maybe_hset = hmap.get_mut(&frag_num);
                 match maybe_hset {
@@ -217,28 +217,28 @@ impl PeerManager {
             });
 
         // Record which AgentFragments a Peer holds.
-        self.insert_peer_agent_fragments(&peer_id, agent_name_nonce, frag_num);
+        self.insert_peer_agent_fragments(&peer_id, reverie_id, frag_num);
     }
 
     fn insert_peer_agent_fragments(
         &mut self,
         peer_id: &PeerId,
-        agent_name_nonce: &AgentNameWithNonce,
+        reverie_id: ReverieId,
         frag_num: usize
     ) {
-        println!("Adding peer_agent_fragments: '{}' frag({})", agent_name_nonce, frag_num);
+        println!("Adding peer_agent_fragments: '{}' frag({})", reverie_id, frag_num);
         self.peers_to_agent_frags
             .entry(*peer_id)
             .and_modify(|hset| {
                 hset.insert(AgentFragment {
-                    agent_name_nonce: agent_name_nonce.clone(),
+                    reverie_id: reverie_id.clone(),
                     frag_num: frag_num
                 });
             })
             .or_insert_with(|| {
                 let mut hset = HashSet::new();
                 hset.insert(AgentFragment {
-                    agent_name_nonce: agent_name_nonce.clone(),
+                    reverie_id: reverie_id,
                     frag_num: frag_num
                 });
                 hset
@@ -252,16 +252,16 @@ impl PeerManager {
         if let Some(agent_fragments) = opt_agent_fragments {
             // remove all kfrag_broadcast_peers entries for the Peer
             for af in agent_fragments.into_iter() {
-                info!("removing frag_num({}): {}", af.frag_num, af.agent_name_nonce);
+                info!("removing frag_num({}): {}", af.frag_num, af.reverie_id);
                 if let Some(
                     hmap
-                ) = self.kfrag_providers.get_mut(&af.agent_name_nonce) {
+                ) = self.kfrag_providers.get_mut(&af.reverie_id) {
                     if let Some(hset) = hmap.get_mut(&af.frag_num) {
                         let _removed = hset.remove(peer_id);
                     }
                 };
                 info!("{}: {:?}", "kfrag_providers".blue(),
-                    self.kfrag_providers.get(&af.agent_name_nonce));
+                    self.kfrag_providers.get(&af.reverie_id));
             }
             // remove Peer from peers_to_agent_frags Hashmap
             self.peers_to_agent_frags.remove(&peer_id);
@@ -273,10 +273,10 @@ impl PeerManager {
     // Returns peers that just hold a specific fragment
     pub fn get_kfrag_peers_by_fragment(
         &self,
-        agent_name_nonce: &AgentNameWithNonce,
+        reverie_id: ReverieId,
         frag_num: usize
     ) -> Vec<PeerId> {
-        match self.kfrag_providers.get(agent_name_nonce) {
+        match self.kfrag_providers.get(&reverie_id) {
             None => vec![],
             Some(peers_hmap) => {
                 match peers_hmap.get(&frag_num) {
@@ -295,26 +295,33 @@ impl PeerManager {
 
     pub(crate) fn get_cfrags(
         &self,
-        agent_name_nonce: &AgentNameWithNonce,
+        reverie_id: &ReverieId
     ) -> Option<&CapsuleFragmentMessage> {
-        self.cfrags.get(agent_name_nonce)
+        self.cfrags.get(reverie_id)
     }
 
     pub(crate) fn insert_cfrags(
         &mut self,
-        agent_name_nonce: &AgentNameWithNonce,
+        reverie_id: &ReverieId,
         cfrag_indexed: CapsuleFragmentMessage,
     ) {
         self.cfrags
-            .entry(agent_name_nonce.clone())
+            .entry(reverie_id.clone())
             .insert_entry(cfrag_indexed);
     }
 
     pub(crate) fn held_cfrags_summary(&self) -> Vec<serde_json::Value> {
-        self.cfrags.iter().map(|(agent_name_nonce, cfrag)| {
+        self.cfrags.iter().map(|(reverie_id, cfrag)| {
+
+            let agent_name_str = match &cfrag.agent_name {
+                Some(a) => a.to_string(),
+                None => "NA".to_string(),
+            };
+
             serde_json::json!({
-                "agent_name_nonce": agent_name_nonce.to_string(),
+                "reverie_id": reverie_id.to_string(),
                 "cfrag": {
+                    "agent_name": agent_name_str,
                     "frag_num": cfrag.frag_num,
                     "threshold": cfrag.threshold,
                     "alice_pk": cfrag.alice_pk,

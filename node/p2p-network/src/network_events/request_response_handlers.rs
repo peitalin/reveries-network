@@ -31,13 +31,13 @@ impl<'a> NetworkEvents<'a> {
                     } => {
                         match fragment_request {
                             FragmentRequestEnum::FragmentRequest(
-                                agent_name_nonce,
+                                reverie_id,
                                 frag_num,
                                 kfrag_provider_peer_id
                             ) => {
                                 self.network_event_sender
                                     .send(NetworkEvent::InboundCapsuleFragRequest {
-                                        agent_name_nonce,
+                                        reverie_id,
                                         frag_num,
                                         kfrag_provider_peer_id,
                                         channel,
@@ -46,13 +46,13 @@ impl<'a> NetworkEvents<'a> {
                                     .expect("Event receiver not to be dropped.");
                             },
                             FragmentRequestEnum::ProvidingFragment(
-                                agent_name_nonce,
+                                reverie_id,
                                 frag_num,
                                 kfrag_provider_peer_id
                             ) => {
                                 self.network_event_sender
                                     .send(NetworkEvent::SaveKfragProviderRequest {
-                                        agent_name_nonce,
+                                        reverie_id,
                                         frag_num,
                                         kfrag_provider_peer_id,
                                         channel,

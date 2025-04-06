@@ -9,7 +9,6 @@ use crate::types::{
     AgentNameWithNonce,
     CapsuleFragmentMessage,
     GossipTopic,
-    KeyFragmentMessage,
     NetworkEvent,
     NextTopic,
     PrevTopic,
@@ -43,7 +42,7 @@ impl<'a> NodeClient<'a> {
         let next_nonce = next_agent.nonce();
 
         let mut agent_secrets_json = self.request_respawn_cfrags(
-            prev_agent,
+            &prev_agent,
             current_vessel_peer_id
         ).await?;
 
@@ -114,12 +113,17 @@ impl<'a> NodeClient<'a> {
     // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
     pub async fn request_respawn_cfrags(
         &mut self,
-        agent_name_nonce: AgentNameWithNonce,
+        agent_name_nonce: &AgentNameWithNonce,
         current_vessel_peer_id: PeerId
     ) -> Result<AgentSecretsJson> {
 
+        let reverie_id = match self.get_reverie_id_from_agent_name(agent_name_nonce).await {
+            None => return Err(anyhow!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce)),
+            Some(reverie_id) => reverie_id,
+        };
+
         let cfrags_raw = self.request_cfrags(
-            agent_name_nonce.clone(),
+            reverie_id,
             current_vessel_peer_id
         ).await;
 

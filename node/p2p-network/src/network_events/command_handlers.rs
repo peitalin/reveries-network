@@ -55,8 +55,8 @@ impl<'a> NetworkEvents<'a> {
 
                 self.pending.get_agent_reverie_id.insert(agent_reverie_key, sender);
             }
-            NodeCommand::GetKfragProviders { agent_name_nonce, sender } => {
-                match self.peer_manager.kfrag_providers.get(&agent_name_nonce) {
+            NodeCommand::GetKfragProviders { reverie_id, sender } => {
+                match self.peer_manager.kfrag_providers.get(&reverie_id) {
                     None => {
                         error!("missing kfrag_providers: {:?}", self.peer_manager.kfrag_providers);
                         sender.send(std::collections::HashMap::new()).ok();
@@ -68,7 +68,8 @@ impl<'a> NetworkEvents<'a> {
                 }
             }
             NodeCommand::SaveKfragProvider {
-                agent_name_nonce,
+                reverie_id,
+                // agent_name_nonce,
                 frag_num,
                 kfrag_provider_peer_id,
                 channel
@@ -76,13 +77,14 @@ impl<'a> NetworkEvents<'a> {
                 info!(
                     "\n{} Adding peer to kfrags_peers({}, {}, {})",
                     self.nname(),
-                    agent_name_nonce,
+                    reverie_id,
+                    // agent_name_nonce,
                     frag_num,
                     short_peer_id(&kfrag_provider_peer_id)
                 );
 
                 // Add to PeerManager locally on this node
-                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), &agent_name_nonce, frag_num);
+                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
                 self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
 
                 // confirm saved kfrag peer
@@ -183,7 +185,6 @@ impl<'a> NetworkEvents<'a> {
                             .behaviour_mut()
                             .gossipsub
                             .publish(topic.clone(), kfrag_msg)
-                            .map_err(|e| anyhow!(e.to_string()))
                             .ok();
                     }
                     None => {
@@ -193,7 +194,7 @@ impl<'a> NetworkEvents<'a> {
                 }
             }
             NodeCommand::RequestCapsuleFragment {
-                agent_name_nonce,
+                reverie_id,
                 frag_num,
                 peer,
                 sender,
@@ -203,7 +204,7 @@ impl<'a> NetworkEvents<'a> {
                     .behaviour_mut()
                     .request_response
                     .send_request(&peer, FragmentRequestEnum::FragmentRequest(
-                        agent_name_nonce,
+                        reverie_id,
                         frag_num,
                         self.node_id.peer_id
                     ));
@@ -211,13 +212,13 @@ impl<'a> NetworkEvents<'a> {
                 self.pending.request_fragments.insert(request_id, sender);
             }
             NodeCommand::RespondCapsuleFragment {
-                agent_name_nonce,
+                reverie_id,
                 frag_num,
                 kfrag_provider_peer_id,
                 channel
             } => {
-                info!("{} RespondCapsuleFragment for {agent_name_nonce} frag_num: {frag_num}", self.nname());
-                match self.peer_manager.get_cfrags(&agent_name_nonce) {
+                info!("{} RespondCapsuleFragment for {reverie_id} frag_num: {frag_num}", self.nname());
+                match self.peer_manager.get_cfrags(&reverie_id) {
                     None => {},
                     // Do not send if no cfrag found, fastest successful futures returns
                     // with futures::future:select_ok()
