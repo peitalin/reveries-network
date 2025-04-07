@@ -15,10 +15,16 @@ use crate::types::{
     NodeVesselWithStatus,
     VesselStatus,
     VesselPeerId,
-    AgentReverieId
+    AgentReverieId,
+    CapsuleFragmentMessage,
+    KeyFragmentMessage,
+    KeyFragmentMessage2,
+    ReverieType,
+    ReverieKeyfrag,
+    ReverieCapsulefrag,
+    Reverie,
 };
 use crate::short_peer_id;
-use crate::types::{CapsuleFragmentMessage, KeyFragmentMessage};
 use crate::SendError;
 use super::NetworkEvents;
 
@@ -26,6 +32,38 @@ use super::NetworkEvents;
 impl<'a> NetworkEvents<'a> {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
+
+            NodeCommand::SendKfrag(
+                kfrag_msg,
+                peer_id,
+                agent_name_nonce,
+                sender,
+            ) => {
+
+                // let metadata = match kfrag_msg.reverie_keyfrag.reverie_type {
+                //     ReverieType::Agent => {
+                //         // PUT kademlia record:
+                //         // AgentName => ReverieId
+                //         agent_name_nonce
+                //     }
+                //     _ => {
+                //         None
+                //     }
+                // }
+
+                let request_id = self.swarm.behaviour_mut()
+                    .request_response
+                    .send_request(&peer_id, FragmentRequestEnum::SaveFragmentRequest(
+                        kfrag_msg,
+                        agent_name_nonce
+                    ));
+
+                self.pending.send_fragments.insert(request_id, sender);
+            }
+            NodeCommand::SendReverie(msg) => {
+                // self.send_reverie(msg).await;
+            }
+
             NodeCommand::GetNodeVesselStatusesFromKademlia { sender, .. } => {
 
                 let peers = self.swarm.connected_peers()
@@ -69,25 +107,23 @@ impl<'a> NetworkEvents<'a> {
             }
             NodeCommand::SaveKfragProvider {
                 reverie_id,
-                // agent_name_nonce,
                 frag_num,
                 kfrag_provider_peer_id,
                 channel
             } => {
                 info!(
-                    "\n{} Adding peer to kfrags_peers({}, {}, {})",
+                    "\n{} Adding peer to kfrags_providers({}, {}, {})",
                     self.nname(),
                     reverie_id,
-                    // agent_name_nonce,
                     frag_num,
                     short_peer_id(&kfrag_provider_peer_id)
                 );
 
-                // Add to PeerManager locally on this node
+                // 1). Add to PeerManager locally on this node
                 self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
                 self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
 
-                // confirm saved kfrag peer
+                // 2). Respond to broadcasting node and acknowledge receipt of Kfrag
                 self.swarm
                     .behaviour_mut()
                     .request_response
@@ -96,6 +132,7 @@ impl<'a> NetworkEvents<'a> {
                         FragmentResponseEnum::KfragProviderAck
                     )
                     .expect("Connection to peer to be still open.");
+
             }
             NodeCommand::BroadcastSwitchTopic(ts, sender) => {
 
@@ -196,14 +233,14 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
                 frag_num,
-                peer,
+                peer_id,
                 sender,
             } => {
                 let request_id = self
                     .swarm
                     .behaviour_mut()
                     .request_response
-                    .send_request(&peer, FragmentRequestEnum::FragmentRequest(
+                    .send_request(&peer_id, FragmentRequestEnum::GetFragmentRequest(
                         reverie_id,
                         frag_num,
                         self.node_id.peer_id
@@ -224,7 +261,7 @@ impl<'a> NetworkEvents<'a> {
                     // with futures::future:select_ok()
                     Some(cfrag) => {
                         let cfrag_indexed_bytes =
-                            serde_json::to_vec::<Option<CapsuleFragmentMessage>>(&Some(cfrag.clone()))
+                            serde_json::to_vec::<Option<ReverieCapsulefrag>>(&Some(cfrag.clone()))
                                 .map_err(|e| SendError(e.to_string()));
 
                         self.swarm

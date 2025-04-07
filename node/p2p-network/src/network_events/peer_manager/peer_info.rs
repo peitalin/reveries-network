@@ -30,3 +30,13 @@ pub struct AgentVesselInfo {
     pub current_vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
 }
+
+// impl Default for AgentVesselInfo {
+//     fn default() -> Self {
+//         AgentVesselInfo {
+//             agent_name_nonce: AgentNameWithNonce("MissingAgent".to_string(), 0),
+//             total_frags: 0,
+//             current_vessel_peer_id:
+//         }
+//     }
+// }

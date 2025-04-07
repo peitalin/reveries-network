@@ -16,6 +16,7 @@ use crate::types::{
     TopicSwitch,
     NodeVesselWithStatus,
     Reverie,
+    ReverieId,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -79,7 +80,7 @@ impl<'a> NodeClient<'a> {
         let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
         info!("num peers subscribed: {:?}", num_subscribed);
 
-        let reverie = self.encrypt_secret_and_store(agent_secrets_json.clone())?;
+        let reverie = self.create_reverie(agent_secrets_json.clone())?;
         // TODO: post-respawn checks:
         // 1. test LLM API works
         // 2. re-encrypt secrets + provide TEE attestation of it
@@ -96,12 +97,15 @@ impl<'a> NodeClient<'a> {
             // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
         }
 
+        let next_vessel = self.get_next_vessel().await?;
+        // randomly choose next vessel to host reverie
+
         self.broadcast_kfrags(
             reverie.id.clone(),
             next_agent,
             total_frags,
             threshold,
-            None, // no target vessel, randomly choose next vessel
+            next_vessel, // no target vessel, randomly choose next vessel
         ).await?;
 
         self.unsubscribe_topics(next_topics).await?;
@@ -152,7 +156,7 @@ impl<'a> NodeClient<'a> {
     ) -> Result<NodeVesselWithStatus> {
 
         // Encrypt using PRE
-        let reverie = self.encrypt_secret_and_store(agent_secrets.clone())?;
+        let reverie = self.create_reverie(agent_secrets.clone())?;
         // prove node has decrypted AgentSecret
         // prove node has TEE attestation
         // prove node has re-encrypted AgentSecret
@@ -179,12 +183,15 @@ impl<'a> NodeClient<'a> {
             None // no previous agent
         )).await?;
 
+        let next_vessel = self.get_next_vessel().await?;
+        // no target vessel, randomly choose next vessel
+
         let next_vessel_pk = self.broadcast_kfrags(
             reverie.id.clone(),
             agent_name_nonce,
             total_frags,
             threshold,
-            None, // no target vessel, randomly choose next vessel
+            next_vessel.clone(),
         ).await?;
 
         // TODO: should return info:
@@ -193,7 +200,23 @@ impl<'a> NodeClient<'a> {
         // PRE fragment holders
         // PRE total_frags, threshold
         self.unsubscribe_topics(topics).await.ok();
-        Ok(next_vessel_pk)
+        Ok(next_vessel)
+    }
+
+    pub async fn get_reverie_id_from_agent_name(
+        &self,
+        agent_name_nonce: &AgentNameWithNonce
+    ) -> Option<ReverieId> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::GetAgentReverieId {
+                agent_name_nonce: agent_name_nonce.clone(),
+                sender: sender,
+            })
+            .await.expect("Command receiver not to bee dropped");
+
+        receiver.await.expect("get reverie receiver not to drop")
     }
 
     pub async fn broadcast_switch_topic_nc(&mut self, topic_switch: TopicSwitch) -> Result<usize> {

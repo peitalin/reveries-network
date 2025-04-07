@@ -9,7 +9,13 @@ use std::collections::{HashMap, HashSet};
 use tracing::{warn, info};
 
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
-use crate::types::{CapsuleFragmentMessage, FragmentNumber, VesselStatus, ReverieId};
+use crate::types::{
+    CapsuleFragmentMessage,
+    FragmentNumber,
+    VesselStatus,
+    ReverieId,
+    ReverieCapsulefrag,
+};
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 use peer_info::{PeerInfo, AgentVesselInfo};
 
@@ -45,8 +51,8 @@ pub(crate) struct PeerManager {
     pub(crate) kfrag_providers: HashMap<ReverieId, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Capsule frags for each Agent (encrypted secret key fragments)
     // also contains ciphtertexts atm.
-    // TODO: refactor to move ciphertext to target vessel nodes, away from frag holding nodes
-    pub(crate) cfrags: HashMap<ReverieId, CapsuleFragmentMessage>,
+    pub(crate) cfrags: HashMap<ReverieId, ReverieCapsulefrag>,
+    pub(crate) reverie_metadata: HashMap<ReverieId, AgentVesselInfo>,
     // Tracks which AgentFragments a specific Peer holds, so that when a node dies
     // we know which fragments to delete from a peer
     pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
@@ -61,10 +67,11 @@ impl PeerManager {
             peer_id: peer_id,
             vessel_status: VesselStatus::EmptyVessel,
             vessel_agent: None,
-            kfrag_providers: HashMap::new(),
-            peers_to_agent_frags: HashMap::new(),
             peer_info: HashMap::new(),
+            kfrag_providers: HashMap::new(),
             cfrags: HashMap::new(),
+            reverie_metadata: HashMap::new(),
+            peers_to_agent_frags: HashMap::new(),
             avg_window: 10,
         }
     }
@@ -293,44 +300,72 @@ impl PeerManager {
     //// self.cfrags
     //////////////////////
 
-    pub(crate) fn get_cfrags(
-        &self,
-        reverie_id: &ReverieId
-    ) -> Option<&CapsuleFragmentMessage> {
+    pub(crate) fn get_cfrags(&self, reverie_id: &ReverieId) -> Option<&ReverieCapsulefrag> {
         self.cfrags.get(reverie_id)
     }
 
     pub(crate) fn insert_cfrags(
         &mut self,
         reverie_id: &ReverieId,
-        cfrag_indexed: CapsuleFragmentMessage,
+        cfrag: ReverieCapsulefrag,
     ) {
         self.cfrags
             .entry(reverie_id.clone())
-            .insert_entry(cfrag_indexed);
+            .insert_entry(cfrag);
+    }
+
+    pub(crate) fn get_reverie_metadata(&self, reverie_id: &ReverieId) -> Option<&AgentVesselInfo> {
+        self.reverie_metadata.get(reverie_id)
+    }
+
+    pub(crate) fn insert_reverie_metadata(
+        &mut self,
+        reverie_id: &ReverieId,
+        agent_metadata: AgentVesselInfo,
+    ) {
+        self.reverie_metadata
+            .entry(reverie_id.clone())
+            .insert_entry(agent_metadata);
     }
 
     pub(crate) fn held_cfrags_summary(&self) -> Vec<serde_json::Value> {
         self.cfrags.iter().map(|(reverie_id, cfrag)| {
 
-            let agent_name_str = match &cfrag.agent_name {
-                Some(a) => a.to_string(),
-                None => "NA".to_string(),
+            let (
+                agent_name,
+                source_peer_id,
+                target_peer_id
+            ) = match self.reverie_metadata.get(reverie_id) {
+                Some(a) => {
+                    (
+                        a.agent_name_nonce,
+                        Some(a.current_vessel_peer_id),
+                        Some(a.next_vessel_peer_id)
+                    )
+                },
+                None => {
+                    (
+                        AgentNameWithNonce("MissingAgent".to_string(), 0),
+                        None,
+                        None
+                    )
+                }
             };
+
+            let cfrag_str: String = format!("{:?}...", cfrag.umbral_capsule_frag.to_vec())[..128].to_string();
 
             serde_json::json!({
                 "reverie_id": reverie_id.to_string(),
                 "cfrag": {
-                    "agent_name": agent_name_str,
+                    "agent_name": agent_metadata.agent_name_nonce.to_string(),
                     "frag_num": cfrag.frag_num,
                     "threshold": cfrag.threshold,
                     "alice_pk": cfrag.alice_pk,
                     "bob_pk": cfrag.bob_pk,
                     "verifying_pk": cfrag.verifying_pk,
-                    "kfrag_provider_peer_id": cfrag.kfrag_provider_peer_id,
-                    "vessel_peer_id": cfrag.vessel_peer_id,
-                    "next_vessel_peer_id": cfrag.next_vessel_peer_id,
-                    "cfrag": format!("{:?}", cfrag.cfrag.to_bytes_simple())[..128],
+                    "vessel_peer_id": agent_metadata.current_vessel_peer_id,
+                    "next_vessel_peer_id": agent_metadata.next_vessel_peer_id,
+                    "cfrag": cfrag_str,
                 }
             })
         }).collect::<>()

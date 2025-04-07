@@ -15,6 +15,8 @@ use crate::types::{
     AgentVesselInfo,
     VesselStatus,
     VesselPeerId,
+    ReverieCapsulefrag,
+    ReverieType,
 };
 use crate::create_network::NODE_SEED_NUM;
 use super::NetworkEvents;
@@ -55,19 +57,32 @@ impl<'a> NetworkEvents<'a> {
                         // nodes should also inform the vessel_node that they hold a fragment
                         self.peer_manager.insert_cfrags(
                             &k.reverie_id,
-                            CapsuleFragmentMessage {
-                                agent_name: Some(agent_name_nonce.clone()),
+                            ReverieCapsulefrag {
+                                id: k.reverie_id.clone(),
+                                reverie_type: ReverieType::Agent,
+                                umbral_capsule_frag: serde_json::to_vec(&cfrag).expect(""),
+                                // agent_name: Some(agent_name_nonce.clone()),
                                 frag_num: k.frag_num,
                                 threshold: k.threshold,
-                                cfrag: cfrag,
+                                // cfrag: cfrag,
                                 verifying_pk: k.verifying_pk,
                                 alice_pk: k.alice_pk, // vessel
                                 bob_pk: k.bob_pk, // next vessel
-                                kfrag_provider_peer_id: self.node_id.peer_id,
-                                vessel_peer_id: propagation_peer_id,
-                                next_vessel_peer_id: k.next_vessel_peer_id,
-                                capsule: k.capsule,
-                                ciphertext: k.ciphertext
+                                // kfrag_provider_peer_id: self.node_id.peer_id,
+                                // vessel_peer_id: propagation_peer_id,
+                                // next_vessel_peer_id: k.next_vessel_peer_id,
+                                // capsule: k.capsule,
+                                // ciphertext: k.ciphertext
+                            }
+                        );
+
+                        self.peer_manager.insert_reverie_metadata(
+                           &k.reverie_id,
+                           AgentVesselInfo {
+                                agent_name_nonce: AgentNameWithNonce::from(k.topic.to_string()),
+                                total_frags: total_frags,
+                                current_vessel_peer_id: propagation_peer_id,
+                                next_vessel_peer_id: k.next_vessel_peer_id
                             }
                         );
 
@@ -107,7 +122,7 @@ impl<'a> NetworkEvents<'a> {
                                 .request_response
                                 .send_request(
                                     &k.next_vessel_peer_id,
-                                    FragmentRequestEnum::ProvidingFragment(
+                                    FragmentRequestEnum::ProvidingFragmentRequest(
                                         k.reverie_id,
                                         frag_num,
                                         self.node_id.peer_id // kfrag_provider_peer_id

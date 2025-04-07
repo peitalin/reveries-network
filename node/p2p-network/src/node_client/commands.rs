@@ -12,9 +12,11 @@ use crate::types::{
     FragmentNumber,
     FragmentResponseEnum,
     KeyFragmentMessage,
+    KeyFragmentMessage2,
     TopicSwitch,
     NodeVesselWithStatus,
     ReverieId,
+    ReverieKeyfrag,
 };
 use super::container_manager::RestartReason;
 
@@ -46,7 +48,7 @@ pub enum NodeCommand {
     /// Saves the provider of the kfrag for retrieval later
     SaveKfragProvider {
         reverie_id: ReverieId,
-        // agent_name_nonce: AgentNameWithNonce,
+        // agent_name_nonce: Option<AgentNameWithNonce>,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
@@ -64,12 +66,21 @@ pub enum NodeCommand {
     /// Kfrags are verified then encrypted
     BroadcastKfrags(KeyFragmentMessage),
 
+    SendKfrag(
+        KeyFragmentMessage2,
+        PeerId, // peer to request fragment from
+        Option<AgentNameWithNonce>,
+        oneshot::Sender<Result<Vec<u8>, SendError>>,
+    ),
+
+    SendReverie(KeyFragmentMessage),
+
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
         reverie_id: ReverieId,
         // agent_name_nonce: AgentNameWithNonce,
         frag_num: FragmentNumber,
-        peer: PeerId, // peer to request fragment from
+        peer_id: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 
