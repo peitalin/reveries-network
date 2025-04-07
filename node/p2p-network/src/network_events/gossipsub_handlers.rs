@@ -64,15 +64,10 @@ impl<'a> NetworkEvents<'a> {
                                 // agent_name: Some(agent_name_nonce.clone()),
                                 frag_num: k.frag_num,
                                 threshold: k.threshold,
-                                // cfrag: cfrag,
                                 verifying_pk: k.verifying_pk,
                                 alice_pk: k.alice_pk, // vessel
                                 bob_pk: k.bob_pk, // next vessel
-                                // kfrag_provider_peer_id: self.node_id.peer_id,
-                                // vessel_peer_id: propagation_peer_id,
-                                // next_vessel_peer_id: k.next_vessel_peer_id,
-                                // capsule: k.capsule,
-                                // ciphertext: k.ciphertext
+                                kfrag_provider_peer_id: self.node_id.peer_id,
                             }
                         );
 

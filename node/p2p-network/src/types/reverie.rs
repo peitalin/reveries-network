@@ -2,6 +2,7 @@
 use color_eyre::{eyre::anyhow, Result};
 use serde::{Deserialize, Serialize};
 use umbral_pre::Capsule;
+use libp2p::PeerId;
 use crate::utils::reverie_id;
 use crate::types::AgentNameWithNonce;
 
@@ -41,6 +42,7 @@ pub struct ReverieCapsulefrag {
     pub alice_pk: umbral_pre::PublicKey,
     pub bob_pk: umbral_pre::PublicKey,
     pub verifying_pk: umbral_pre::PublicKey,
+    pub kfrag_provider_peer_id: PeerId,
 }
 
 

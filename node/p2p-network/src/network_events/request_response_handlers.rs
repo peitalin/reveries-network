@@ -117,6 +117,7 @@ impl<'a> NetworkEvents<'a> {
                                         alice_pk: reverie_keyfrag.alice_pk, // vessel
                                         bob_pk: reverie_keyfrag.bob_pk, // next vessel
                                         verifying_pk: reverie_keyfrag.verifying_pk,
+                                        kfrag_provider_peer_id: self.node_id.peer_id,
                                     }
                                 );
 

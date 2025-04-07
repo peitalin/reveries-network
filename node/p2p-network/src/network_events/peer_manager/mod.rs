@@ -338,14 +338,14 @@ impl PeerManager {
             ) = match self.reverie_metadata.get(reverie_id) {
                 Some(a) => {
                     (
-                        a.agent_name_nonce,
+                        a.agent_name_nonce.clone(),
                         Some(a.current_vessel_peer_id),
                         Some(a.next_vessel_peer_id)
                     )
                 },
                 None => {
                     (
-                        AgentNameWithNonce("MissingAgent".to_string(), 0),
+                        AgentNameWithNonce("NA".to_string(), 0),
                         None,
                         None
                     )
@@ -357,14 +357,15 @@ impl PeerManager {
             serde_json::json!({
                 "reverie_id": reverie_id.to_string(),
                 "cfrag": {
-                    "agent_name": agent_metadata.agent_name_nonce.to_string(),
+                    "agent_name": agent_name,
                     "frag_num": cfrag.frag_num,
                     "threshold": cfrag.threshold,
                     "alice_pk": cfrag.alice_pk,
                     "bob_pk": cfrag.bob_pk,
                     "verifying_pk": cfrag.verifying_pk,
-                    "vessel_peer_id": agent_metadata.current_vessel_peer_id,
-                    "next_vessel_peer_id": agent_metadata.next_vessel_peer_id,
+                    "vessel_peer_id": source_peer_id,
+                    "next_vessel_peer_id": target_peer_id,
+                    "kfrag_provider_peer_id": cfrag.kfrag_provider_peer_id,
                     "cfrag": cfrag_str,
                 }
             })
