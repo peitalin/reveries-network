@@ -34,24 +34,6 @@ export const PeerCard: React.FC<PeerCardProps> = ({
           <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
             {JSON.stringify(peer, null, 2)}
           </pre>
-
-          <h4 className="text-sm font-semibold mt-4">Kfrag Broadcast Peers:</h4>
-          <Footnote>
-            Only the next vessel will have Kfrag broadcast peers.
-            It requests CFrags using the request-response protocol when respawning agents.
-          </Footnote>
-          <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-            {JSON.stringify(getPeerManagerData(heartbeat).kfrag_providers)}
-          </pre>
-
-          <h4 className="text-sm font-semibold mt-4">CFrag Summary:</h4>
-          <Footnote>
-            Cfrag holders are the peers that have received a CFrag from the vessel node
-            housing the agent.
-          </Footnote>
-          <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
-            {JSON.stringify(getPeerManagerData(heartbeat).cfrags_summary)}
-          </pre>
         </div>
       )}
     </div>

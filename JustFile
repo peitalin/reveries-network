@@ -107,6 +107,22 @@ node5-prod:
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
 
+# Runs node 6
+node6:
+    cargo run --bin rpc -- \
+        --secret-key-seed 6 \
+        --rpc-port 8006 \
+        --listen-address "/ip4/0.0.0.0/tcp/9006" \
+        --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
+node6-prod:
+    sudo cargo build --features tdx_enabled
+    sudo ./target/debug/rpc \
+        --secret-key-seed 6 \
+        --rpc-port 8006 \
+        --listen-address "/ip4/0.0.0.0/tcp/9006" \
+        --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+
 
 spawn-agent node_port:
     cargo run --bin cmd -- \

@@ -2,6 +2,7 @@ import React from 'react';
 import { HeartbeatData, PeerManagerData } from '../types';
 import { formatTime, getColorForPeerName } from '../utils/formatting';
 import { PeerCard } from './PeerCard';
+import Footnote from './Footnote';
 
 interface ConnectionDisplayProps {
   port: number;
@@ -10,7 +11,7 @@ interface ConnectionDisplayProps {
   error: string | null;
   expandedPeerId: string;
   setExpandedPeerId: (peerId: string) => void;
-  getPeerManagerData: (data: HeartbeatData) => PeerManagerData;
+  getPeerManagerData: (data: HeartbeatData | null) => PeerManagerData;
   isLoading?: boolean;
 }
 
@@ -34,6 +35,8 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
   isLoading
 }) => {
   const nodeColor = heartbeat ? getColorForPeerName(heartbeat.node_state._node_name) : undefined;
+
+  let peerManagerData = getPeerManagerData(heartbeat);
 
   return (
     <div className="p-2 rounded-md relative">
@@ -78,32 +81,54 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
       {heartbeat && (
         <div className="relative">
           <div className="my-2 p-4 bg-gray-700 rounded-md">
+            <h2 className="text-lg font-semibold">Kfrag Provider Peers:</h2>
+            <Footnote>
+              Only the next vessel will have Kfrag provider peers.
+              It requests CFrags using the request-response protocol when respawning agents.
+            </Footnote>
+            <pre className="text-xs bg-gray-900 p-2 rounded max-w-screen-md text-wrap">
+              {JSON.stringify(peerManagerData.kfrag_providers, null, 2)}
+            </pre>
+
+            <h4 className="text-sm font-semibold mt-4">CFrag Summary:</h4>
+            <Footnote>
+              Cfrag holders are the peers that have received a CFrag from the vessel node
+              housing the agent.
+            </Footnote>
+            <pre className="text-xs bg-gray-900 p-2 rounded overflow-auto">
+              {JSON.stringify(peerManagerData.cfrags_summary)}
+            </pre>
+          </div>
+
+          <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">
               {heartbeat.node_state._node_name}'s Connected Peers ({getPeerManagerData(heartbeat).peer_info.length})
             </h3>
             <div className="grid gap-2 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-              {getPeerManagerData(heartbeat).peer_info.map((peer) => (
-                <PeerCard
-                  key={peer.peer_id}
-                  peer={peer}
-                  heartbeat={heartbeat}
-                  isExpanded={expandedPeerId === '*' || expandedPeerId === peer.peer_id}
-                  onToggleExpand={() => setExpandedPeerId(expandedPeerId === '*' ? peer.peer_id : expandedPeerId === peer.peer_id ? '' : '*')}
-                  getPeerManagerData={getPeerManagerData}
-                />
-              ))}
+              {
+                peerManagerData &&
+                peerManagerData.peer_info.map((peer) => (
+                  <PeerCard
+                    key={peer.peer_id}
+                    peer={peer}
+                    heartbeat={heartbeat}
+                    isExpanded={expandedPeerId === '*' || expandedPeerId === peer.peer_id}
+                    onToggleExpand={() => setExpandedPeerId(expandedPeerId === '*' ? peer.peer_id : expandedPeerId === peer.peer_id ? '' : '*')}
+                    getPeerManagerData={getPeerManagerData}
+                  />
+                ))
+              }
             </div>
           </div>
 
+          {/* TEE Attestation */}
           <div className="my-2 p-4 bg-gray-700 rounded-md">
             <h3 className="text-xl font-semibold mb-2">Latest TEE Attestation</h3>
             <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-md">{JSON.stringify(heartbeat.tee_attestation, null, 2)}</pre>
-          </div>
-
-          <div className="p-4 bg-gray-700 rounded-md">
-            <h3 className="text-xl font-semibold mb-2">Timestamp</h3>
+            <h3 className="text-xl font-semibold mt-2 mb-2">Timestamp</h3>
             <pre className="text-sm overflow-auto bg-gray-900 p-2 rounded-m">{formatTime(heartbeat.time)}</pre>
           </div>
+
         </div>
       )}
     </div>

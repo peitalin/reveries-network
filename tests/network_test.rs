@@ -34,8 +34,8 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
     });
 
     // Define the ports we'll be using in this test
-    let rpc_ports = vec![8001, 8002, 8003, 8004];
-    let listen_ports = vec![9001, 9002, 9003, 9004];
+    let rpc_ports = vec![8001, 8002, 8003, 8004, 8005];
+    let listen_ports = vec![9001, 9002, 9003, 9004, 9005];
     let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
     // Create the guard that will clean up ports on instantiation and when it goes out of scope
@@ -43,7 +43,7 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
 
     let bootstrap_peer = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
     let bootstrap_url = &format!("/ip4/127.0.0.1/tcp/9001/p2p/{}", bootstrap_peer);
-    let seeds = vec![1, 2, 3, 4];
+    let seeds = vec![1, 2, 3, 4, 5];
 
     // Start nodes in separate processes
     let node_configs = vec![
@@ -51,6 +51,7 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
         (seeds[1], rpc_ports[1], listen_ports[1], Some(bootstrap_url)),
         (seeds[2], rpc_ports[2], listen_ports[2], Some(bootstrap_url)),
         (seeds[3], rpc_ports[3], listen_ports[3], Some(bootstrap_url)),
+        (seeds[4], rpc_ports[4], listen_ports[4], Some(bootstrap_url)),
     ];
 
     // Start all processes and track their RPC ports
@@ -97,7 +98,7 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
     }
 
     // Allow nodes to discover each other and establish connections
-    time::sleep(Duration::from_millis(800)).await;
+    time::sleep(Duration::from_millis(2000)).await;
 
     // Spawn an agent on the first node
     let threshold = 2;
@@ -117,7 +118,7 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
         .await?;
 
     // Allow time for fragment distribution
-    time::sleep(Duration::from_millis(800)).await;
+    time::sleep(Duration::from_millis(2000)).await;
 
     // Get node state from all nodes
     let mut all_cfrags = Vec::new();
