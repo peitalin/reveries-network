@@ -15,16 +15,18 @@ use crate::types::{
     ReverieKeyfragMessage,
     ReverieMessage,
 };
-use crate::short_peer_id;
-use super::NetworkEvents;
 
+use color_eyre::{Result, eyre::anyhow};
+use crate::{short_peer_id, get_node_name};
+use super::NetworkEvents;
 
 //// Request Response Protocol
 impl<'a> NetworkEvents<'a> {
+
     pub(super) async fn handle_request_response(
         &mut self,
         reqresp_event: request_response::Event<FragmentRequestEnum, FragmentResponseEnum>,
-    ) {
+    ) -> Result<()> {
         match reqresp_event {
             request_response::Event::Message { message, .. } => {
 
@@ -44,6 +46,13 @@ impl<'a> NetworkEvents<'a> {
                                 frag_num,
                                 kfrag_provider_peer_id
                             ) => {
+
+                                info!("{}",
+                                    format!("{} RequestFragmentRequest for {reverie_id} frag_num: {frag_num} from {}",
+                                    self.nname(),
+                                    short_peer_id(&kfrag_provider_peer_id)
+                                ).yellow());
+
                                 self.network_event_sender
                                     .send(NetworkEvent::InboundCapsuleFragRequest {
                                         reverie_id,
@@ -92,7 +101,14 @@ impl<'a> NetworkEvents<'a> {
                                 agent_name_nonce
                             ) => {
 
-                                // When a node receives a Kfrag and Capsule
+                                info!("\n\tReceived message: \n\t{:?}", reverie_keyfrag);
+                                info!("\n\t{}\n\tFrom Peer: {} {}",
+                                    format!("MessageType: SaveFragmentRequest").green(),
+                                    get_node_name(&source_peer_id).green(),
+                                    short_peer_id(&source_peer_id).yellow()
+                                );
+
+                                // 1) When a node receives a Kfrag, verify the Kfrag
                                 let keyfrag: umbral_pre::KeyFrag = serde_json::from_slice(&reverie_keyfrag.umbral_keyfrag).expect("serde err");
                                 let verified_kfrag = keyfrag.verify(
                                     &reverie_keyfrag.verifying_pk,
@@ -103,8 +119,7 @@ impl<'a> NetworkEvents<'a> {
                                 let capsule = serde_json::from_slice(&reverie_keyfrag.umbral_capsule).expect("serde err");
                                 let cfrag = umbral_pre::reencrypt(&capsule, verified_kfrag).unverify();
 
-                                // node stores cfrags locally
-                                // nodes should also inform the vessel_node that they hold a fragment
+                                // 2) Node stores Capsulefrags locally
                                 self.peer_manager.insert_cfrags(
                                     &reverie_keyfrag.id,
                                     ReverieCapsulefrag {
@@ -132,33 +147,6 @@ impl<'a> NetworkEvents<'a> {
                                     );
                                 }
 
-                                // if let Some(peer_info) = self.peer_manager.peer_info.get(&k.vessel_peer_id) {
-                                //     match &peer_info.agent_vessel {
-                                //         None => {
-                                //             let agent_vessel_info = AgentVesselInfo {
-                                //                 agent_name_nonce: agent_name_nonce.clone(),
-                                //                 total_frags,
-                                //                 next_vessel_peer_id: k.next_vessel_peer_id,
-                                //                 current_vessel_peer_id: k.vessel_peer_id,
-                                //             };
-
-                                //             self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
-
-                                //             // Put signed vessel status
-                                //             let status = NodeVesselWithStatus {
-                                //                 peer_id: k.vessel_peer_id,
-                                //                 umbral_public_key: k.alice_pk,
-                                //                 agent_vessel_info: Some(agent_vessel_info),
-                                //                 vessel_status: VesselStatus::ActiveVessel,
-                                //             };
-                                //             self.put_signed_vessel_status(status)?;
-                                //         }
-                                //         Some(existing_agent) => {
-                                //             panic!("can't replace existing agent in node: {:?}", existing_agent);
-                                //         }
-                                //     }
-                                // }
-
                                 // 3) Notify target vessel that this node is a KfragProvider for this ReverieId
                                 let request_id = self.swarm.behaviour_mut()
                                     .request_response
@@ -180,16 +168,39 @@ impl<'a> NetworkEvents<'a> {
                                 },
                                 agent_name_nonce
                             ) => {
+
+                                info!("\n\tReceived message: \n\t{:?}", reverie);
+                                info!("\n\t{}\n\tFrom Peer: {} {}",
+                                    format!("MessageType: SaveCiphertextRequest").green(),
+                                    get_node_name(&source_peer_id).green(),
+                                    short_peer_id(&source_peer_id).yellow()
+                                );
+
                                 if let Some(agent_name_nonce) = agent_name_nonce {
+
+                                    let agent_metadata = AgentVesselInfo {
+                                        agent_name_nonce: agent_name_nonce,
+                                        total_frags: reverie.total_frags,
+                                        current_vessel_peer_id: source_peer_id,
+                                        next_vessel_peer_id: target_peer_id,
+                                    };
+
+                                    self.peer_manager.set_peer_info_agent_vessel(&agent_metadata);
+
                                     self.peer_manager.insert_reverie_metadata(
                                         &reverie.id,
-                                        AgentVesselInfo {
-                                            agent_name_nonce: agent_name_nonce,
-                                            total_frags: reverie.total_frags,
-                                            current_vessel_peer_id: source_peer_id,
-                                            next_vessel_peer_id: target_peer_id,
-                                        }
+                                        agent_metadata.clone()
                                     );
+
+                                    // Put signed vessel status on Kademlia
+                                    self.put_signed_vessel_status_kademlia(
+                                        NodeVesselWithStatus {
+                                            peer_id: self.node_id.peer_id,
+                                            umbral_public_key: self.node_id.umbral_key.public_key,
+                                            agent_vessel_info: Some(agent_metadata),
+                                            vessel_status: VesselStatus::ActiveVessel,
+                                        }
+                                    ).unwrap();
                                 }
 
                                 self.peer_manager.insert_reverie(
@@ -200,6 +211,12 @@ impl<'a> NetworkEvents<'a> {
                                         target_peer_id,
                                     },
                                 );
+
+                                // Put reverie holder's PeerId on Kademlia
+                                self.put_reverie_holder_kademlia(
+                                    reverie.id,
+                                    target_peer_id
+                                ).map_err(|e| anyhow!("Failed to put reverie holder: {}", e))?;
 
                             }
                         }
@@ -214,6 +231,9 @@ impl<'a> NetworkEvents<'a> {
                     } => {
                         match response {
                             FragmentResponseEnum::FragmentResponse(fragment_bytes) => {
+                                info!("{}",
+                                    format!("Received FragmentResponse for request_id: {request_id}").bright_blue()
+                                );
                                 // get sender channel associated with the request-response id
                                 let sender = self.pending.request_fragments
                                     .remove(&request_id)
@@ -240,13 +260,15 @@ impl<'a> NetworkEvents<'a> {
                 ..
             } => {
                 match self.pending.request_fragments.remove(&request_id) {
-                    None => tracing::warn!("RequestId {} not found for {}", request_id, peer),
+                    None => tracing::warn!("RequestId({}) not found for {}", request_id, peer),
                     Some(sender) => {
                         sender.send(Err(SendError(error.to_string()))).ok();
                     }
                 }
             }
         }
+
+        Ok(())
     }
 }
 

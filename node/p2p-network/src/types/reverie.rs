@@ -81,30 +81,31 @@ impl Reverie {
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct AgentReverieId(pub String);
+pub struct ReverieIdToAgentName(pub String);
 
-const AGENT_REVERIE_ID_KAD_KEY_PREFIX: &'static str = "agent_reverie_id_";
+const REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX: &'static str = "reverie_to_agent_name";
 
-impl Into<String> for AgentReverieId {
+
+impl Into<String> for ReverieIdToAgentName {
     fn into(self) -> String {
-        format!("{}{}", AGENT_REVERIE_ID_KAD_KEY_PREFIX, self.0)
+        format!("{}{}", REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX, self.0)
     }
 }
 
-impl From<AgentNameWithNonce> for AgentReverieId {
+impl From<AgentNameWithNonce> for ReverieIdToAgentName {
     fn from(agent_name_nonce: AgentNameWithNonce) -> Self {
-        AgentReverieId(agent_name_nonce.to_string())
+        ReverieIdToAgentName(agent_name_nonce.to_string())
     }
 }
 
-impl AgentReverieId {
+impl ReverieIdToAgentName {
     pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
         let s: String = s.into();
-        if s.starts_with(AGENT_REVERIE_ID_KAD_KEY_PREFIX) {
-            let ssplit = s.split(AGENT_REVERIE_ID_KAD_KEY_PREFIX).collect::<Vec<&str>>();
-            Ok(AgentReverieId(ssplit[1].to_string()))
+        if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
+            let ssplit = s.split(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX).collect::<Vec<&str>>();
+            Ok(ReverieIdToAgentName(ssplit[1].to_string()))
         } else {
-            Err(anyhow!("Invalid AgentReverieId: {}. Must begin with {}", s, AGENT_REVERIE_ID_KAD_KEY_PREFIX))
+            Err(anyhow!("Invalid ReverieIdToAgentName: {}. Must begin with {}", s, REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX))
         }
     }
 
@@ -114,11 +115,35 @@ impl AgentReverieId {
 
     pub fn is_kademlia_key<S: Into<String>>(s: S) -> Result<Self> {
         let s: String = s.into();
-        if s.starts_with(AGENT_REVERIE_ID_KAD_KEY_PREFIX) {
-            let ssplit = s.split(AGENT_REVERIE_ID_KAD_KEY_PREFIX).collect::<Vec<&str>>();
-            Ok(AgentReverieId(ssplit[1].to_string()))
+        if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
+            let ssplit = s.split(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX).collect::<Vec<&str>>();
+            Ok(ReverieIdToAgentName(ssplit[1].to_string()))
         } else {
-            Err(anyhow!("Invalid AgentReverieId kademlia key: {}. Must begin with {}", s, AGENT_REVERIE_ID_KAD_KEY_PREFIX))
+            Err(anyhow!("Invalid ReverieIdToAgentName kademlia key: {}. Must begin with {}", s, REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX))
         }
+    }
+}
+
+
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ReverieIdToPeerId(pub ReverieId);
+const REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX: &'static str = "reverie_to_peer_id";
+
+impl ReverieIdToPeerId {
+    pub fn to_string(&self) -> String {
+        self.clone().into()
+    }
+}
+
+impl Into<String> for ReverieIdToPeerId {
+    fn into(self) -> String {
+        format!("{}{}", REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX, self.0)
+    }
+}
+
+impl From<ReverieId> for ReverieIdToPeerId {
+    fn from(reverie_id: ReverieId) -> Self {
+        ReverieIdToPeerId(reverie_id)
     }
 }

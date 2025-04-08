@@ -9,7 +9,7 @@ use crate::types::{
     VesselPeerId,
     NodeVesselWithStatus,
     SignedVesselStatus,
-    AgentReverieId,
+    ReverieIdToAgentName,
     ReverieId,
 };
 use super::NetworkEvents;
@@ -34,11 +34,11 @@ impl<'a> NetworkEvents<'a> {
 
             // Add handling for routing table updates
             kad::Event::RoutingUpdated { peer: peer_id, addresses, .. } => {
-                info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
+                // info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
                 if self.should_dial_peer(&peer_id) {
                     self.peer_manager.insert_peer_info(peer_id);
                     for addr in addresses.iter() {
-                        info!("RoutingUpdated: adding Kademlia peer: {:?}", short_peer_id(peer_id));
+                        // info!("RoutingUpdated: adding Kademlia peer: {:?}", short_peer_id(peer_id));
                         self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                     }
                     // Then we try to connect to the newly discovered peer
@@ -90,8 +90,8 @@ impl<'a> NetworkEvents<'a> {
                         }
                     }
 
-                    if let Ok(agent_reverie_key) = AgentReverieId::is_kademlia_key(kad_key) {
-                        if let Some(oneshot_sender) = self.pending.get_agent_reverie_id.remove(&agent_reverie_key) {
+                    if let Ok(reverie_to_agent_name_key) = ReverieIdToAgentName::is_kademlia_key(kad_key) {
+                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&reverie_to_agent_name_key) {
                             match serde_json::from_slice::<ReverieId>(&record.value) {
                                 Ok(reverie_id) => {
                                     oneshot_sender.send(Some(reverie_id)).ok();
@@ -110,6 +110,7 @@ impl<'a> NetworkEvents<'a> {
                         .unwrap()
                         .finish();
                 }
+                kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. })) => {}
                 kad::QueryResult::PutRecord(..) => {}
                 kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
                     if peer_id == self.node_id.peer_id {
@@ -125,10 +126,10 @@ impl<'a> NetworkEvents<'a> {
                             vessel_status: self.peer_manager.vessel_status,
                         };
                         // Publish signed vessel status during bootstrap
-                        self.put_signed_vessel_status(node_vessel_status)?;
+                        self.put_signed_vessel_status_kademlia(node_vessel_status)?;
                     }
                 }
-                qresult => warn!("{}: {:?}", self.nname(), qresult)
+                qresult => debug!("{}: {:?}", self.nname(), qresult)
             },
 
             // ignore other Kademlia events

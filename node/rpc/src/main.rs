@@ -57,12 +57,6 @@ async fn main() -> Result<()> {
     for addr in opt.listen_address {
         node_client.start_listening_to_network(Some(addr)).await?;
     }
-    // TODO: redudant step, automatically start listening and finding peers later
-
-    // Subscribe and listen to gossip network for messages
-    node_client.subscribe_topics(vec![
-        "topic_switch".to_string(),
-    ]).await?;
 
     let mut nc = node_client.clone();
     tokio::spawn(async move {

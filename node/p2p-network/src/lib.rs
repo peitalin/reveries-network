@@ -7,7 +7,7 @@ pub mod node_client;
 pub mod types;
 pub mod utils;
 
-use color_eyre::{Result, eyre::anyhow};
+use color_eyre::{Result, eyre::anyhow, eyre};
 use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use libp2p::{
@@ -53,6 +53,11 @@ impl From<RecvError> for SendError {
     }
 }
 
+impl From<eyre::Error> for SendError {
+    fn from(e: eyre::Error) -> Self {
+        SendError(e.to_string())
+    }
+}
 
 impl From<Box<dyn std::error::Error + Send>> for SendError {
     fn from(e: Box<dyn std::error::Error + Send>) -> Self {
@@ -108,13 +113,13 @@ pub fn is_dialable(multiaddr: &Multiaddr) -> bool {
 // TODO: temporary convenience functions
 pub fn get_node_name<'a>(peer_id: &libp2p::PeerId) -> &'a str {
     match peer_id.to_base58().as_str() {
-        "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ALICE",
-        "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BELLA",
+        "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X" => "ABE",
+        "12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3" => "BOB",
         "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo" => "CARL",
-        "12D3KooWLJtG8fd2hkQzTn96MrLvThmnNQjTUFZwGEsLRz5EmSzc" => "DANY",
+        "12D3KooWLJtG8fd2hkQzTn96MrLvThmnNQjTUFZwGEsLRz5EmSzc" => "DAN",
         "12D3KooWSHj3RRbBjD15g6wekV8y3mm57Pobmps2g2WJm6F67Lay" => "EMMA",
-        "12D3KooWDMCQbZZvLgHiHntG1KwcHoqHPAxL37KvhgibWqFtpqUY" => "FRANK",
-        "12D3KooWLnZUpcaBwbz9uD1XsyyHnbXUrJRmxnsMiRnuCmvPix67" => "GEMMA",
+        "12D3KooWDMCQbZZvLgHiHntG1KwcHoqHPAxL37KvhgibWqFtpqUY" => "FAYE",
+        "12D3KooWLnZUpcaBwbz9uD1XsyyHnbXUrJRmxnsMiRnuCmvPix67" => "GREG",
         "12D3KooWQ8vrERR8bnPByEjjtqV6hTWehaf8TmK7qR1cUsyrPpfZ" => "HANA",
         "12D3KooWNRk8VBuTJTYyTbnJC7Nj2UN5jij4dJMo8wtSGT2hRzRP" => "IAN",
         "12D3KooWFHNBwTxUgeHRcD3g4ieiXBmZGVyp6TKGWRKKEqYgCC1C" => "JACK",

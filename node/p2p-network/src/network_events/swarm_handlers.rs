@@ -17,7 +17,7 @@ impl<'a> NetworkEvents<'a> {
 
             //// Request Response events for transferring frags
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(rr_event)) => {
-                self.handle_request_response(rr_event).await
+                self.handle_request_response(rr_event).await?;
             },
 
             //// GossipSub events for PRE broadcasts

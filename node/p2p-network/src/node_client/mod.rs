@@ -24,19 +24,20 @@ use crate::types::{
     CapsuleFragmentMessage,
     GossipTopic,
     KeyFragmentMessage,
-    ReverieKeyfragMessage,
     NetworkEvent,
     NextTopic,
+    NodeVesselWithStatus,
     PrevTopic,
     RespawnId,
-    TopicSwitch,
-    NodeVesselWithStatus,
-    VesselStatus,
     Reverie,
-    ReverieType,
+    ReverieCapsulefrag,
     ReverieId,
     ReverieKeyfrag,
+    ReverieKeyfragMessage,
     ReverieMessage,
+    ReverieType,
+    TopicSwitch,
+    VesselStatus,
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
@@ -96,33 +97,33 @@ impl<'a> NodeClient<'a> {
         receiver.await?.map_err(|e| SendError(e.to_string()).into())
     }
 
-    pub async fn subscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
-        let (sender, receiver) = oneshot::channel();
+    // pub async fn subscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
+    //     let (sender, receiver) = oneshot::channel();
 
-        self.command_sender
-            .send(NodeCommand::SubscribeTopics {
-                topics,
-                sender
-            })
-            .await
-            .expect("Command receiver not to be dropped.");
+    //     self.command_sender
+    //         .send(NodeCommand::SubscribeTopics {
+    //             topics,
+    //             sender
+    //         })
+    //         .await
+    //         .expect("Command receiver not to be dropped.");
 
-        receiver.await.map_err(|e| e.into())
-    }
+    //     receiver.await.map_err(|e| e.into())
+    // }
 
-    pub async fn unsubscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
-        let (sender, receiver) = oneshot::channel();
+    // pub async fn unsubscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
+    //     let (sender, receiver) = oneshot::channel();
 
-        self.command_sender
-            .send(NodeCommand::UnsubscribeTopics {
-                topics,
-                sender
-            })
-            .await
-            .expect("Command receiver not to be dropped.");
+    //     self.command_sender
+    //         .send(NodeCommand::UnsubscribeTopics {
+    //             topics,
+    //             sender
+    //         })
+    //         .await
+    //         .expect("Command receiver not to be dropped.");
 
-        receiver.await.map_err(|e| e.into())
-    }
+    //     receiver.await.map_err(|e| e.into())
+    // }
 
     pub fn make_reverie_horcruxes(
         &self,
@@ -184,7 +185,7 @@ impl<'a> NodeClient<'a> {
             ciphertext
         );
 
-        println!("reverie_id {:?}", reverie.id);
+        info!("create_reverie() => reverie_id {:?}", reverie.id);
         self.reveries.insert(reverie.id.clone(), reverie.clone());
         Ok(reverie)
     }
@@ -194,10 +195,9 @@ impl<'a> NodeClient<'a> {
     // pub async fn broadcast_reverie(
     pub async fn broadcast_kfrags2(
         &mut self,
-        // memory: AgentSecretsJson,
         reverie_id: String,
-        agent_name_nonce: AgentNameWithNonce,
-    ) -> Result<Reverie> {
+        agent_name_nonce: Option<AgentNameWithNonce>,
+    ) -> Result<(Reverie, NodeVesselWithStatus)> {
 
         // Encrypt using PRE
         // let reverie = self.create_reverie(memory.clone())?;
@@ -211,7 +211,6 @@ impl<'a> NodeClient<'a> {
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
             .collect::<Vec<NodeVesselWithStatus>>();
 
-        let n_before = peer_nodes.len();
         let (
             target_vessel,
             remaining_peers
@@ -219,9 +218,12 @@ impl<'a> NodeClient<'a> {
             .split_first()
             .ok_or(anyhow!("No empty vessels found."))?;
 
-        let n_after = peer_nodes.len();
-        info!("{}", format!("Before: {n_before}, After: {n_after}"));
-        assert!(n_after == n_before - 1);
+        assert!(remaining_peers.len() == peer_nodes.len() - 1);
+        assert!(!remaining_peers.contains(&target_vessel));
+        // TODO: check that there are enough peers to host the fragments
+        info!("Remaining peers: {}", remaining_peers.len());
+        info!("Total frags: {}", reverie.total_frags);
+        assert!(remaining_peers.len() >= reverie.total_frags);
 
         let umbral_capsule = reverie.umbral_capsule.clone();
         let umbral_ciphertext = reverie.umbral_ciphertext.clone();
@@ -245,7 +247,7 @@ impl<'a> NodeClient<'a> {
                         source_peer_id: self.node_id.peer_id,
                         target_peer_id: target_vessel.peer_id,
                     },
-                    Some(agent_name_nonce.clone())
+                    agent_name_nonce.clone()
                 )
             ).await?;
         }
@@ -259,82 +261,82 @@ impl<'a> NodeClient<'a> {
                     source_peer_id: self.node_id.peer_id,
                     target_peer_id: target_vessel.peer_id,
                 },
-                Some(agent_name_nonce)
+                agent_name_nonce
             )
         ).await?;
 
-        Ok(reverie.clone())
+        Ok((reverie.clone(), target_vessel.clone()))
     }
 
 
-    pub async fn broadcast_kfrags(
-        &mut self,
-        reverie_id: String,
-        agent_name_nonce: AgentNameWithNonce,
-        threshold: usize,
-        total_frags: usize,
-        target_vessel: NodeVesselWithStatus,
-    ) -> Result<NodeVesselWithStatus> {
+    // pub async fn broadcast_old_kfrags(
+    //     &mut self,
+    //     reverie_id: String,
+    //     agent_name_nonce: AgentNameWithNonce,
+    //     threshold: usize,
+    //     total_frags: usize,
+    //     target_vessel: NodeVesselWithStatus,
+    // ) -> Result<NodeVesselWithStatus> {
 
-        let reverie = match self.reveries.get(&reverie_id) {
-            Some(reverie) => reverie,
-            None => return Err(anyhow!("Reverie not found"))
-        };
+    //     let reverie = match self.reveries.get(&reverie_id) {
+    //         Some(reverie) => reverie,
+    //         None => return Err(anyhow!("Reverie not found"))
+    //     };
 
-        let umbral_capsule: umbral_pre::Capsule = serde_json::from_slice(&reverie.umbral_capsule).expect("");
-        let umbral_ciphertext = reverie.umbral_ciphertext.clone();
+    //     let umbral_capsule: umbral_pre::Capsule = serde_json::from_slice(&reverie.umbral_capsule).expect("");
+    //     let umbral_ciphertext = reverie.umbral_ciphertext.clone();
 
-        let kfrags = self.make_reverie_horcruxes(
-            reverie,
-            target_vessel.clone()
-        )?;
+    //     let kfrags = self.make_reverie_horcruxes(
+    //         reverie,
+    //         target_vessel.clone()
+    //     )?;
 
-        /////////////////// Gossip Broadcast ///////////////////////
+    //     /////////////////// Gossip Broadcast ///////////////////////
 
-        // first check that the broadcaster is subscribed to all fragment channels for the agent
-        let topics = (0..total_frags)
-            .map(|n| GossipTopic::BroadcastKfrag(agent_name_nonce.clone(), total_frags, n).into())
-            .collect::<Vec<String>>();
+    //     // first check that the broadcaster is subscribed to all fragment channels for the agent
+    //     let topics = (0..total_frags)
+    //         .map(|n| GossipTopic::BroadcastKfrag(agent_name_nonce.clone(), total_frags, n).into())
+    //         .collect::<Vec<String>>();
 
-        // Subscribe to broadcast kfrag topics temporarily
-        self.subscribe_topics(topics.clone()).await.ok();
+    //     // Subscribe to broadcast kfrag topics temporarily
+    //     self.subscribe_topics(topics.clone()).await.ok();
 
-        for (i, kfrag) in kfrags.into_iter().enumerate() {
-            let topic = GossipTopic::BroadcastKfrag(
-                agent_name_nonce.clone(),
-                total_frags,
-                i
-            );
-            self.command_sender.send(
-                NodeCommand::BroadcastKfrags(KeyFragmentMessage {
-                    topic: topic,
-                    reverie_id: reverie_id.clone(),
-                    frag_num: i,
-                    threshold: threshold,
-                    total_frags: total_frags,
-                    kfrag: serde_json::from_slice(&kfrag.umbral_keyfrag).expect(""),
-                    verifying_pk: self.umbral_key.verifying_pk,
-                    alice_pk: self.umbral_key.public_key,
-                    bob_pk: target_vessel.umbral_public_key, // bob_pk
-                    vessel_peer_id: self.node_id.peer_id,
-                    next_vessel_peer_id: target_vessel.peer_id,
-                    capsule: umbral_capsule.clone(),
-                    ciphertext: umbral_ciphertext.clone(),
-                })
-            ).await?;
-        }
+    //     for (i, kfrag) in kfrags.into_iter().enumerate() {
+    //         let topic = GossipTopic::BroadcastKfrag(
+    //             agent_name_nonce.clone(),
+    //             total_frags,
+    //             i
+    //         );
+    //         self.command_sender.send(
+    //             NodeCommand::BroadcastKfrags(KeyFragmentMessage {
+    //                 topic: topic,
+    //                 reverie_id: reverie_id.clone(),
+    //                 frag_num: i,
+    //                 threshold: threshold,
+    //                 total_frags: total_frags,
+    //                 kfrag: serde_json::from_slice(&kfrag.umbral_keyfrag).expect(""),
+    //                 verifying_pk: self.umbral_key.verifying_pk,
+    //                 alice_pk: self.umbral_key.public_key,
+    //                 bob_pk: target_vessel.umbral_public_key, // bob_pk
+    //                 vessel_peer_id: self.node_id.peer_id,
+    //                 next_vessel_peer_id: target_vessel.peer_id,
+    //                 capsule: umbral_capsule.clone(),
+    //                 ciphertext: umbral_ciphertext.clone(),
+    //             })
+    //         ).await?;
+    //     }
 
-        info!("{}", format!(
-            "Next Vessel: {} {} {}",
-            get_node_name(&target_vessel.peer_id),
-            short_peer_id(target_vessel.peer_id),
-            target_vessel.umbral_public_key,
-        ).yellow());
+    //     info!("{}", format!(
+    //         "Next Vessel: {} {} {}",
+    //         get_node_name(&target_vessel.peer_id),
+    //         short_peer_id(target_vessel.peer_id),
+    //         target_vessel.umbral_public_key,
+    //     ).yellow());
 
-        // unsubscribe from the kfrag broadcast topics
-        self.unsubscribe_topics(topics).await.ok();
-        Ok(target_vessel.to_owned())
-    }
+    //     // unsubscribe from the kfrag broadcast topics
+    //     self.unsubscribe_topics(topics).await.ok();
+    //     Ok(target_vessel.to_owned())
+    // }
 
     pub async fn get_next_vessel(&mut self) -> Result<NodeVesselWithStatus> {
         match self.get_node_vessels().await.iter()
@@ -377,11 +379,24 @@ impl<'a> NodeClient<'a> {
         receiver.await.expect("get kfrags providers not to drop")
     }
 
+    pub async fn get_reverie(&self, reverie_id: ReverieId) -> Result<ReverieMessage> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.command_sender
+            .send(NodeCommand::GetReverie {
+                reverie_id: reverie_id,
+                sender: sender
+            })
+            .await?;
+
+        receiver.await.map_err(SendError::from)?
+    }
+
     pub async fn request_cfrags(
         &mut self,
         reverie_id: ReverieId,
         current_vessel_peer_id: PeerId
-    ) -> Vec<Result<Vec<u8>>> {
+    ) -> Vec<Result<Vec<u8>, SendError>> {
 
         let providers_hmap = self.get_kfrag_providers(reverie_id.clone()).await;
 
@@ -389,89 +404,96 @@ impl<'a> NodeClient<'a> {
         info!("filter out vessel peer: {:?}", current_vessel_peer_id);
         info!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
 
-        let mut results = vec![];
+        let requests = providers_hmap.iter()
+            .map(|(frag_num, peers)| {
 
-        for (frag_num, peers) in providers_hmap.into_iter() {
-
-            let peers = peers.iter()
-                .filter_map(|&peer_id| {
-                    if peer_id != current_vessel_peer_id {
-                        Some(peer_id)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<PeerId>>();
-
-            // Request key_fragment(n) from each node that holds that fragment.
-            let requests = peers.iter().map(|&peer_id| {
-                info!("Requesting {} cfrag({}) from {}", &reverie_id, &frag_num, get_node_name(&peer_id));
+                let reverie_id2 = reverie_id.clone();
                 let nc = self.clone();
-                let reverie_id = reverie_id.clone();
+
                 async move {
+
+                    let peer_id = peers.iter()
+                        .filter_map(|&peer_id| {
+                            if peer_id != current_vessel_peer_id {
+                                Some(peer_id)
+                            } else {
+                                None
+                            }
+                        })
+                        .next()
+                        .unwrap();
+
+                    info!("Requesting {} cfrag({}) from {}", &reverie_id2, &frag_num, get_node_name(&peer_id));
+                    // Request key fragment from each node that holds that fragment.
+
                     let (sender, receiver) = oneshot::channel();
                     nc.command_sender
                         .send(NodeCommand::RequestCapsuleFragment {
-                            reverie_id,
-                            frag_num: frag_num,
+                            reverie_id: reverie_id2.clone(),
+                            frag_num: frag_num.clone(),
                             peer_id: peer_id,
                             sender
                         })
-                        .await
-                        .expect("Command receiver not to be dropped.");
+                        .await?;
 
-                    receiver.await.expect("Sender not be dropped.")
+                    receiver.await.map_err(|e| anyhow!(e.to_string()))
                 }.boxed()
             });
 
-            // Await the requests, ignore the remaining once a single one succeeds.
-            if let Ok((cfrag_raw_bytes, _)) = futures::future::select_ok(requests).await {
-                results.push(Ok(cfrag_raw_bytes));
-            }
-        };
-
-        results
+        if let Ok(cfrags) = futures::future::try_join_all(requests).await {
+            cfrags
+        } else {
+            vec![]
+        }
     }
 
-    fn parse_cfrags(&self, cfrags_raw: Vec<Result<Vec<u8>, Error>>) -> (
+    fn parse_cfrags(
+        &self,
+        cfrags_raw: Vec<Result<Vec<u8>, SendError>>,
+        capsule: umbral_pre::Capsule,
+    ) -> (
         Vec<VerifiedCapsuleFrag>,
-        Vec<CapsuleFragmentMessage>,
+        Vec<ReverieCapsulefrag>,
         u32
     ) {
         let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
-        let mut new_vessel_cfrags: Vec<CapsuleFragmentMessage> = Vec::new();
+        let mut new_vessel_cfrags: Vec<ReverieCapsulefrag> = Vec::new();
         let mut total_frags = 0;
 
         for cfrag_result in cfrags_raw.iter() {
             if let Ok(cfrag_bytes) = cfrag_result {
-                match serde_json::from_slice::<Option<CapsuleFragmentMessage>>(&cfrag_bytes) {
+                match serde_json::from_slice::<Option<ReverieCapsulefrag>>(&cfrag_bytes) {
                     Err(e) => panic!("{}", e.to_string()),
                     Ok(opt_cfrag) => match opt_cfrag {
                         None => warn!("No cfrags found."),
-                        Some(cfrag) => {
+                        Some(reverie_cfrag) => {
 
                             total_frags += 1;
 
-                            let new_vessel_pk  = cfrag.bob_pk;
-                            let kfrag_num = cfrag.frag_num;
+                            let new_vessel_pk  = reverie_cfrag.bob_pk;
+                            let kfrag_num = reverie_cfrag.frag_num;
 
                             info!("Success! cfrag({}) from {}\ntotal frags: {}",
                                 // get_node_name(&cfrag.vessel_peer_id),
-                                cfrag.frag_num,
-                                get_node_name(&cfrag.kfrag_provider_peer_id),
+                                reverie_cfrag.frag_num,
+                                get_node_name(&reverie_cfrag.kfrag_provider_peer_id),
                                 total_frags
                             );
 
+                            let cfrag: umbral_pre::CapsuleFrag = serde_json::from_slice(
+                                &reverie_cfrag.umbral_capsule_frag
+                            ).expect("serde err");
+
                             // Bob must check that cfrags are valid
                             // assemble kfrags, verify them as cfrags.
-                            let verified_cfrag = cfrag.cfrag.clone().verify(
-                                &cfrag.capsule.clone(),
-                                &cfrag.verifying_pk, // verifying pk
-                                &cfrag.alice_pk, // alice pk
+                            let verified_cfrag = cfrag.clone().verify(
+                                &capsule,
+                                &reverie_cfrag.verifying_pk, // verifying pk
+                                &reverie_cfrag.alice_pk, // alice pk
                                 &new_vessel_pk // bob pk
                             ).expect("Error verifying Cfrag");
 
-                            new_vessel_cfrags.push(cfrag);
+                            new_vessel_cfrags.push(reverie_cfrag);
                             capsule_frags.insert(kfrag_num as u32, verified_cfrag);
                         }
                     }
@@ -488,13 +510,14 @@ impl<'a> NodeClient<'a> {
 
     fn decrypt_cfrags(
         &self,
+        reverie: ReverieMessage,
         verified_cfrags: Vec<VerifiedCapsuleFrag>,
-        mut new_vessel_cfrags: Vec<CapsuleFragmentMessage>,
+        new_vessel_cfrags: Vec<ReverieCapsulefrag>,
         total_frags_received: u32
     ) -> Result<AgentSecretsJson, Error> {
 
-        // get next vessel (can randomise as well)
-        let new_vessel_pk = match new_vessel_cfrags.pop() {
+        // get next vessel
+        let new_vessel_pk = match new_vessel_cfrags.iter().next() {
             Some(vessel) => vessel,
             None => return Err(anyhow!("No CapsuleFragments found"))
         };
@@ -502,13 +525,15 @@ impl<'a> NodeClient<'a> {
         let threshold = new_vessel_pk.threshold as usize;
         info!("Received {}/{} required CapsuleFrags", total_frags_received, threshold);
 
+        let capsule = serde_json::from_slice::<umbral_pre::Capsule>(&reverie.reverie.umbral_capsule)?;
+
         // Bob (next vessel) uses his umbral_key to open the capsule by using at
         // least `threshold` cfrags, then decrypts the re-encrypted ciphertext.
         match self.umbral_key.decrypt_reencrypted(
             &new_vessel_pk.alice_pk, // delegator_pubkey
-            &new_vessel_pk.capsule, // capsule,
+            &capsule, // capsule,
             verified_cfrags, // verified capsule fragments
-            new_vessel_pk.ciphertext
+            reverie.reverie.umbral_ciphertext
         ) {
             Ok(plaintext_bob) => {
                 let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;

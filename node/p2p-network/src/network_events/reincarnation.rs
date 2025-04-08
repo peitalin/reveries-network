@@ -32,7 +32,7 @@ use crate::types::{
     VesselStatus,
     SignedVesselStatus,
     ReverieId,
-    AgentReverieId,
+    ReverieIdToAgentName,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -57,7 +57,7 @@ impl<'a> NetworkEvents<'a> {
             .map(|p| format!("{}", get_node_name(p)))
             .collect::<Vec<String>>();
 
-        info!("{} connected peers: {:?}", self.nname(), connected_peers);
+        // info!("{} connected peers: {:?}", self.nname(), connected_peers);
 
         let mut failed_agents_placeholder = vec![];
         let peer_info = self.peer_manager.peer_info.clone();
@@ -67,7 +67,7 @@ impl<'a> NetworkEvents<'a> {
 
             let duration = peer_info.heartbeat_data.duration_since_last_heartbeat();
             let node_name = get_node_name(&peer_id).magenta();
-            println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
+            // println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
 
             if duration > max_time_before_respawn {
 

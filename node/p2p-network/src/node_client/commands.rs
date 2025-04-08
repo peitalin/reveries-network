@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
+use color_eyre::{Result, eyre::anyhow};
 use libp2p::{
     request_response::ResponseChannel,
     PeerId,
@@ -44,6 +44,12 @@ pub enum NodeCommand {
         // sender: oneshot::Sender<HashSet<PeerId>>,
         // returns: {frag_num: [peer_id]}
         sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
+    },
+
+    /// Gets the Reverie for an agent from Kademlia
+    GetReverie {
+        reverie_id: ReverieId,
+        sender: oneshot::Sender<Result<ReverieMessage>>,
     },
 
     /// Saves the provider of the kfrag for retrieval later
@@ -98,16 +104,16 @@ pub enum NodeCommand {
 
     StartListening {
         addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
+        sender: oneshot::Sender<Result<(), Box<dyn std::error::Error + Send>>>,
     },
-    SubscribeTopics {
-        topics: Vec<String>,
-        sender: oneshot::Sender<Vec<String>>,
-    },
-    UnsubscribeTopics {
-        topics: Vec<String>,
-        sender: oneshot::Sender<Vec<String>>,
-    },
+    // SubscribeTopics {
+    //     topics: Vec<String>,
+    //     sender: oneshot::Sender<Vec<String>>,
+    // },
+    // UnsubscribeTopics {
+    //     topics: Vec<String>,
+    //     sender: oneshot::Sender<Vec<String>>,
+    // },
     SimulateNodeFailure {
         sender: oneshot::Sender<RestartReason>,
         reason: RestartReason,

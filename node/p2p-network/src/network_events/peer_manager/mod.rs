@@ -129,9 +129,6 @@ impl PeerManager {
             }
         }
 
-        println!("self.peer_id {}", self.peer_id);
-        println!("next_vessel_peer_id {}", next_vessel_peer_id);
-
         if current_vessel_peer_id == &self.peer_id {
             self.vessel_agent = Some(serde_json::json!({
                 "agent_name_nonce": agent_name_nonce.clone().to_string(),

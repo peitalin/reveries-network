@@ -4,6 +4,7 @@ use libp2p::{
 };
 use color_eyre::eyre::anyhow;
 use tracing::{info, error};
+use colored::Colorize;
 
 use crate::node_client::NodeCommand;
 use crate::types::{
@@ -15,7 +16,6 @@ use crate::types::{
     NodeVesselWithStatus,
     VesselStatus,
     VesselPeerId,
-    AgentReverieId,
     CapsuleFragmentMessage,
     KeyFragmentMessage,
     ReverieKeyfragMessage,
@@ -23,8 +23,10 @@ use crate::types::{
     ReverieKeyfrag,
     ReverieCapsulefrag,
     Reverie,
+    ReverieIdToAgentName,
+    ReverieIdToPeerId,
 };
-use crate::short_peer_id;
+use crate::{get_node_name, short_peer_id};
 use crate::SendError;
 use super::NetworkEvents;
 
@@ -50,6 +52,34 @@ impl<'a> NetworkEvents<'a> {
                 //     }
                 // }
 
+                if let Some(agent_name_nonce) = agent_name_nonce.clone() {
+                    // add prefix as kademlia key
+                    let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
+                    let agent_vessel_info = AgentVesselInfo {
+                        agent_name_nonce: agent_name_nonce.clone(),
+                        total_frags: kfrag_msg.reverie_keyfrag.total_frags,
+                        current_vessel_peer_id: kfrag_msg.source_peer_id,
+                        next_vessel_peer_id: kfrag_msg.target_peer_id,
+                    };
+
+                    // set broadcaster's peer info
+                    self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
+
+                    // add prefix as kademlia key
+                    let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
+                    // Put agent_name_nonce => reverie_id on DHT
+                    self.swarm.behaviour_mut().kademlia.put_record(
+                        kad::Record {
+                            key: kad::RecordKey::new(&agent_reverie_key.to_string()),
+                            value: serde_json::to_vec(&kfrag_msg.reverie_keyfrag.id).expect("serde_json::to_vec(reverie_id)"),
+                            publisher: Some(self.node_id.peer_id),
+                            expires: None,
+                        },
+                        kad::Quorum::Majority
+                    ).expect("put_record err");
+
+                }
+
                 let _request_id = self.swarm.behaviour_mut()
                     .request_response
                     .send_request(
@@ -72,9 +102,20 @@ impl<'a> NetworkEvents<'a> {
                         &peer_id,
                         FragmentRequestEnum::SaveCiphertextRequest(
                             reverie_msg,
-                            None
+                            agent_name_nonce
                         )
                     );
+            }
+            NodeCommand::GetReverie {
+                reverie_id,
+                sender,
+            } => {
+                info!("{}", format!("GetReverie for: {}", reverie_id).green());
+                let reverie = match self.peer_manager.get_reverie(&reverie_id) {
+                    Some(reverie) => Ok(reverie.clone()),
+                    None => Err(anyhow!("Reverie not found")),
+                };
+                sender.send(reverie).ok();
             }
             NodeCommand::GetNodeVesselStatusesFromKademlia { sender, .. } => {
 
@@ -97,13 +138,13 @@ impl<'a> NetworkEvents<'a> {
                 sender,
             } => {
                 // add prefix as kademlia key
-                let agent_reverie_key = AgentReverieId::from(agent_name_nonce.clone());
+                let agent_reverie_kadkey = ReverieIdToAgentName::from(agent_name_nonce.clone());
 
                 self.swarm.behaviour_mut()
                     .kademlia
-                    .get_record(kad::RecordKey::new(&agent_reverie_key.to_string()));
+                    .get_record(kad::RecordKey::new(&agent_reverie_kadkey.to_string()));
 
-                self.pending.get_agent_reverie_id.insert(agent_reverie_key, sender);
+                self.pending.get_reverie_agent_name.insert(agent_reverie_kadkey, sender);
             }
             NodeCommand::GetKfragProviders { reverie_id, sender } => {
                 match self.peer_manager.kfrag_providers.get(&reverie_id) {
@@ -195,7 +236,7 @@ impl<'a> NetworkEvents<'a> {
                 self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
 
                 // add prefix as kademlia key
-                let agent_reverie_key = AgentReverieId::from(agent_name_nonce.clone());
+                let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
                 // Put agent_name_nonce => reverie_id on DHT
                 self.swarm.behaviour_mut().kademlia.put_record(
                     kad::Record {
@@ -248,6 +289,16 @@ impl<'a> NetworkEvents<'a> {
                 peer_id,
                 sender,
             } => {
+
+                info!("{}",
+                    format!("RequestCapsuleFragment for {} frag_num: {} from {} {}",
+                        reverie_id,
+                        frag_num,
+                        get_node_name(&peer_id),
+                        short_peer_id(&peer_id)
+                    ).yellow()
+                );
+
                 let request_id = self
                     .swarm
                     .behaviour_mut()
@@ -266,9 +317,19 @@ impl<'a> NetworkEvents<'a> {
                 kfrag_provider_peer_id,
                 channel
             } => {
-                info!("{} RespondCapsuleFragment for {reverie_id} frag_num: {frag_num}", self.nname());
+                info!("{}",
+                    format!("\nRespondCapsuleFragment for {} frag_num: {} from {} {}",
+                        reverie_id,
+                        frag_num,
+                        get_node_name(&kfrag_provider_peer_id),
+                        short_peer_id(&kfrag_provider_peer_id),
+                    ).green()
+                );
+
                 match self.peer_manager.get_cfrags(&reverie_id) {
-                    None => {},
+                    None => {
+                        tracing::warn!("{} No cfrag found for {} frag_num: {}", self.nname(), reverie_id, frag_num);
+                    },
                     // Do not send if no cfrag found, fastest successful futures returns
                     // with futures::future:select_ok()
                     Some(cfrag) => {
@@ -276,8 +337,15 @@ impl<'a> NetworkEvents<'a> {
                             serde_json::to_vec::<Option<ReverieCapsulefrag>>(&Some(cfrag.clone()))
                                 .map_err(|e| SendError(e.to_string()));
 
-                        self.swarm
-                            .behaviour_mut()
+                        info!("{}",
+                            format!(">>>RespondCapsuleFragment for {} frag_num: {} from {} {}",
+                                reverie_id,
+                                frag_num,
+                                get_node_name(&kfrag_provider_peer_id),
+                                short_peer_id(&kfrag_provider_peer_id)
+                            ).purple()
+                        );
+                        self.swarm.behaviour_mut()
                             .request_response
                             .send_response(
                                 channel,
@@ -293,14 +361,14 @@ impl<'a> NetworkEvents<'a> {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            NodeCommand::SubscribeTopics { topics, sender } => {
-                let subscribed_topics = self.subscribe_topics(&topics);
-                sender.send(subscribed_topics).ok();
-            }
-            NodeCommand::UnsubscribeTopics { topics, sender } => {
-                let unsubscribed_topics = self.unsubscribe_topics(&topics);
-                sender.send(unsubscribed_topics).ok();
-            }
+            // NodeCommand::SubscribeTopics { topics, sender } => {
+            //     let subscribed_topics = self.subscribe_topics(&topics);
+            //     sender.send(subscribed_topics).ok();
+            // }
+            // NodeCommand::UnsubscribeTopics { topics, sender } => {
+            //     let unsubscribed_topics = self.unsubscribe_topics(&topics);
+            //     sender.send(unsubscribed_topics).ok();
+            // }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
                 info!("{} Simulating network failure:", self.nname());
                 info!("Triggering heartbeat failure in 500ms: {:?}", reason);

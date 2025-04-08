@@ -41,7 +41,8 @@ use crate::types::{
     VesselStatus,
     SignedVesselStatus,
     ReverieId,
-    AgentReverieId,
+    ReverieIdToAgentName,
+    ReverieIdToPeerId,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -112,9 +113,13 @@ struct PendingRequests {
         VesselPeerId,
         mpsc::Sender<NodeVesselWithStatus>
     >,
-    get_agent_reverie_id: HashMap<
-        AgentReverieId,
+    get_reverie_agent_name: HashMap<
+        ReverieIdToAgentName,
         oneshot::Sender<Option<ReverieId>>
+    >,
+    get_reverie_peer_id: HashMap<
+        ReverieIdToPeerId,
+        oneshot::Sender<Option<PeerId>>
     >,
     send_fragments: HashMap<
         request_response::OutboundRequestId,
@@ -132,7 +137,8 @@ impl PendingRequests {
         Self {
             get_providers: Default::default(),
             get_node_vessels: Default::default(),
-            get_agent_reverie_id: Default::default(),
+            get_reverie_agent_name: Default::default(),
+            get_reverie_peer_id: Default::default(),
             send_fragments: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
@@ -215,7 +221,7 @@ impl<'a> NetworkEvents<'a> {
             .remove_record(&kad::RecordKey::new(&VesselPeerId::from(peer_id).to_string()));
     }
 
-    fn put_signed_vessel_status(&mut self, status: NodeVesselWithStatus) -> Result<()> {
+    fn put_signed_vessel_status_kademlia(&mut self, status: NodeVesselWithStatus) -> Result<()> {
         let signed_status = SignedVesselStatus::new(status.clone(), &self.node_id.id_keys)?;
 
         self.swarm.behaviour_mut().kademlia.put_record(
@@ -228,6 +234,20 @@ impl<'a> NetworkEvents<'a> {
             kad::Quorum::One
         )?;
 
+        Ok(())
+    }
+
+    fn put_reverie_holder_kademlia(&mut self, reverie_id: ReverieId, reverie_holder_peer_id: PeerId) -> Result<()> {
+        let kad_key = ReverieIdToPeerId::from(reverie_id.clone());
+        self.swarm.behaviour_mut().kademlia.put_record(
+            kad::Record {
+                key: kad::RecordKey::new(&kad_key.to_string()),
+                value: reverie_holder_peer_id.to_bytes(),
+                publisher: Some(self.node_id.peer_id),
+                expires: None,
+            },
+            kad::Quorum::One
+        )?;
         Ok(())
     }
 

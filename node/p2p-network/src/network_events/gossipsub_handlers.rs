@@ -34,123 +34,122 @@ impl<'a> NetworkEvents<'a> {
             } => {
 
                 info!(
-                    "\n\tReceived message: '{}'\n\t|from peer: {} {}\n\t|topic: '{}'\n",
+                    "\n\tReceived GossipSub message: '{}'\n\t|from peer: {} {}\n\t|topic: '{}'\n",
                     String::from_utf8_lossy(&message.data),
                     get_node_name(&propagation_peer_id),
                     short_peer_id(&propagation_peer_id),
                     message.topic
                 );
 
-                match message.topic.into() {
-                    // When a node receives Kfrags in a broadcast/multicast
-                    GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num)  => {
+                //     // When a node receives Kfrags in a broadcast/multicast
+                //     GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num)  => {
 
-                        let k: KeyFragmentMessage = serde_json::from_slice(&message.data)?;
-                        let verified_kfrag = k.kfrag.verify(
-                            &k.verifying_pk,
-                            Some(&k.alice_pk),
-                            Some(&k.bob_pk)
-                        ).map_err(SendError::from)?;
+                //         let k: KeyFragmentMessage = serde_json::from_slice(&message.data)?;
+                //         let verified_kfrag = k.kfrag.verify(
+                //             &k.verifying_pk,
+                //             Some(&k.alice_pk),
+                //             Some(&k.bob_pk)
+                //         ).map_err(SendError::from)?;
 
-                        let cfrag = umbral_pre::reencrypt(&k.capsule, verified_kfrag).unverify();
-                        // node stores cfrags locally
-                        // nodes should also inform the vessel_node that they hold a fragment
-                        self.peer_manager.insert_cfrags(
-                            &k.reverie_id,
-                            ReverieCapsulefrag {
-                                id: k.reverie_id.clone(),
-                                reverie_type: ReverieType::Agent,
-                                umbral_capsule_frag: serde_json::to_vec(&cfrag).expect(""),
-                                // agent_name: Some(agent_name_nonce.clone()),
-                                frag_num: k.frag_num,
-                                threshold: k.threshold,
-                                verifying_pk: k.verifying_pk,
-                                alice_pk: k.alice_pk, // vessel
-                                bob_pk: k.bob_pk, // next vessel
-                                kfrag_provider_peer_id: self.node_id.peer_id,
-                            }
-                        );
+                //         let cfrag = umbral_pre::reencrypt(&k.capsule, verified_kfrag).unverify();
+                //         // node stores cfrags locally
+                //         // nodes should also inform the vessel_node that they hold a fragment
+                //         self.peer_manager.insert_cfrags(
+                //             &k.reverie_id,
+                //             ReverieCapsulefrag {
+                //                 id: k.reverie_id.clone(),
+                //                 reverie_type: ReverieType::Agent,
+                //                 umbral_capsule_frag: serde_json::to_vec(&cfrag).expect(""),
+                //                 // agent_name: Some(agent_name_nonce.clone()),
+                //                 frag_num: k.frag_num,
+                //                 threshold: k.threshold,
+                //                 verifying_pk: k.verifying_pk,
+                //                 alice_pk: k.alice_pk, // vessel
+                //                 bob_pk: k.bob_pk, // next vessel
+                //                 kfrag_provider_peer_id: self.node_id.peer_id,
+                //             }
+                //         );
 
-                        self.peer_manager.insert_reverie_metadata(
-                           &k.reverie_id,
-                           AgentVesselInfo {
-                                agent_name_nonce: AgentNameWithNonce::from(k.topic.to_string()),
-                                total_frags: total_frags,
-                                current_vessel_peer_id: propagation_peer_id,
-                                next_vessel_peer_id: k.next_vessel_peer_id
-                            }
-                        );
+                //         self.peer_manager.insert_reverie_metadata(
+                //            &k.reverie_id,
+                //            AgentVesselInfo {
+                //                 agent_name_nonce: AgentNameWithNonce::from(k.topic.to_string()),
+                //                 total_frags: total_frags,
+                //                 current_vessel_peer_id: propagation_peer_id,
+                //                 next_vessel_peer_id: k.next_vessel_peer_id
+                //             }
+                //         );
 
-                        if let Some(peer_info) = self.peer_manager.peer_info.get(&k.vessel_peer_id) {
-                            match &peer_info.agent_vessel {
-                                None => {
-                                    let agent_vessel_info = AgentVesselInfo {
-                                        agent_name_nonce: agent_name_nonce.clone(),
-                                        total_frags,
-                                        next_vessel_peer_id: k.next_vessel_peer_id,
-                                        current_vessel_peer_id: k.vessel_peer_id,
-                                    };
+                //         if let Some(peer_info) = self.peer_manager.peer_info.get(&k.vessel_peer_id) {
+                //             match &peer_info.agent_vessel {
+                //                 None => {
+                //                     let agent_vessel_info = AgentVesselInfo {
+                //                         agent_name_nonce: agent_name_nonce.clone(),
+                //                         total_frags,
+                //                         next_vessel_peer_id: k.next_vessel_peer_id,
+                //                         current_vessel_peer_id: k.vessel_peer_id,
+                //                     };
 
-                                    self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
+                //                     self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
 
-                                    // Put signed vessel status
-                                    let status = NodeVesselWithStatus {
-                                        peer_id: k.vessel_peer_id,
-                                        umbral_public_key: k.alice_pk,
-                                        agent_vessel_info: Some(agent_vessel_info),
-                                        vessel_status: VesselStatus::ActiveVessel,
-                                    };
-                                    self.put_signed_vessel_status(status)?;
-                                }
-                                Some(existing_agent) => {
-                                    panic!("can't replace existing agent in node: {:?}", existing_agent);
-                                }
-                            }
-                        }
+                //                     // Put signed vessel status
+                //                     let status = NodeVesselWithStatus {
+                //                         peer_id: k.vessel_peer_id,
+                //                         umbral_public_key: k.alice_pk,
+                //                         agent_vessel_info: Some(agent_vessel_info),
+                //                         vessel_status: VesselStatus::ActiveVessel,
+                //                     };
+                //                     self.put_signed_vessel_status(status)?;
+                //                 }
+                //                 Some(existing_agent) => {
+                //                     panic!("can't replace existing agent in node: {:?}", existing_agent);
+                //                 }
+                //             }
+                //         }
 
-                        // If node is not next vessel, let vessel node know it holds a fragment
-                        if self.node_id.peer_id != k.next_vessel_peer_id {
-                            // request-response: let vessel know this peer received a fragment
-                            let request_id = self
-                                .swarm
-                                .behaviour_mut()
-                                .request_response
-                                .send_request(
-                                    &k.next_vessel_peer_id,
-                                    FragmentRequestEnum::ProvidingFragmentRequest(
-                                        k.reverie_id,
-                                        frag_num,
-                                        self.node_id.peer_id // kfrag_provider_peer_id
-                                    )
-                                );
-                        }
+                //         // If node is not next vessel, let vessel node know it holds a fragment
+                //         if self.node_id.peer_id != k.next_vessel_peer_id {
+                //             // request-response: let vessel know this peer received a fragment
+                //             let request_id = self
+                //                 .swarm
+                //                 .behaviour_mut()
+                //                 .request_response
+                //                 .send_request(
+                //                     &k.next_vessel_peer_id,
+                //                     FragmentRequestEnum::ProvidingFragmentRequest(
+                //                         k.reverie_id,
+                //                         frag_num,
+                //                         self.node_id.peer_id // kfrag_provider_peer_id
+                //                     )
+                //                 );
+                //         }
 
-                    }
-                    GossipTopic::TopicSwitch => {
+                //     }
+                //     GossipTopic::TopicSwitch => {
 
-                        let ts: TopicSwitch = serde_json::from_slice(&message.data)?;
-                        let agent_name_nonce = ts.next_topic.agent_name_nonce;
-                        let total_frags = ts.next_topic.total_frags;
+                //         let ts: TopicSwitch = serde_json::from_slice(&message.data)?;
+                //         let agent_name_nonce = ts.next_topic.agent_name_nonce;
+                //         let total_frags = ts.next_topic.total_frags;
 
-                        // TODO: replace self.seed with NODE_SEED_NUM global param
-                        NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
-                        let frag_num = self.node_id.seed % total_frags;
-                        // assert_eq!(frag_num, NODE_SEED_NUM.take());
-                        info!("GossipTopic::TopicSwitch total_frags({}) frag_num({})", total_frags, frag_num);
+                //         // TODO: replace self.seed with NODE_SEED_NUM global param
+                //         NODE_SEED_NUM.with(|n| *n.borrow() % total_frags);
+                //         let frag_num = self.node_id.seed % total_frags;
+                //         // assert_eq!(frag_num, NODE_SEED_NUM.take());
+                //         info!("GossipTopic::TopicSwitch total_frags({}) frag_num({})", total_frags, frag_num);
 
-                        let topic = GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num);
-                        self.subscribe_topics(&vec![topic.to_string()]);
+                //         let topic = GossipTopic::BroadcastKfrag(agent_name_nonce, total_frags, frag_num);
+                //         self.subscribe_topics(&vec![topic.to_string()]);
 
-                        // remove previous peer that failed, and associated pending RespawnIds
-                        if let Some(prev_topic) = &ts.prev_topic {
-                            self.remove_prev_vessel_peer(prev_topic);
-                        }
-                    }
-                    // Nothing else to do for GossipTopic::Unknown
-                    GossipTopic::Unknown => {
-                        debug!("Unknown topic: {:?}", message.data);
-                    }
-                }
+                //         // remove previous peer that failed, and associated pending RespawnIds
+                //         if let Some(prev_topic) = &ts.prev_topic {
+                //             self.remove_prev_vessel_peer(prev_topic);
+                //         }
+                //     }
+                //     // Nothing else to do for GossipTopic::Unknown
+                //     GossipTopic::Unknown => {
+                //         debug!("Unknown topic: {:?}", message.data);
+                //     }
+                // }
             }
             gossipsub::Event::Subscribed { peer_id, topic } => {
 
