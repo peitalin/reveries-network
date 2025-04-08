@@ -112,16 +112,16 @@ spawn-agent node_port:
     cargo run --bin cmd -- \
         --rpc-server-address 0.0.0.0:{{node_port}} \
         spawn-agent \
-        --total-frags 3 \
-        --threshold 2
+        --threshold 2 \
+        --total-frags 3
 
 
 spawn-agent-prod:
     cargo run --bin cmd -- \
         --rpc-server-address 35.198.200.224:8001 \
         spawn-agent \
-        --total-frags 3 \
-        --threshold 2
+        --threshold 2 \
+        --total-frags 3
 
 
 trigger-node-failure node_port:

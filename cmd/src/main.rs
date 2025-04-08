@@ -76,8 +76,8 @@ async fn main() -> Result<()> {
         }
 
         CliArgument::SpawnAgent {
-            total_frags,
             threshold,
+            total_frags,
         } => {
 
             let client = create_rpc_client(&cmd.rpc_server_address).await?;
@@ -100,8 +100,8 @@ async fn main() -> Result<()> {
                 "spawn_agent",
                 rpc_params![
                     agent_secrets_json,
-                    total_frags,
-                    threshold
+                    threshold,
+                    total_frags
                 ]
             ).await?;
 

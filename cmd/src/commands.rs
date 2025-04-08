@@ -26,9 +26,9 @@ pub enum CliArgument {
 
     SpawnAgent {
         #[clap(long)]
-        total_frags: usize,
-        #[clap(long)]
         threshold: usize,
+        #[clap(long)]
+        total_frags: usize,
         // #[clap(long)]
         // secret_key_seed: usize,
     },
