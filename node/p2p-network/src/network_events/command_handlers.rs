@@ -18,7 +18,7 @@ use crate::types::{
     AgentReverieId,
     CapsuleFragmentMessage,
     KeyFragmentMessage,
-    KeyFragmentMessage2,
+    ReverieKeyfragMessage,
     ReverieType,
     ReverieKeyfrag,
     ReverieCapsulefrag,
@@ -34,10 +34,9 @@ impl<'a> NetworkEvents<'a> {
         match command {
 
             NodeCommand::SendKfrag(
+                fragment_provider_peer_id, // Fragment Provider
                 kfrag_msg,
-                peer_id,
                 agent_name_nonce,
-                sender,
             ) => {
 
                 // let metadata = match kfrag_msg.reverie_keyfrag.reverie_type {
@@ -51,19 +50,32 @@ impl<'a> NetworkEvents<'a> {
                 //     }
                 // }
 
-                let request_id = self.swarm.behaviour_mut()
+                let _request_id = self.swarm.behaviour_mut()
                     .request_response
-                    .send_request(&peer_id, FragmentRequestEnum::SaveFragmentRequest(
-                        kfrag_msg,
-                        agent_name_nonce
-                    ));
-
-                self.pending.send_fragments.insert(request_id, sender);
+                    .send_request(
+                        &fragment_provider_peer_id,
+                        FragmentRequestEnum::SaveFragmentRequest(
+                            kfrag_msg,
+                            agent_name_nonce
+                        )
+                    );
             }
-            NodeCommand::SendReverie(msg) => {
-                // self.send_reverie(msg).await;
+            NodeCommand::SendReverie(
+                peer_id, // Ciphertext Holder
+                reverie_msg,
+                agent_name_nonce,
+            ) => {
+                // Dispatch Reverie (ciphertext) to target vessel
+                let _request_id = self.swarm.behaviour_mut()
+                    .request_response
+                    .send_request(
+                        &peer_id,
+                        FragmentRequestEnum::SaveCiphertextRequest(
+                            reverie_msg,
+                            None
+                        )
+                    );
             }
-
             NodeCommand::GetNodeVesselStatusesFromKademlia { sender, .. } => {
 
                 let peers = self.swarm.connected_peers()

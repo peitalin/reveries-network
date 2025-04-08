@@ -15,6 +15,7 @@ use crate::types::{
     VesselStatus,
     ReverieId,
     ReverieCapsulefrag,
+    ReverieMessage,
 };
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 use peer_info::{PeerInfo, AgentVesselInfo};
@@ -53,6 +54,7 @@ pub(crate) struct PeerManager {
     // also contains ciphtertexts atm.
     pub(crate) cfrags: HashMap<ReverieId, ReverieCapsulefrag>,
     pub(crate) reverie_metadata: HashMap<ReverieId, AgentVesselInfo>,
+    pub(crate) reverie: HashMap<ReverieId, ReverieMessage>,
     // Tracks which AgentFragments a specific Peer holds, so that when a node dies
     // we know which fragments to delete from a peer
     pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
@@ -71,6 +73,7 @@ impl PeerManager {
             kfrag_providers: HashMap::new(),
             cfrags: HashMap::new(),
             reverie_metadata: HashMap::new(),
+            reverie: HashMap::new(),
             peers_to_agent_frags: HashMap::new(),
             avg_window: 10,
         }
@@ -304,28 +307,30 @@ impl PeerManager {
         self.cfrags.get(reverie_id)
     }
 
-    pub(crate) fn insert_cfrags(
-        &mut self,
-        reverie_id: &ReverieId,
-        cfrag: ReverieCapsulefrag,
-    ) {
+    pub(crate) fn get_reverie_metadata(&self, reverie_id: &ReverieId) -> Option<&AgentVesselInfo> {
+        self.reverie_metadata.get(reverie_id)
+    }
+
+    pub(crate) fn get_reverie(&self, reverie_id: &ReverieId) -> Option<&ReverieMessage> {
+        self.reverie.get(reverie_id)
+    }
+
+    pub(crate) fn insert_cfrags(&mut self, reverie_id: &ReverieId, cfrag: ReverieCapsulefrag) {
         self.cfrags
             .entry(reverie_id.clone())
             .insert_entry(cfrag);
     }
 
-    pub(crate) fn get_reverie_metadata(&self, reverie_id: &ReverieId) -> Option<&AgentVesselInfo> {
-        self.reverie_metadata.get(reverie_id)
-    }
-
-    pub(crate) fn insert_reverie_metadata(
-        &mut self,
-        reverie_id: &ReverieId,
-        agent_metadata: AgentVesselInfo,
-    ) {
+    pub(crate) fn insert_reverie_metadata(&mut self, reverie_id: &ReverieId, agent_metadata: AgentVesselInfo) {
         self.reverie_metadata
             .entry(reverie_id.clone())
             .insert_entry(agent_metadata);
+    }
+
+    pub(crate) fn insert_reverie(&mut self, reverie_id: &ReverieId, reverie_message: ReverieMessage) {
+        self.reverie
+            .entry(reverie_id.clone())
+            .insert_entry(reverie_message);
     }
 
     pub(crate) fn held_cfrags_summary(&self) -> Vec<serde_json::Value> {

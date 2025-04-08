@@ -9,11 +9,13 @@ use crate::types::AgentNameWithNonce;
 pub type ReverieId = String;
 
 /// An encrypted memory module, used by an agent
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Reverie {
     pub id: ReverieId,
     pub reverie_type: ReverieType,
     pub description: String,
+    pub threshold: usize,
+    pub total_frags: usize,
     pub umbral_capsule: Vec<u8>,
     pub umbral_ciphertext: Box<[u8]>,
 }
@@ -24,6 +26,7 @@ pub struct ReverieKeyfrag {
     pub reverie_type: ReverieType,
     pub frag_num: usize,
     pub threshold: usize,
+    pub total_frags: usize,
     pub umbral_keyfrag: Vec<u8>,
     pub umbral_capsule: Vec<u8>,
     pub alice_pk: umbral_pre::PublicKey, // source
@@ -58,6 +61,8 @@ impl Reverie {
     pub fn new(
         description: String,
         reverie_type: ReverieType,
+        threshold: usize,
+        total_frags: usize,
         capsule: umbral_pre::Capsule,
         ciphertext: Box<[u8]>
     ) -> Self {
@@ -65,6 +70,8 @@ impl Reverie {
             id: reverie_id(),
             reverie_type: reverie_type,
             description: description,
+            threshold: threshold,
+            total_frags: total_frags,
             umbral_capsule: serde_json::to_vec(&capsule).expect(""),
             umbral_ciphertext: ciphertext
         }

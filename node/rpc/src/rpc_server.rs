@@ -90,8 +90,8 @@ pub async fn run_server<'a: 'static>(
 
         let (
             agent_secrets_json,
-            total_frags,
             threshold,
+            total_frags,
         ) = params.parse::<(AgentSecretsJson, usize, usize)>().expect("error parsing params");
 
         let mut nc = nc.clone();
@@ -99,8 +99,8 @@ pub async fn run_server<'a: 'static>(
             let result = nc
                 .spawn_agent(
                     agent_secrets_json,
-                    total_frags,
                     threshold,
+                    total_frags,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<NodeVesselWithStatus, RpcError>(result)

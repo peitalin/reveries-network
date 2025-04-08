@@ -8,7 +8,8 @@ use crate::types::{
     ReverieId,
     Reverie,
     ReverieKeyfrag,
-    KeyFragmentMessage2,
+    ReverieKeyfragMessage,
+    ReverieMessage,
 };
 use crate::SendError;
 
@@ -42,7 +43,12 @@ pub enum FragmentRequestEnum {
     ),
     /// Encryptor sends node a KeyFrag to save
     SaveFragmentRequest(
-        KeyFragmentMessage2,
+        ReverieKeyfragMessage,
+        Option<AgentNameWithNonce>
+    ),
+    /// Encryptor sends node a Reverie/Ciphertext to save
+    SaveCiphertextRequest(
+        ReverieMessage,
         Option<AgentNameWithNonce>
     )
 }
@@ -53,5 +59,6 @@ pub enum FragmentResponseEnum {
     FragmentResponse(
         Result<Vec<u8>, SendError>,
     ),
-    KfragProviderAck
+    KfragProviderAck,
+    ReverieProviderAck
 }

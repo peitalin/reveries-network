@@ -12,7 +12,8 @@ use crate::types::{
     VesselStatus,
     ReverieKeyfrag,
     ReverieCapsulefrag,
-    KeyFragmentMessage2,
+    ReverieKeyfragMessage,
+    ReverieMessage,
 };
 use crate::short_peer_id;
 use super::NetworkEvents;
@@ -82,10 +83,8 @@ impl<'a> NetworkEvents<'a> {
 
                             },
                             FragmentRequestEnum::SaveFragmentRequest(
-                                KeyFragmentMessage2 {
+                                ReverieKeyfragMessage {
                                     reverie_keyfrag,
-                                    frag_num,
-                                    total_frags,
                                     source_peer_id,
                                     target_peer_id,
                                     ..
@@ -126,7 +125,7 @@ impl<'a> NetworkEvents<'a> {
                                         &reverie_keyfrag.id,
                                         AgentVesselInfo {
                                             agent_name_nonce: agent_name_nonce,
-                                            total_frags: total_frags,
+                                            total_frags: reverie_keyfrag.total_frags,
                                             current_vessel_peer_id: source_peer_id,
                                             next_vessel_peer_id: target_peer_id,
                                         }
@@ -167,10 +166,40 @@ impl<'a> NetworkEvents<'a> {
                                         &target_peer_id,
                                         FragmentRequestEnum::ProvidingFragmentRequest(
                                             reverie_keyfrag.id,
-                                            frag_num,
+                                            reverie_keyfrag.frag_num,
                                             self.node_id.peer_id // kfrag_provider_peer_id
                                         )
                                     );
+
+                            },
+                            FragmentRequestEnum::SaveCiphertextRequest(
+                                ReverieMessage {
+                                    reverie,
+                                    source_peer_id,
+                                    target_peer_id,
+                                },
+                                agent_name_nonce
+                            ) => {
+                                if let Some(agent_name_nonce) = agent_name_nonce {
+                                    self.peer_manager.insert_reverie_metadata(
+                                        &reverie.id,
+                                        AgentVesselInfo {
+                                            agent_name_nonce: agent_name_nonce,
+                                            total_frags: reverie.total_frags,
+                                            current_vessel_peer_id: source_peer_id,
+                                            next_vessel_peer_id: target_peer_id,
+                                        }
+                                    );
+                                }
+
+                                self.peer_manager.insert_reverie(
+                                    &reverie.id,
+                                    ReverieMessage {
+                                        reverie: reverie.clone(),
+                                        source_peer_id,
+                                        target_peer_id,
+                                    },
+                                );
 
                             }
                         }
@@ -194,9 +223,9 @@ impl<'a> NetworkEvents<'a> {
                             }
                             FragmentResponseEnum::KfragProviderAck => {
                                 info!("{} {}", self.nname(), format!("vessel acknowledged fragment provider\n").green());
-                                // let sender = self.pending.send_fragments
-                                //     .remove(&request_id)
-                                //     .expect("request_response: Request pending.");
+                            }
+                            FragmentResponseEnum::ReverieProviderAck => {
+                                info!("{} {}", self.nname(), format!("vessel acknowledged ciphertext provider\n").green());
                             }
                         }
                     }

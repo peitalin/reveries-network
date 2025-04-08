@@ -108,7 +108,7 @@ impl UmbralKey {
         &self,
         bob_pk: &PublicKey,
         threshold: usize,
-        shares: usize,
+        total_shares: usize,
     ) -> Vec<KeyFrag> {
 
         let verified_kfrags = umbral_pre::generate_kfrags(
@@ -118,7 +118,7 @@ impl UmbralKey {
             // `signer` is used to sign the resulting [`KeyFrag`](`crate::KeyFrag`) objects,
             // which can be later verified by the associated public key.
             threshold,
-            shares,
+            total_shares,
             true, // sign_delegating_key
             true, // sign_receiving_key
             // If `sign_delegating_key` or `sign_receiving_key` are `true`,

@@ -66,7 +66,7 @@ impl<'a> NetworkEvents<'a> {
                 warn!("{} {}", self.nname(), format!("OutgoingConnectionError with peer: {:?}, error: {:?}", peer_id, error).red());
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}", peer_id).red());
+                info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}", peer_id));
                 // Remove from peer manager after heartbeat timeout, not when connection closes
             }
             //// Unhandled SwarmEvents

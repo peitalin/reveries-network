@@ -1,4 +1,3 @@
-
 mod commands;
 mod network_events_listener;
 mod reincarnation;
@@ -25,7 +24,7 @@ use crate::types::{
     CapsuleFragmentMessage,
     GossipTopic,
     KeyFragmentMessage,
-    KeyFragmentMessage2,
+    ReverieKeyfragMessage,
     NetworkEvent,
     NextTopic,
     PrevTopic,
@@ -37,6 +36,7 @@ use crate::types::{
     ReverieType,
     ReverieId,
     ReverieKeyfrag,
+    ReverieMessage,
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
@@ -127,23 +127,22 @@ impl<'a> NodeClient<'a> {
     pub fn make_reverie_horcruxes(
         &self,
         reverie: &Reverie,
-        total_frags: usize,
-        threshold: usize,
         target_vessel: NodeVesselWithStatus,
     ) -> Result<Vec<ReverieKeyfrag>> {
         let bob_pk = target_vessel.umbral_public_key;
         // Alice generates reencryption key fragments for Ursulas (MPC nodes)
-        info!("Generating fragments for new vessel: ({total_frags},{threshold})");
+        info!("Generating fragments for new vessel: {}-of-{} key", reverie.threshold, reverie.total_frags);
         let kfrags = self.umbral_key.generate_pre_keyfrags(
             &bob_pk, // bob_pk
-            threshold,
-            total_frags
+            reverie.threshold,
+            reverie.total_frags
         ).iter().enumerate().map(|(i, kfrag)| {
             ReverieKeyfrag {
                 id: reverie.id.clone(),
                 reverie_type: reverie.reverie_type.clone(),
                 frag_num: i,
-                threshold: threshold,
+                threshold: reverie.threshold,
+                total_frags: reverie.total_frags,
                 umbral_keyfrag: serde_json::to_vec(&kfrag).expect(""),
                 umbral_capsule: reverie.umbral_capsule.clone(),
                 alice_pk: self.umbral_key.public_key,
@@ -154,7 +153,7 @@ impl<'a> NodeClient<'a> {
         Ok(kfrags)
     }
 
-    pub fn create_reverie(&mut self, agent_secrets: AgentSecretsJson) -> Result<Reverie> {
+    pub fn create_reverie(&mut self, agent_secrets: AgentSecretsJson, threshold: usize, total_frags: usize) -> Result<Reverie> {
 
         let (
             capsule,
@@ -179,6 +178,8 @@ impl<'a> NodeClient<'a> {
         let reverie = Reverie::new(
             "agent_secrets_json".to_string(),
             ReverieType::Memory,
+            threshold,
+            total_frags,
             capsule,
             ciphertext
         );
@@ -196,8 +197,6 @@ impl<'a> NodeClient<'a> {
         // memory: AgentSecretsJson,
         reverie_id: String,
         agent_name_nonce: AgentNameWithNonce,
-        total_frags: usize,
-        threshold: usize,
     ) -> Result<Reverie> {
 
         // Encrypt using PRE
@@ -207,17 +206,22 @@ impl<'a> NodeClient<'a> {
             None => return Err(anyhow!("Reverie not found"))
         };
 
-        let peer_nodes = self.get_node_vessels().await;
-        let n_before = peer_nodes.len();
-        let target_vessel = peer_nodes.iter()
+        let peer_nodes = self.get_node_vessels().await
+            .into_iter()
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
-            .take(1)
-            .next()
+            .collect::<Vec<NodeVesselWithStatus>>();
+
+        let n_before = peer_nodes.len();
+        let (
+            target_vessel,
+            remaining_peers
+        ) = peer_nodes
+            .split_first()
             .ok_or(anyhow!("No empty vessels found."))?;
+
         let n_after = peer_nodes.len();
         info!("{}", format!("Before: {n_before}, After: {n_after}"));
-
-        // assert!(n_after == n_before - 1);
+        assert!(n_after == n_before - 1);
 
         let umbral_capsule = reverie.umbral_capsule.clone();
         let umbral_ciphertext = reverie.umbral_ciphertext.clone();
@@ -225,33 +229,39 @@ impl<'a> NodeClient<'a> {
         // Split into fragments
         let kfrags = self.make_reverie_horcruxes(
             &reverie,
-            total_frags,
-            threshold,
             target_vessel.clone()
         )?;
 
         // Send Kfrags to MPC nodes
         for (i, kfrag) in kfrags.into_iter().enumerate() {
-            let (sender, receiver) = oneshot::channel();
+
+            let fragment_provider_peer_id = remaining_peers[i].peer_id;
+
             self.command_sender.send(
                 NodeCommand::SendKfrag(
-                    KeyFragmentMessage2 {
+                    fragment_provider_peer_id,
+                    ReverieKeyfragMessage {
                         reverie_keyfrag: kfrag,
-                        frag_num: i,
-                        threshold: threshold,
-                        total_frags: total_frags,
                         source_peer_id: self.node_id.peer_id,
                         target_peer_id: target_vessel.peer_id,
                     },
-                    self.node_id.peer_id,
-                    None,
-                    sender
+                    Some(agent_name_nonce.clone())
                 )
             ).await?;
         }
 
-        /// Send Ciphertext to target vessel
-
+        // Send Ciphertext to target vessel
+        self.command_sender.send(
+            NodeCommand::SendReverie(
+                target_vessel.peer_id, // Ciphertext Holder
+                ReverieMessage {
+                    reverie: reverie.clone(),
+                    source_peer_id: self.node_id.peer_id,
+                    target_peer_id: target_vessel.peer_id,
+                },
+                Some(agent_name_nonce)
+            )
+        ).await?;
 
         Ok(reverie.clone())
     }
@@ -261,8 +271,8 @@ impl<'a> NodeClient<'a> {
         &mut self,
         reverie_id: String,
         agent_name_nonce: AgentNameWithNonce,
-        total_frags: usize,
         threshold: usize,
+        total_frags: usize,
         target_vessel: NodeVesselWithStatus,
     ) -> Result<NodeVesselWithStatus> {
 
@@ -276,8 +286,6 @@ impl<'a> NodeClient<'a> {
 
         let kfrags = self.make_reverie_horcruxes(
             reverie,
-            total_frags,
-            threshold,
             target_vessel.clone()
         )?;
 

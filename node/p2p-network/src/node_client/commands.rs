@@ -12,11 +12,12 @@ use crate::types::{
     FragmentNumber,
     FragmentResponseEnum,
     KeyFragmentMessage,
-    KeyFragmentMessage2,
+    ReverieKeyfragMessage,
     TopicSwitch,
     NodeVesselWithStatus,
     ReverieId,
     ReverieKeyfrag,
+    ReverieMessage,
 };
 use super::container_manager::RestartReason;
 
@@ -67,13 +68,16 @@ pub enum NodeCommand {
     BroadcastKfrags(KeyFragmentMessage),
 
     SendKfrag(
-        KeyFragmentMessage2,
-        PeerId, // peer to request fragment from
+        PeerId, // Fragment Provider
+        ReverieKeyfragMessage,
         Option<AgentNameWithNonce>,
-        oneshot::Sender<Result<Vec<u8>, SendError>>,
     ),
 
-    SendReverie(KeyFragmentMessage),
+    SendReverie(
+        PeerId, // Ciphertext Holder
+        ReverieMessage,
+        Option<AgentNameWithNonce>,
+    ),
 
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {

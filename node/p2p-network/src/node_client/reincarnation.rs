@@ -69,8 +69,8 @@ impl<'a> NodeClient<'a> {
         let topic_switch = TopicSwitch {
             next_topic: NextTopic {
                 agent_name_nonce: next_agent.clone(),
+                threshold,
                 total_frags,
-                threshold
             },
             prev_topic: Some(PrevTopic {
                 agent_name_nonce: agent_name_nonce.clone(),
@@ -80,7 +80,7 @@ impl<'a> NodeClient<'a> {
         let num_subscribed = self.broadcast_switch_topic_nc(topic_switch).await;
         info!("num peers subscribed: {:?}", num_subscribed);
 
-        let reverie = self.create_reverie(agent_secrets_json.clone())?;
+        let reverie = self.create_reverie(agent_secrets_json.clone(), threshold, total_frags)?;
         // TODO: post-respawn checks:
         // 1. test LLM API works
         // 2. re-encrypt secrets + provide TEE attestation of it
@@ -103,8 +103,8 @@ impl<'a> NodeClient<'a> {
         self.broadcast_kfrags(
             reverie.id.clone(),
             next_agent,
-            total_frags,
             threshold,
+            total_frags,
             next_vessel, // no target vessel, randomly choose next vessel
         ).await?;
 
@@ -151,12 +151,14 @@ impl<'a> NodeClient<'a> {
     pub async fn spawn_agent(
         &mut self,
         agent_secrets: AgentSecretsJson,
-        total_frags: usize,
         threshold: usize,
+        total_frags: usize,
     ) -> Result<NodeVesselWithStatus> {
 
+        assert!(threshold <= total_frags, "Threshold must be less than or equal to total fragments");
+
         // Encrypt using PRE
-        let reverie = self.create_reverie(agent_secrets.clone())?;
+        let reverie = self.create_reverie(agent_secrets.clone(), threshold, total_frags)?;
         // prove node has decrypted AgentSecret
         // prove node has TEE attestation
         // prove node has re-encrypted AgentSecret
@@ -165,11 +167,11 @@ impl<'a> NodeClient<'a> {
         let agent_name_nonce = AgentNameWithNonce(agent_secrets.agent_name, agent_secrets.agent_nonce);
 
         // first check that the broadcaster is subscribed to all fragment channels for the agent
-        let topics = (0..total_frags).map(|n| {
+        let topics = (0..total_frags).map(|frag_num| {
             GossipTopic::BroadcastKfrag(
                 agent_name_nonce.clone(),
                 total_frags,
-                n
+                frag_num
             ).to_string()
         }).collect::<Vec<String>>();
 
@@ -178,8 +180,8 @@ impl<'a> NodeClient<'a> {
         // Tell other nodes to subscribe to the same kfrag topic
         self.broadcast_switch_topic_nc(TopicSwitch::new(
             agent_name_nonce.clone(),
-            total_frags,
             threshold,
+            total_frags,
             None // no previous agent
         )).await?;
 
@@ -189,8 +191,8 @@ impl<'a> NodeClient<'a> {
         let next_vessel_pk = self.broadcast_kfrags(
             reverie.id.clone(),
             agent_name_nonce,
-            total_frags,
             threshold,
+            total_frags,
             next_vessel.clone(),
         ).await?;
 

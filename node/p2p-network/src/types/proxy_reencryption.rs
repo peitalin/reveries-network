@@ -13,6 +13,7 @@ use crate::types::{
     ReverieId,
     ReverieType,
     ReverieKeyfrag,
+    Reverie,
 };
 use umbral_pre::KeyFrag;
 
@@ -85,11 +86,15 @@ impl TryPeerId for VesselPeerId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeyFragmentMessage2 {
+pub struct ReverieKeyfragMessage {
     pub reverie_keyfrag: ReverieKeyfrag,
-    pub frag_num: usize,
-    pub threshold: usize,
-    pub total_frags: usize,
+    pub source_peer_id: PeerId,
+    pub target_peer_id: PeerId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReverieMessage {
+    pub reverie: Reverie,
     pub source_peer_id: PeerId,
     pub target_peer_id: PeerId,
 }
