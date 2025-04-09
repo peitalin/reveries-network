@@ -48,49 +48,33 @@ impl<'a> NetworkEvents<'a> {
                             ) => {
 
                                 info!("{}",
-                                    format!("{} RequestFragmentRequest for {reverie_id} frag_num: {frag_num} from {}",
+                                    format!("{} Inbound RequestFragmentRequest for {reverie_id} frag({frag_num}) from {}",
                                     self.nname(),
                                     short_peer_id(&kfrag_provider_peer_id)
                                 ).yellow());
 
-                                self.network_event_sender
-                                    .send(NetworkEvent::InboundCapsuleFragRequest {
-                                        reverie_id,
-                                        frag_num,
-                                        kfrag_provider_peer_id,
-                                        channel,
-                                    })
-                                    .await
-                                    .expect("Event receiver not to be dropped.");
+
+                                match self.peer_manager.get_cfrags(&reverie_id) {
+                                    None => {
+                                        tracing::warn!("{} No cfrag found for {} frag_num: {}", self.nname(), reverie_id, frag_num);
+                                    },
+                                    Some(cfrag) => {
+                                        let cfrag_bytes =
+                                            serde_json::to_vec::<Option<ReverieCapsulefrag>>(&Some(cfrag.clone()))
+                                                .map_err(|e| SendError(e.to_string()));
+
+                                        self.swarm.behaviour_mut()
+                                            .request_response
+                                            .send_response(
+                                                channel,
+                                                FragmentResponseEnum::FragmentResponse(cfrag_bytes)
+                                            )
+                                            .expect("Connection to peer to be still open.");
+
+                                    }
+                                }
                             },
-                            FragmentRequestEnum::ProvidingFragmentRequest(
-                                reverie_id,
-                                frag_num,
-                                kfrag_provider_peer_id
-                            ) => {
 
-                                info!(
-                                    "\n{} Adding peer to kfrags_providers({}, {}, {})",
-                                    self.nname(),
-                                    reverie_id,
-                                    frag_num,
-                                    short_peer_id(&kfrag_provider_peer_id)
-                                );
-
-                                // 1). Add to PeerManager locally on this node
-                                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
-                                self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
-
-                                // 2). Respond to broadcasting node and acknowledge receipt of Kfrag
-                                self.swarm.behaviour_mut()
-                                    .request_response
-                                    .send_response(
-                                        channel,
-                                        FragmentResponseEnum::KfragProviderAck
-                                    )
-                                    .expect("Connection to peer to be still open.");
-
-                            },
                             FragmentRequestEnum::SaveFragmentRequest(
                                 ReverieKeyfragMessage {
                                     reverie_keyfrag,
@@ -141,6 +125,7 @@ impl<'a> NetworkEvents<'a> {
                                         AgentVesselInfo {
                                             agent_name_nonce: agent_name_nonce,
                                             total_frags: reverie_keyfrag.total_frags,
+                                            threshold: reverie_keyfrag.threshold,
                                             current_vessel_peer_id: source_peer_id,
                                             next_vessel_peer_id: target_peer_id,
                                         }
@@ -160,6 +145,37 @@ impl<'a> NetworkEvents<'a> {
                                     );
 
                             },
+
+                            // Providers let Reverie holder know they are a Kfrag provider
+                            FragmentRequestEnum::ProvidingFragmentRequest(
+                                reverie_id,
+                                frag_num,
+                                kfrag_provider_peer_id
+                            ) => {
+
+                                info!(
+                                    "\n{} Adding peer to kfrags_providers({}, {}, {})",
+                                    self.nname(),
+                                    reverie_id,
+                                    frag_num,
+                                    short_peer_id(&kfrag_provider_peer_id)
+                                );
+
+                                // 1). Add to PeerManager locally on this node
+                                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
+                                self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
+
+                                // 2). Respond to kfrag provider node and acknowledge receipt of Kfrag
+                                self.swarm.behaviour_mut()
+                                    .request_response
+                                    .send_response(
+                                        channel,
+                                        FragmentResponseEnum::KfragProviderAck
+                                    )
+                                    .expect("Connection to peer to be still open.");
+
+                            },
+
                             FragmentRequestEnum::SaveCiphertextRequest(
                                 ReverieMessage {
                                     reverie,
@@ -172,15 +188,17 @@ impl<'a> NetworkEvents<'a> {
                                 info!("\n\tReceived message: \n\t{:?}", reverie);
                                 info!("\n\t{}\n\tFrom Peer: {} {}",
                                     format!("MessageType: SaveCiphertextRequest").green(),
-                                    get_node_name(&source_peer_id).green(),
+                                    get_node_name(&source_peer_id).yellow(),
                                     short_peer_id(&source_peer_id).yellow()
                                 );
 
+                                // 1) Save Agent metadata if need be
                                 if let Some(agent_name_nonce) = agent_name_nonce {
 
                                     let agent_metadata = AgentVesselInfo {
                                         agent_name_nonce: agent_name_nonce,
                                         total_frags: reverie.total_frags,
+                                        threshold: reverie.threshold,
                                         current_vessel_peer_id: source_peer_id,
                                         next_vessel_peer_id: target_peer_id,
                                     };
@@ -200,9 +218,10 @@ impl<'a> NetworkEvents<'a> {
                                             agent_vessel_info: Some(agent_metadata),
                                             vessel_status: VesselStatus::ActiveVessel,
                                         }
-                                    ).unwrap();
+                                    ).expect("Failed to put signed vessel status on Kademlia");
                                 }
 
+                                // 2) Save Reverie locally on this node
                                 self.peer_manager.insert_reverie(
                                     &reverie.id,
                                     ReverieMessage {
@@ -212,12 +231,17 @@ impl<'a> NetworkEvents<'a> {
                                     },
                                 );
 
-                                // Put reverie holder's PeerId on Kademlia
-                                self.put_reverie_holder_kademlia(
-                                    reverie.id,
-                                    target_peer_id
-                                ).map_err(|e| anyhow!("Failed to put reverie holder: {}", e))?;
+                                // 3) Put reverie holder's PeerId on Kademlia
+                                self.put_reverie_holder_kademlia(reverie.id, target_peer_id)
+                                    .map_err(|e| anyhow!("Failed to put: {}", e))?;
 
+                                // 3). Respond to broadcaster node and acknowledge receipt of Reverie/Ciphertext
+                                self.swarm.behaviour_mut()
+                                    .request_response
+                                    .send_response(
+                                        channel,
+                                        FragmentResponseEnum::ReverieProviderAck
+                                    ).map_err(|e| anyhow!("Failed to send: {:?}", e))?;
                             }
                         }
                     }
@@ -230,22 +254,23 @@ impl<'a> NetworkEvents<'a> {
                         response,
                     } => {
                         match response {
-                            FragmentResponseEnum::FragmentResponse(fragment_bytes) => {
+                            FragmentResponseEnum::FragmentResponse(cfrag_bytes) => {
                                 info!("{}",
-                                    format!("Received FragmentResponse for request_id: {request_id}").bright_blue()
+                                    format!("Responding with FragmentResponse for request_id: {request_id}").green()
                                 );
                                 // get sender channel associated with the request-response id
                                 let sender = self.pending.request_fragments
                                     .remove(&request_id)
                                     .expect("request_response: Request pending.");
+
                                 // send fragment to it
-                                let _ = sender.send(fragment_bytes);
+                                let _ = sender.send(cfrag_bytes);
                             }
                             FragmentResponseEnum::KfragProviderAck => {
-                                info!("{} {}", self.nname(), format!("vessel acknowledged fragment provider\n").green());
+                                info!("{} {}", self.nname(), format!("Acknowledged fragment provider\n").green());
                             }
                             FragmentResponseEnum::ReverieProviderAck => {
-                                info!("{} {}", self.nname(), format!("vessel acknowledged ciphertext provider\n").green());
+                                info!("{} {}", self.nname(), format!("Acknowledged ciphertext provider\n").green());
                             }
                         }
                     }

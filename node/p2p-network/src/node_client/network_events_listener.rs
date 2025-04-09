@@ -1,62 +1,59 @@
 use color_eyre::Result;
 use futures::FutureExt;
-use libp2p::PeerId;
-use tracing::{info, debug, error, warn};
+use libp2p::{PeerId, Multiaddr};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{info, error};
 
-use crate::short_peer_id;
-use crate::network_events::{
-    NodeIdentity,
-    peer_manager::peer_info::AgentVesselInfo
-};
+use crate::{short_peer_id, SendError};
+use crate::network_events::NodeIdentity;
 use crate::types::{
     NetworkEvent,
     Reverie,
     ReverieType,
     ReverieId,
+    AgentVesselInfo
 };
-use crate::SendError;
 use super::{NodeClient, NodeCommand};
 
 
 impl<'a> NodeClient<'a> {
+
+    pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        // In case a listen address was provided use it, otherwise listen on any address.
+        self.command_sender
+            .send(NodeCommand::StartListening {
+                addr: listen_address.unwrap_or("/ip4/0.0.0.0/tcp/0".parse()?),
+                sender
+            })
+            .await?;
+
+        receiver.await?.map_err(|e| SendError(e.to_string()).into())
+    }
+
     pub async fn listen_to_network_events(
         &mut self,
-        mut network_event_receiver: tokio::sync::mpsc::Receiver<NetworkEvent>
+        mut network_event_receiver: mpsc::Receiver<NetworkEvent>
     ) -> Result<()> {
         loop {
             tokio::select! {
-                e = network_event_receiver.recv() => match e {
-                    // Reply with the content of the file on incoming requests.
-                    Some(NetworkEvent::InboundCapsuleFragRequest {
-                        reverie_id,
-                        frag_num,
-                        kfrag_provider_peer_id,
-                        channel
-                    }) => {
-                        self.command_sender
-                            .send(NodeCommand::RespondCapsuleFragment {
-                                reverie_id,
-                                frag_num,
-                                kfrag_provider_peer_id,
-                                channel
-                            })
-                            .await
-                            .expect("Command receiver not to be dropped.");
-                    }
+                event = network_event_receiver.recv() => match event {
                     Some(NetworkEvent::RespawnRequest(AgentVesselInfo {
                         agent_name_nonce,
                         total_frags,
-                        next_vessel_peer_id,
-                        current_vessel_peer_id
+                        threshold,
+                        next_vessel_peer_id, // This node is the next vessel
+                        current_vessel_peer_id: prev_failed_vessel_peer_id // Previous (failed) vessel
                     })) => {
                         self.handle_respawn_request(
                             agent_name_nonce,
                             total_frags,
+                            threshold,
                             next_vessel_peer_id,
-                            current_vessel_peer_id
+                            prev_failed_vessel_peer_id
                         ).await?;
                     }
-                    e => panic!("Error <network_event_receiver>: {:?}", e),
+                    event => panic!("Error <network_event_receiver>: {:?}", event),
                 }
                 // hb = self.heartbeat_receiver.recv() => match hb {
                 //     Ok(r) => info!("hb: {:?}", r),

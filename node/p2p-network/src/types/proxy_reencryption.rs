@@ -99,27 +99,6 @@ pub struct ReverieMessage {
     pub target_peer_id: PeerId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyFragmentMessage {
-    pub topic: GossipTopic,
-    pub reverie_id: ReverieId,
-    pub frag_num: usize,
-    pub threshold: usize,
-    pub total_frags: usize,
-    pub alice_pk: umbral_pre::PublicKey,
-    pub bob_pk: umbral_pre::PublicKey,
-    pub verifying_pk: umbral_pre::PublicKey,
-    // TODO: split data into private data for the MPC node, vs public data
-    // private: kfrags, verify_pk, alice_pk, bob_pk -> store within the MPC node
-    // public: capsules and ciphertexts -> store on Kademlia or in next Vessel(s)
-    pub vessel_peer_id: PeerId,
-    pub next_vessel_peer_id: PeerId,
-    // kfrag
-    pub kfrag: KeyFrag,
-    pub capsule: umbral_pre::Capsule,
-    pub ciphertext: Box<[u8]>
-}
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapsuleFragmentMessage {

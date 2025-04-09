@@ -46,6 +46,22 @@ use time::Duration;
 
 impl<'a> NetworkEvents<'a> {
 
+    pub(crate) fn mark_pending_respawn_complete(
+        &mut self,
+        prev_peer_id: PeerId,
+        prev_agent_name_nonce: AgentNameWithNonce,
+    ) {
+        // remove pending RespawnIds if need be
+        let respawn_id = RespawnId::new(
+            &prev_agent_name_nonce,
+            &prev_peer_id,
+        );
+        self.pending.respawns.remove(&respawn_id);
+
+        // remove peer from PeerManager
+        self.peer_manager.remove_peer_info(&prev_peer_id);
+    }
+
     pub(crate) async fn handle_peer_heartbeat_failure(&mut self) -> Result<()> {
 
         let max_time_before_respawn = self.swarm.behaviour()
@@ -73,13 +89,13 @@ impl<'a> NetworkEvents<'a> {
 
                 if let None = &peer_info.agent_vessel {
                     println!("{} failed but wasn't hosting an agent.", node_name);
-                    // will automatically remove_peer() after timeout
-                    // self.remove_peer(&peer_id);
+                    // node will automatically self.remove_peer() after timeout
                 }
 
                 if let Some(AgentVesselInfo {
                     agent_name_nonce: prev_agent,
                     total_frags,
+                    threshold,
                     next_vessel_peer_id,
                     current_vessel_peer_id
                 }) = &peer_info.agent_vessel {
@@ -93,7 +109,7 @@ impl<'a> NetworkEvents<'a> {
                     // TODO: consensus mechanism to vote for reincarnation
                     failed_agents_placeholder.push(prev_agent);
 
-                    // mark as respawning...
+                    // all peers mark agent as respawning...
                     let respawn_id = RespawnId::new(&prev_agent, &current_vessel_peer_id);
                     self.pending.respawns.insert(respawn_id.clone());
 
@@ -101,27 +117,20 @@ impl<'a> NetworkEvents<'a> {
                     // If this node is the next vessel for the agent
                     if self.node_id.peer_id == *next_vessel_peer_id {
 
-                        // // subscribe to all new agent_nonce channels to broadcast
-                        // let new_topics = vec![
-                        //     GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 0).to_string(),
-                        //     GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 1).to_string(),
-                        //     GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 2).to_string(),
-                        //     GossipTopic::BroadcastKfrag(next_agent.clone(), *total_frags, 3).to_string(),
-                        // ];
-                        // self.subscribe_topics(&new_topics);
-
                         // Dispatch a Respawn(agent_name) event to NetworkEvents
-                        // - regenerates PRE ciphertexts, kfrags, and reencryption keys
-                        // - re-broadcasts the new PRE fragments to peers
-                        self.network_event_sender
-                            .send(NetworkEvent::RespawnRequest(
+                        // - regenerates PRE ciphertexts, and reencryption key frags
+                        // - re-broadcasts the new key fragments to peers
+                        self.network_event_sender.send(
+                            NetworkEvent::RespawnRequest(
                                 AgentVesselInfo {
                                     agent_name_nonce: prev_agent.clone(),
                                     total_frags: *total_frags,
+                                    threshold: *threshold,
                                     next_vessel_peer_id: *next_vessel_peer_id,
                                     current_vessel_peer_id: current_vessel_peer_id.clone()
                                 }
-                            )).await?;
+                            )
+                        ).await?;
 
                         info!("{} '{}' {} {}", "Respawning agent".blue(),
                             prev_agent.to_string().green(),
@@ -140,8 +149,7 @@ impl<'a> NetworkEvents<'a> {
                     } else {
 
                         // If node is not the next vessel:
-                        // Subscribe to next agent_nonce channel and wait for when it
-                        // is reincarnated and broadcasting cfrags.
+                        // wait for next vessel to re-broadcast cfrags
 
                         // TODO: once respawn is finished,
                         // 1) new Vessel will tell other nodes to update PeerManager and
@@ -149,16 +157,8 @@ impl<'a> NetworkEvents<'a> {
                         // self.pending.respawns.remove(&respawn_id_result);
 
                         if self.pending.respawns.contains(&respawn_id) {
-                            info!("Respawn pending: {} -> {}", next_agent, self.node_id.node_name);
-
+                            info!("Respawn pending: {} -> {}", next_agent, next_vessel_peer_id);
                         } else {
-
-                            let frag_num = self.node_id.seed % total_frags;
-                            info!("Not the next vessel. Subscribing to next agent on frag_num({})\n", frag_num);
-                            // Subscribe to new agent fragments channel
-                            self.subscribe_topics(&vec![
-                                GossipTopic::BroadcastKfrag(next_agent, *total_frags, frag_num).to_string(),
-                            ]);
                         }
                     }
                 }

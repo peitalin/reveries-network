@@ -17,13 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, debug, error, warn};
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
-use crate::network_events::peer_manager::peer_info::AgentVesselInfo;
 use crate::network_events::NodeIdentity;
 use crate::types::{
     AgentNameWithNonce,
     CapsuleFragmentMessage,
     GossipTopic,
-    KeyFragmentMessage,
     NetworkEvent,
     NextTopic,
     NodeVesselWithStatus,
@@ -81,49 +79,6 @@ impl<'a> NodeClient<'a> {
             umbral_key: umbral_key,
         }
     }
-
-    pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
-        let (sender, receiver) = oneshot::channel();
-        // In case a listen address was provided use it, otherwise listen on any address.
-        let addr = match listen_address {
-            Some(addr) => addr,
-            None => "/ip4/0.0.0.0/tcp/0".parse()?,
-        };
-
-        self.command_sender
-            .send(NodeCommand::StartListening { addr, sender })
-            .await?;
-
-        receiver.await?.map_err(|e| SendError(e.to_string()).into())
-    }
-
-    // pub async fn subscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
-    //     let (sender, receiver) = oneshot::channel();
-
-    //     self.command_sender
-    //         .send(NodeCommand::SubscribeTopics {
-    //             topics,
-    //             sender
-    //         })
-    //         .await
-    //         .expect("Command receiver not to be dropped.");
-
-    //     receiver.await.map_err(|e| e.into())
-    // }
-
-    // pub async fn unsubscribe_topics(&self, topics: Vec<String>) -> Result<Vec<String>> {
-    //     let (sender, receiver) = oneshot::channel();
-
-    //     self.command_sender
-    //         .send(NodeCommand::UnsubscribeTopics {
-    //             topics,
-    //             sender
-    //         })
-    //         .await
-    //         .expect("Command receiver not to be dropped.");
-
-    //     receiver.await.map_err(|e| e.into())
-    // }
 
     pub fn make_reverie_horcruxes(
         &self,
@@ -192,8 +147,7 @@ impl<'a> NodeClient<'a> {
 
     /// Client sends a memory over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
-    // pub async fn broadcast_reverie(
-    pub async fn broadcast_kfrags2(
+    pub async fn broadcast_reverie_keyfrags(
         &mut self,
         reverie_id: String,
         agent_name_nonce: Option<AgentNameWithNonce>,
@@ -235,108 +189,37 @@ impl<'a> NodeClient<'a> {
         )?;
 
         // Send Kfrags to MPC nodes
-        for (i, kfrag) in kfrags.into_iter().enumerate() {
-
-            let fragment_provider_peer_id = remaining_peers[i].peer_id;
-
+        for (i, reverie_keyfrag) in kfrags.into_iter().enumerate() {
+            let keyfrag_provider_peer_id = remaining_peers[i].peer_id;
             self.command_sender.send(
-                NodeCommand::SendKfrag(
-                    fragment_provider_peer_id,
-                    ReverieKeyfragMessage {
-                        reverie_keyfrag: kfrag,
+                NodeCommand::SendReverieKeyfrag {
+                    keyfrag_provider: keyfrag_provider_peer_id,
+                    reverie_keyfrag_msg: ReverieKeyfragMessage {
+                        reverie_keyfrag: reverie_keyfrag,
                         source_peer_id: self.node_id.peer_id,
                         target_peer_id: target_vessel.peer_id,
                     },
-                    agent_name_nonce.clone()
-                )
+                    agent_name_nonce: agent_name_nonce.clone(),
+                }
             ).await?;
         }
 
         // Send Ciphertext to target vessel
+        // TODO: or should Reveries be stored on DHT for easier access?
         self.command_sender.send(
-            NodeCommand::SendReverie(
-                target_vessel.peer_id, // Ciphertext Holder
-                ReverieMessage {
+            NodeCommand::SendReverie {
+                ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
+                reverie_msg: ReverieMessage {
                     reverie: reverie.clone(),
                     source_peer_id: self.node_id.peer_id,
                     target_peer_id: target_vessel.peer_id,
                 },
-                agent_name_nonce
-            )
+                agent_name_nonce: agent_name_nonce.clone(),
+            }
         ).await?;
 
         Ok((reverie.clone(), target_vessel.clone()))
     }
-
-
-    // pub async fn broadcast_old_kfrags(
-    //     &mut self,
-    //     reverie_id: String,
-    //     agent_name_nonce: AgentNameWithNonce,
-    //     threshold: usize,
-    //     total_frags: usize,
-    //     target_vessel: NodeVesselWithStatus,
-    // ) -> Result<NodeVesselWithStatus> {
-
-    //     let reverie = match self.reveries.get(&reverie_id) {
-    //         Some(reverie) => reverie,
-    //         None => return Err(anyhow!("Reverie not found"))
-    //     };
-
-    //     let umbral_capsule: umbral_pre::Capsule = serde_json::from_slice(&reverie.umbral_capsule).expect("");
-    //     let umbral_ciphertext = reverie.umbral_ciphertext.clone();
-
-    //     let kfrags = self.make_reverie_horcruxes(
-    //         reverie,
-    //         target_vessel.clone()
-    //     )?;
-
-    //     /////////////////// Gossip Broadcast ///////////////////////
-
-    //     // first check that the broadcaster is subscribed to all fragment channels for the agent
-    //     let topics = (0..total_frags)
-    //         .map(|n| GossipTopic::BroadcastKfrag(agent_name_nonce.clone(), total_frags, n).into())
-    //         .collect::<Vec<String>>();
-
-    //     // Subscribe to broadcast kfrag topics temporarily
-    //     self.subscribe_topics(topics.clone()).await.ok();
-
-    //     for (i, kfrag) in kfrags.into_iter().enumerate() {
-    //         let topic = GossipTopic::BroadcastKfrag(
-    //             agent_name_nonce.clone(),
-    //             total_frags,
-    //             i
-    //         );
-    //         self.command_sender.send(
-    //             NodeCommand::BroadcastKfrags(KeyFragmentMessage {
-    //                 topic: topic,
-    //                 reverie_id: reverie_id.clone(),
-    //                 frag_num: i,
-    //                 threshold: threshold,
-    //                 total_frags: total_frags,
-    //                 kfrag: serde_json::from_slice(&kfrag.umbral_keyfrag).expect(""),
-    //                 verifying_pk: self.umbral_key.verifying_pk,
-    //                 alice_pk: self.umbral_key.public_key,
-    //                 bob_pk: target_vessel.umbral_public_key, // bob_pk
-    //                 vessel_peer_id: self.node_id.peer_id,
-    //                 next_vessel_peer_id: target_vessel.peer_id,
-    //                 capsule: umbral_capsule.clone(),
-    //                 ciphertext: umbral_ciphertext.clone(),
-    //             })
-    //         ).await?;
-    //     }
-
-    //     info!("{}", format!(
-    //         "Next Vessel: {} {} {}",
-    //         get_node_name(&target_vessel.peer_id),
-    //         short_peer_id(target_vessel.peer_id),
-    //         target_vessel.umbral_public_key,
-    //     ).yellow());
-
-    //     // unsubscribe from the kfrag broadcast topics
-    //     self.unsubscribe_topics(topics).await.ok();
-    //     Ok(target_vessel.to_owned())
-    // }
 
     pub async fn get_next_vessel(&mut self) -> Result<NodeVesselWithStatus> {
         match self.get_node_vessels().await.iter()
@@ -395,13 +278,13 @@ impl<'a> NodeClient<'a> {
     pub async fn request_cfrags(
         &mut self,
         reverie_id: ReverieId,
-        current_vessel_peer_id: PeerId
+        prev_failed_vessel_peer_id: PeerId
     ) -> Vec<Result<Vec<u8>, SendError>> {
 
         let providers_hmap = self.get_kfrag_providers(reverie_id.clone()).await;
 
         info!("Finding providers for: {}", reverie_id);
-        info!("filter out vessel peer: {:?}", current_vessel_peer_id);
+        info!("filter out vessel peer: {:?}", prev_failed_vessel_peer_id);
         info!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
 
         let requests = providers_hmap.iter()
@@ -414,7 +297,7 @@ impl<'a> NodeClient<'a> {
 
                     let peer_id = peers.iter()
                         .filter_map(|&peer_id| {
-                            if peer_id != current_vessel_peer_id {
+                            if peer_id != prev_failed_vessel_peer_id {
                                 Some(peer_id)
                             } else {
                                 None

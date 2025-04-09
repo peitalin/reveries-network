@@ -11,12 +11,10 @@ use crate::types::{
     AgentNameWithNonce,
     FragmentNumber,
     FragmentResponseEnum,
-    KeyFragmentMessage,
     ReverieKeyfragMessage,
     TopicSwitch,
     NodeVesselWithStatus,
     ReverieId,
-    ReverieKeyfrag,
     ReverieMessage,
 };
 use super::container_manager::RestartReason;
@@ -31,9 +29,15 @@ pub enum NodeCommand {
     },
 
     /// Gets the ReverieId for an agent from Kademlia
-    GetAgentReverieId {
+    GetReverieIdFromAgentName {
         agent_name_nonce: AgentNameWithNonce,
         sender: oneshot::Sender<Option<ReverieId>>,
+    },
+
+    /// Gets the Reverie for an agent from Kademlia
+    GetReverie {
+        reverie_id: ReverieId,
+        sender: oneshot::Sender<Result<ReverieMessage>>,
     },
 
     /// Gets Peers that hold the Kfrags for an agent.
@@ -46,74 +50,41 @@ pub enum NodeCommand {
         sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
     },
 
-    /// Gets the Reverie for an agent from Kademlia
-    GetReverie {
-        reverie_id: ReverieId,
-        sender: oneshot::Sender<Result<ReverieMessage>>,
-    },
-
     /// Saves the provider of the kfrag for retrieval later
     SaveKfragProvider {
         reverie_id: ReverieId,
-        // agent_name_nonce: Option<AgentNameWithNonce>,
         frag_num: usize,
         kfrag_provider_peer_id: PeerId, // peer who holds the kfrag
         channel: ResponseChannel<FragmentResponseEnum>,
     },
 
-    /// Broadcasts to peers to listen to a new kfrag broadcast channel
-    /// when spawning a new agent, or reincarnating a agent with a new nonce.
-    /// Protocol usually broadcasts a topic switch before broadcasting kfrags.
-    BroadcastSwitchTopic(
-        TopicSwitch,
-        oneshot::Sender<usize>,
-    ),
+    /// Sends Reverie Kfrags to specific peers
+    SendReverieKeyfrag {
+        keyfrag_provider: PeerId, // Key Fragment Provider
+        reverie_keyfrag_msg: ReverieKeyfragMessage,
+        agent_name_nonce: Option<AgentNameWithNonce>,
+    },
 
-    /// Broadcasts Kfrags to peers (multicasts to specific fragment channels)
-    /// Kfrags are verified then encrypted
-    BroadcastKfrags(KeyFragmentMessage),
-
-    SendKfrag(
-        PeerId, // Fragment Provider
-        ReverieKeyfragMessage,
-        Option<AgentNameWithNonce>,
-    ),
-
-    SendReverie(
-        PeerId, // Ciphertext Holder
-        ReverieMessage,
-        Option<AgentNameWithNonce>,
-    ),
+    /// Sends a Reverie to a specific peer
+    SendReverie {
+        ciphertext_holder: PeerId, // Ciphertext Holder
+        reverie_msg: ReverieMessage,
+        agent_name_nonce: Option<AgentNameWithNonce>,
+    },
 
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
         reverie_id: ReverieId,
-        // agent_name_nonce: AgentNameWithNonce,
         frag_num: FragmentNumber,
         peer_id: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
-    },
-
-    RespondCapsuleFragment {
-        reverie_id: ReverieId,
-        // agent_name_nonce: AgentNameWithNonce,
-        frag_num: usize,
-        kfrag_provider_peer_id: PeerId, // peer who sends cfrag back
-        channel: ResponseChannel<FragmentResponseEnum>,
     },
 
     StartListening {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn std::error::Error + Send>>>,
     },
-    // SubscribeTopics {
-    //     topics: Vec<String>,
-    //     sender: oneshot::Sender<Vec<String>>,
-    // },
-    // UnsubscribeTopics {
-    //     topics: Vec<String>,
-    //     sender: oneshot::Sender<Vec<String>>,
-    // },
+
     SimulateNodeFailure {
         sender: oneshot::Sender<RestartReason>,
         reason: RestartReason,
@@ -123,13 +94,9 @@ pub enum NodeCommand {
         sender: oneshot::Sender<serde_json::Value>,
     },
 
-    /// Gets all addresses this node is listening on
-    GetListeningAddresses {
-        sender: oneshot::Sender<Vec<Multiaddr>>,
-    },
-
-    /// Gets all peers this node is connected to
-    GetConnectedPeers {
-        sender: oneshot::Sender<Vec<PeerId>>,
+    MarkPendingRespawnComplete {
+        prev_reverie_id: ReverieId,
+        prev_peer_id: PeerId,
+        prev_agent_name_nonce: AgentNameWithNonce,
     },
 }

@@ -1,10 +1,7 @@
-use libp2p::{
-    kad,
-    PeerId
-};
-use color_eyre::eyre::anyhow;
-use tracing::{info, error};
+use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
+use libp2p::{kad, PeerId};
+use tracing::{info, error};
 
 use crate::node_client::NodeCommand;
 use crate::types::{
@@ -17,8 +14,8 @@ use crate::types::{
     VesselStatus,
     VesselPeerId,
     CapsuleFragmentMessage,
-    KeyFragmentMessage,
     ReverieKeyfragMessage,
+    ReverieMessage,
     ReverieType,
     ReverieKeyfrag,
     ReverieCapsulefrag,
@@ -35,74 +32,78 @@ impl<'a> NetworkEvents<'a> {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
 
-            NodeCommand::SendKfrag(
-                fragment_provider_peer_id, // Fragment Provider
-                kfrag_msg,
+            NodeCommand::SendReverieKeyfrag {
+                keyfrag_provider, // Key Fragment Provider
+                reverie_keyfrag_msg: ReverieKeyfragMessage {
+                    reverie_keyfrag,
+                    source_peer_id,
+                    target_peer_id,
+                },
                 agent_name_nonce,
-            ) => {
+            } => {
+                let _request_id = self.swarm.behaviour_mut()
+                    .request_response
+                    .send_request(
+                        &keyfrag_provider,
+                        FragmentRequestEnum::SaveFragmentRequest(
+                            ReverieKeyfragMessage {
+                                reverie_keyfrag,
+                                source_peer_id,
+                                target_peer_id,
+                            },
+                            agent_name_nonce
+                        )
+                    );
+            }
+            NodeCommand::SendReverie {
+                ciphertext_holder, // Ciphertext Holder
+                reverie_msg: ReverieMessage {
+                    reverie,
+                    source_peer_id,
+                    target_peer_id,
+                },
+                agent_name_nonce,
+            } => {
 
-                // let metadata = match kfrag_msg.reverie_keyfrag.reverie_type {
-                //     ReverieType::Agent => {
-                //         // PUT kademlia record:
-                //         // AgentName => ReverieId
-                //         agent_name_nonce
-                //     }
-                //     _ => {
-                //         None
-                //     }
-                // }
+                // 1. Save agent metadata
+                if let Some(agent_name_nonce) = &agent_name_nonce {
 
-                if let Some(agent_name_nonce) = agent_name_nonce.clone() {
-                    // add prefix as kademlia key
-                    let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
-                    let agent_vessel_info = AgentVesselInfo {
-                        agent_name_nonce: agent_name_nonce.clone(),
-                        total_frags: kfrag_msg.reverie_keyfrag.total_frags,
-                        current_vessel_peer_id: kfrag_msg.source_peer_id,
-                        next_vessel_peer_id: kfrag_msg.target_peer_id,
-                    };
+                    // Set broadcaster's peer info
+                    self.peer_manager.set_peer_info_agent_vessel(
+                        &AgentVesselInfo {
+                            agent_name_nonce: agent_name_nonce.clone(),
+                            total_frags: reverie.total_frags,
+                            threshold: reverie.threshold,
+                            current_vessel_peer_id: source_peer_id,
+                            next_vessel_peer_id: target_peer_id,
+                        }
+                    );
 
-                    // set broadcaster's peer info
-                    self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
-
-                    // add prefix as kademlia key
-                    let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
                     // Put agent_name_nonce => reverie_id on DHT
                     self.swarm.behaviour_mut().kademlia.put_record(
                         kad::Record {
-                            key: kad::RecordKey::new(&agent_reverie_key.to_string()),
-                            value: serde_json::to_vec(&kfrag_msg.reverie_keyfrag.id).expect("serde_json::to_vec(reverie_id)"),
+                            key: agent_name_nonce.to_reverie_id().to_kad_key(),
+                            // value: serde_json::to_vec(&reverie.id).expect("serde_json::to_vec(reverie_id)"),
+                            value: reverie.id.as_bytes().into(),
                             publisher: Some(self.node_id.peer_id),
                             expires: None,
                         },
                         kad::Quorum::Majority
                     ).expect("put_record err");
-
                 }
 
-                let _request_id = self.swarm.behaviour_mut()
-                    .request_response
-                    .send_request(
-                        &fragment_provider_peer_id,
-                        FragmentRequestEnum::SaveFragmentRequest(
-                            kfrag_msg,
-                            agent_name_nonce
-                        )
-                    );
-            }
-            NodeCommand::SendReverie(
-                peer_id, // Ciphertext Holder
-                reverie_msg,
-                agent_name_nonce,
-            ) => {
                 // Dispatch Reverie (ciphertext) to target vessel
                 let _request_id = self.swarm.behaviour_mut()
                     .request_response
                     .send_request(
-                        &peer_id,
+                        &ciphertext_holder,
                         FragmentRequestEnum::SaveCiphertextRequest(
-                            reverie_msg,
-                            agent_name_nonce
+                            ReverieMessage {
+                                reverie,
+                                source_peer_id,
+                                target_peer_id,
+                            },
+                            agent_name_nonce.clone()
                         )
                     );
             }
@@ -117,7 +118,7 @@ impl<'a> NetworkEvents<'a> {
                 };
                 sender.send(reverie).ok();
             }
-            NodeCommand::GetNodeVesselStatusesFromKademlia { sender, .. } => {
+            NodeCommand::GetNodeVesselStatusesFromKademlia { sender } => {
 
                 let peers = self.swarm.connected_peers()
                     .cloned()
@@ -133,7 +134,7 @@ impl<'a> NetworkEvents<'a> {
                     self.pending.get_node_vessels.insert(vessel_kademlia_key, sender.clone());
                 };
             }
-            NodeCommand::GetAgentReverieId {
+            NodeCommand::GetReverieIdFromAgentName {
                 agent_name_nonce,
                 sender,
             } => {
@@ -187,102 +188,6 @@ impl<'a> NetworkEvents<'a> {
                     .expect("Connection to peer to be still open.");
 
             }
-            NodeCommand::BroadcastSwitchTopic(ts, sender) => {
-
-                self.broadcast_topic_switch(&ts).await.ok();
-
-                // get all peers subscribe to topic
-                let all_peers = self.swarm
-                    .behaviour_mut().gossipsub.all_peers()
-                    .collect::<Vec<(&PeerId, Vec<&TopicHash>)>>();
-
-                let topic_compare: TopicHash = GossipTopic::BroadcastKfrag(
-                    ts.next_topic.agent_name_nonce,
-                    ts.next_topic.total_frags,
-                    0
-                ).into();
-
-                let peers = all_peers
-                    .into_iter()
-                    .filter_map(|(peer_id, peers_topics)| {
-                        match peers_topics.contains(&&topic_compare) {
-                            true => Some(peer_id),
-                            false => None
-                        }
-                    }).collect::<Vec<&PeerId>>();
-
-                // send peer len and fragment info so we know if we can broadcast fragments
-                sender.send(peers.len()).ok();
-            }
-            NodeCommand::BroadcastKfrags(msg) => {
-
-                let topic_kfrag = msg.topic.to_string();
-                let agent_name_nonce = match msg.topic.clone() {
-                    GossipTopic::BroadcastKfrag(agent_name_nonce, _, _) => {
-                        agent_name_nonce
-                    }
-                    _ => {
-                        panic!("Message must be GossipTopic::BroadcastKfrag, got: {}", msg.topic);
-                    }
-                };
-                let agent_vessel_info = AgentVesselInfo {
-                    agent_name_nonce: agent_name_nonce.clone(),
-                    total_frags: msg.total_frags,
-                    current_vessel_peer_id: msg.vessel_peer_id,
-                    next_vessel_peer_id: msg.next_vessel_peer_id,
-                };
-
-                // set broadcaster's peer info
-                self.peer_manager.set_peer_info_agent_vessel(&agent_vessel_info);
-
-                // add prefix as kademlia key
-                let agent_reverie_key = ReverieIdToAgentName::from(agent_name_nonce.clone());
-                // Put agent_name_nonce => reverie_id on DHT
-                self.swarm.behaviour_mut().kademlia.put_record(
-                    kad::Record {
-                        key: kad::RecordKey::new(&agent_reverie_key.to_string()),
-                        value: serde_json::to_vec(&msg.reverie_id).expect("serde_json::to_vec(reverie_id)"),
-                        publisher: Some(self.node_id.peer_id),
-                        expires: None,
-                    },
-                    kad::Quorum::Majority
-                ).expect("put_record err");
-
-                // Update vessel status on Kademlia DHT
-                self.swarm.behaviour_mut().kademlia.put_record(
-                    kad::Record {
-                        key: kad::RecordKey::new(&VesselPeerId::from(msg.vessel_peer_id).to_string()),
-                        value: serde_json::to_vec(
-                                &NodeVesselWithStatus {
-                                    peer_id: msg.vessel_peer_id,
-                                    umbral_public_key: msg.alice_pk, // vessel's public key
-                                    agent_vessel_info: Some(agent_vessel_info),
-                                    vessel_status: VesselStatus::ActiveVessel,
-                                }
-                            ).expect("serde_json::to_vec(node_vessel_status)"),
-                        publisher: Some(msg.vessel_peer_id),
-                        expires: None,
-                    },
-                    kad::Quorum::One
-                ).expect("put_record err");
-
-                let kfrag_msg = serde_json::to_vec(&KeyFragmentMessage::from(msg))
-                    .expect("serde err");
-
-                match self.topics.get(&topic_kfrag) {
-                    Some(topic) => {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .publish(topic.clone(), kfrag_msg)
-                            .ok();
-                    }
-                    None => {
-                        info!("{} Topic '{}' not found in subscribed topics.", self.nname(), topic_kfrag);
-                        self.print_subscribed_topics();
-                    }
-                }
-            }
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
                 frag_num,
@@ -311,49 +216,30 @@ impl<'a> NetworkEvents<'a> {
 
                 self.pending.request_fragments.insert(request_id, sender);
             }
-            NodeCommand::RespondCapsuleFragment {
-                reverie_id,
-                frag_num,
-                kfrag_provider_peer_id,
-                channel
+            NodeCommand::MarkPendingRespawnComplete {
+                prev_reverie_id,
+                prev_peer_id,
+                prev_agent_name_nonce,
             } => {
-                info!("{}",
-                    format!("\nRespondCapsuleFragment for {} frag_num: {} from {} {}",
-                        reverie_id,
-                        frag_num,
-                        get_node_name(&kfrag_provider_peer_id),
-                        short_peer_id(&kfrag_provider_peer_id),
-                    ).green()
-                );
 
-                match self.peer_manager.get_cfrags(&reverie_id) {
-                    None => {
-                        tracing::warn!("{} No cfrag found for {} frag_num: {}", self.nname(), reverie_id, frag_num);
-                    },
-                    // Do not send if no cfrag found, fastest successful futures returns
-                    // with futures::future:select_ok()
-                    Some(cfrag) => {
-                        let cfrag_indexed_bytes =
-                            serde_json::to_vec::<Option<ReverieCapsulefrag>>(&Some(cfrag.clone()))
-                                .map_err(|e| SendError(e.to_string()));
+                // 1) Mark respawn complete locally
+                // - self.peer_manager.peer_info.remove(&prev_peer_id);
+                // - remove respawn_id from pending.respawns
+                self.mark_pending_respawn_complete(prev_peer_id, prev_agent_name_nonce);
 
-                        info!("{}",
-                            format!(">>>RespondCapsuleFragment for {} frag_num: {} from {} {}",
-                                reverie_id,
-                                frag_num,
-                                get_node_name(&kfrag_provider_peer_id),
-                                short_peer_id(&kfrag_provider_peer_id)
-                            ).purple()
-                        );
-                        self.swarm.behaviour_mut()
-                            .request_response
-                            .send_response(
-                                channel,
-                                FragmentResponseEnum::FragmentResponse(cfrag_indexed_bytes)
-                            )
-                            .expect("Connection to peer to be still open.");
-                    }
-                }
+                // 2) Get previous kfrag providers of the previous vessel
+                let prev_kfrag_providers = self.peer_manager.kfrag_providers.get(&prev_reverie_id);
+
+                // 3) Broadcast to previoius Kfrag Providers to do the same
+                // for peer_id in prev_kfrag_providers {
+                //     self.swarm.behaviour_mut()
+                //         .request_response
+                //         .send_request(
+                //             &peer_id,
+                //             FragmentRequestEnum::MarkRespawnComplete(prev_reverie_id)
+                //         );
+                // }
+
             }
             NodeCommand::StartListening { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
@@ -361,14 +247,6 @@ impl<'a> NetworkEvents<'a> {
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
             }
-            // NodeCommand::SubscribeTopics { topics, sender } => {
-            //     let subscribed_topics = self.subscribe_topics(&topics);
-            //     sender.send(subscribed_topics).ok();
-            // }
-            // NodeCommand::UnsubscribeTopics { topics, sender } => {
-            //     let unsubscribed_topics = self.unsubscribe_topics(&topics);
-            //     sender.send(unsubscribed_topics).ok();
-            // }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
                 info!("{} Simulating network failure:", self.nname());
                 info!("Triggering heartbeat failure in 500ms: {:?}", reason);
@@ -379,14 +257,6 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::GetNodeState { sender } => {
                 let node_state = self.query_node_state().await;
                 sender.send(node_state).ok();
-            }
-            NodeCommand::GetListeningAddresses { sender } => {
-                let addresses = self.swarm.listeners().cloned().collect();
-                sender.send(addresses).ok();
-            }
-            NodeCommand::GetConnectedPeers { sender } => {
-                let peers = self.swarm.connected_peers().cloned().collect();
-                sender.send(peers).ok();
             }
         }
     }

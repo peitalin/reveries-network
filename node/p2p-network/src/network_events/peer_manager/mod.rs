@@ -106,9 +106,11 @@ impl PeerManager {
         &mut self,
         agent_vessel_info: &AgentVesselInfo,
     ) {
+
         let AgentVesselInfo {
             agent_name_nonce,
             total_frags,
+            threshold,
             current_vessel_peer_id,
             next_vessel_peer_id,
         } = agent_vessel_info;
@@ -123,6 +125,7 @@ impl PeerManager {
                 peer_info.agent_vessel = Some(AgentVesselInfo {
                     agent_name_nonce: agent_name_nonce.clone(),
                     total_frags: total_frags.clone(),
+                    threshold: threshold.clone(),
                     current_vessel_peer_id: current_vessel_peer_id.clone(),
                     next_vessel_peer_id: next_vessel_peer_id.clone(),
                 })
@@ -133,6 +136,7 @@ impl PeerManager {
             self.vessel_agent = Some(serde_json::json!({
                 "agent_name_nonce": agent_name_nonce.clone().to_string(),
                 "total_frags": total_frags.clone(),
+                "threshold": threshold.clone(),
                 "current_vessel_peer_id": current_vessel_peer_id,
                 "current_vessel_node_name": get_node_name(&current_vessel_peer_id),
                 "next_vessel_peer_id": next_vessel_peer_id,
@@ -294,6 +298,10 @@ impl PeerManager {
                 }
             }
         }
+    }
+
+    pub fn get_all_kfrag_providers(&self, reverie_id: &ReverieId) -> Option<&HashMap<FragmentNumber, HashSet<PeerId>>> {
+        self.kfrag_providers.get(reverie_id)
     }
 
     //////////////////////

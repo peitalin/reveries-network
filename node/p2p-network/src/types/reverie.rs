@@ -2,7 +2,7 @@
 use color_eyre::{eyre::anyhow, Result};
 use serde::{Deserialize, Serialize};
 use umbral_pre::Capsule;
-use libp2p::PeerId;
+use libp2p::{PeerId, kad};
 use crate::utils::reverie_id;
 use crate::types::AgentNameWithNonce;
 
@@ -76,6 +76,11 @@ impl Reverie {
             umbral_ciphertext: ciphertext
         }
     }
+
+    pub fn get_capsule(&self) -> Result<umbral_pre::Capsule> {
+        serde_json::from_slice(&self.umbral_capsule)
+            .map_err(|e| anyhow!("Error deserializing Capsule: {}", e))
+    }
 }
 
 
@@ -107,6 +112,10 @@ impl ReverieIdToAgentName {
         } else {
             Err(anyhow!("Invalid ReverieIdToAgentName: {}. Must begin with {}", s, REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX))
         }
+    }
+
+    pub fn to_kad_key(&self) -> kad::RecordKey {
+        kad::RecordKey::new(&self.to_string())
     }
 
     pub fn to_string(&self) -> String {

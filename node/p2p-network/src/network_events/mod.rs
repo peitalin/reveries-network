@@ -121,10 +121,6 @@ struct PendingRequests {
         ReverieIdToPeerId,
         oneshot::Sender<Option<PeerId>>
     >,
-    send_fragments: HashMap<
-        request_response::OutboundRequestId,
-        oneshot::Sender<Result<Vec<u8>, SendError>>
-    >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, SendError>>
@@ -139,7 +135,6 @@ impl PendingRequests {
             get_node_vessels: Default::default(),
             get_reverie_agent_name: Default::default(),
             get_reverie_peer_id: Default::default(),
-            send_fragments: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }

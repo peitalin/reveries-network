@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::create_network::NODE_SEED_NUM;
-
+use crate::types::reverie::ReverieIdToAgentName;
 pub type AgentName = String;
 pub type AgentNonce = usize;
 pub type FragmentNumber = usize;
@@ -58,6 +58,10 @@ impl AgentNameWithNonce {
 
     pub fn nonce(&self) -> usize {
         self.1
+    }
+
+    pub fn to_reverie_id(&self) -> ReverieIdToAgentName {
+        ReverieIdToAgentName::from(self.clone())
     }
 }
 

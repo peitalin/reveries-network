@@ -31,9 +31,12 @@ impl<'a> NetworkEvents<'a> {
                     tee_event.peer_id,
                     tee_event.latest_tee_attestation
                 );
+
                 if let Some(tee_str) = self.peer_manager.make_heartbeat_tee_log(tee_event.peer_id) {
                     info!("{} {}", self.nname(), tee_str);
                 }
+                // prove node has TEE attestation before accepting peer
+                // market peer as "TEE: verified" when getting providers
             }
 
             //// Identify events for peer discovery via bootstrap node
