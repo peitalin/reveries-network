@@ -15,6 +15,8 @@ use hex;
 use libp2p::{core::Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, debug, error, warn};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
@@ -154,7 +156,7 @@ impl<'a> NodeClient<'a> {
             None => return Err(anyhow!("Reverie not found"))
         };
 
-        let peer_nodes = self.get_node_vessels().await
+        let peer_nodes = self.get_node_vessels(true).await
             .into_iter()
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
             .collect::<Vec<NodeVesselWithStatus>>();
@@ -218,7 +220,7 @@ impl<'a> NodeClient<'a> {
     }
 
     pub async fn get_next_vessel(&mut self) -> Result<NodeVesselWithStatus> {
-        match self.get_node_vessels().await.iter()
+        match self.get_node_vessels(false).await.iter()
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
             .next()
         {
@@ -227,7 +229,7 @@ impl<'a> NodeClient<'a> {
         }
     }
 
-    pub async fn get_node_vessels(&self) -> Vec<NodeVesselWithStatus> {
+    pub async fn get_node_vessels(&self, shuffle: bool) -> Vec<NodeVesselWithStatus> {
         let (sender, mut receiver) = mpsc::channel(100);
         self.command_sender
             .send(NodeCommand::GetNodeVesselStatusesFromKademlia { sender })
@@ -239,6 +241,13 @@ impl<'a> NodeClient<'a> {
             debug!("Received Peer Umbral PK => {}", pk);
             pks.push(pk);
         }
+
+        // If shuffle flag is true, randomize the order of vessels
+        if shuffle {
+            let mut rng = thread_rng();
+            pks.shuffle(&mut rng);
+        }
+
         pks
     }
 

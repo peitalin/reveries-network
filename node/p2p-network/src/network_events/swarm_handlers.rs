@@ -38,6 +38,8 @@ impl<'a> NetworkEvents<'a> {
                 if let Some(tee_str) = self.peer_manager.make_heartbeat_tee_log(tee_event.peer_id) {
                     info!("{} {}", self.nname(), tee_str);
                 }
+                // wait for peer's TEE attestation before accepting it as a kfrag provider
+                // mark peer as "TEE: verified" when getting providers
             }
 
             //// Identify events for peer discovery via bootstrap node
