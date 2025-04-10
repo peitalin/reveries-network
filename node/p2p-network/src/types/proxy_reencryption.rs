@@ -9,7 +9,6 @@ use libp2p::{
 use crate::{short_peer_id, TryPeerId};
 use crate::types::{
     AgentNameWithNonce,
-    GossipTopic,
     ReverieId,
     ReverieType,
     ReverieKeyfrag,
@@ -23,7 +22,7 @@ use super::AgentVesselInfo;
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct VesselPeerId(pub String);
 
-const VESSEL_KAD_KEY_PREFIX: &'static str = "vessel_peer_id_";
+pub const VESSEL_KAD_KEY_PREFIX: &'static str = "vessel_peer_id_";
 
 impl VesselPeerId {
     pub(crate) fn short_peer_id(&self) -> String {
@@ -82,49 +81,6 @@ impl TryPeerId for VesselPeerId {
         let peer_id_str = &umbral_peer_id_str.as_str()[VESSEL_KAD_KEY_PREFIX.len()..];
         PeerId::from_str(peer_id_str)
             .map_err(|e| eyre::anyhow!(e.to_string()))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReverieKeyfragMessage {
-    pub reverie_keyfrag: ReverieKeyfrag,
-    pub source_peer_id: PeerId,
-    pub target_peer_id: PeerId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReverieMessage {
-    pub reverie: Reverie,
-    pub source_peer_id: PeerId,
-    pub target_peer_id: PeerId,
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapsuleFragmentMessage {
-    pub agent_name: Option<AgentNameWithNonce>,
-    pub frag_num: usize,
-    pub threshold: usize,
-    pub alice_pk: umbral_pre::PublicKey, // delegator
-    pub bob_pk: umbral_pre::PublicKey, // delegatee (receiver)
-    pub verifying_pk: umbral_pre::PublicKey, // key for anyone to verify the PRE capsules
-    pub kfrag_provider_peer_id: PeerId, // peer which holds and sends the kfrags
-    pub vessel_peer_id: PeerId, // peer which houses the agent
-    pub next_vessel_peer_id: PeerId, // next peer which houses the agent
-    // cfrag
-    pub cfrag: umbral_pre::CapsuleFrag,
-    pub capsule: umbral_pre::Capsule,
-    pub ciphertext: Box<[u8]>,
-}
-
-impl Display for CapsuleFragmentMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,
-            "CapsuleFragmentMessage(frag_num: {}, alice_pk: {}, bob_pk: {}, verifying_pk, cfrag, ciphertext)",
-            self.frag_num,
-            self.alice_pk,
-            self.bob_pk,
-        )
     }
 }
 

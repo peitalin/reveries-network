@@ -38,8 +38,6 @@ impl<'a> NetworkEvents<'a> {
                 if let Some(tee_str) = self.peer_manager.make_heartbeat_tee_log(tee_event.peer_id) {
                     info!("{} {}", self.nname(), tee_str);
                 }
-                // prove node has TEE attestation before accepting peer
-                // market peer as "TEE: verified" when getting providers
             }
 
             //// Identify events for peer discovery via bootstrap node
@@ -83,6 +81,7 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}", peer_id));
                 // Remove from peer manager after heartbeat timeout, not when connection closes
+                // self.remove_peer(&peer_id);
             }
             //// Unhandled SwarmEvents
             swarm_event => trace!("Unhandled SwarmEvent: {swarm_event:?}"),

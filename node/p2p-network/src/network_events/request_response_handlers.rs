@@ -9,7 +9,6 @@ use crate::types::{
     NetworkEvent,
     FragmentRequestEnum,
     FragmentResponseEnum,
-    CapsuleFragmentMessage,
     AgentVesselInfo,
     NodeVesselWithStatus,
     VesselStatus,
@@ -52,25 +51,21 @@ impl<'a> NetworkEvents<'a> {
                             short_peer_id(&kfrag_provider_peer_id)
                         ).yellow());
 
-                        match self.peer_manager.get_cfrags(&reverie_id) {
-                            None => {
-                                tracing::warn!("{} No cfrag found for {}", self.nname(), reverie_id);
-                            },
+                        let cfrag_bytes =match self.peer_manager.get_cfrags(&reverie_id) {
+                            None => Err(SendError(format!("No cfrag found for {}", reverie_id))),
                             Some(cfrag) => {
-                                let cfrag_bytes =
-                                    serde_json::to_vec::<Option<ReverieCapsulefrag>>(&Some(cfrag.clone()))
-                                        .map_err(|e| SendError(e.to_string()));
-
-                                self.swarm.behaviour_mut()
-                                    .request_response
-                                    .send_response(
-                                        channel,
-                                        FragmentResponseEnum::GetFragmentResponse(cfrag_bytes)
-                                    )
-                                    .expect("Connection to peer to be still open.");
-
+                                serde_json::to_vec::<ReverieCapsulefrag>(&cfrag.clone())
+                                    .map_err(|e| SendError(e.to_string()))
                             }
-                        }
+                        };
+
+                        self.swarm.behaviour_mut()
+                            .request_response
+                            .send_response(
+                                channel,
+                                FragmentResponseEnum::GetFragmentResponse(cfrag_bytes)
+                            )
+                            .expect("Connection to peer to be still open.");
                     },
 
                     FragmentRequestEnum::SaveFragmentRequest(
@@ -132,8 +127,7 @@ impl<'a> NetworkEvents<'a> {
                         }
 
                         // 3) Notify target vessel that this node is a KfragProvider for this ReverieId
-                        let request_id = self.swarm.behaviour_mut()
-                            .request_response
+                        let request_id = self.swarm.behaviour_mut().request_response
                             .send_request(
                                 &target_peer_id,
                                 FragmentRequestEnum::ProvidingFragmentRequest(
@@ -144,8 +138,7 @@ impl<'a> NetworkEvents<'a> {
                             );
 
                         // 4). Respond to broadcaster node, acknowledging receipt of Kfrag
-                        self.swarm.behaviour_mut()
-                            .request_response
+                        self.swarm.behaviour_mut().request_response
                             .send_response(
                                 channel,
                                 FragmentResponseEnum::SaveFragmentResponse
@@ -173,8 +166,7 @@ impl<'a> NetworkEvents<'a> {
                         self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
 
                         // 2). Respond to Kfrag Provider and peer as Provider
-                        self.swarm.behaviour_mut()
-                            .request_response
+                        self.swarm.behaviour_mut().request_response
                             .send_response(
                                 channel,
                                 FragmentResponseEnum::ProvidingFragmentResponse
@@ -192,9 +184,8 @@ impl<'a> NetworkEvents<'a> {
                         agent_name_nonce
                     ) => {
 
-                        info!("\n\tReceived message: \n\t{:?}", reverie);
-                        info!("\n\t{}\n\tFrom Peer: {} {}",
-                            format!("MessageType: SaveCiphertextRequest").green(),
+                        info!("{}\n\tfrom peer: {} {}",
+                            format!("Received: SaveCiphertextRequest").green(),
                             get_node_name(&source_peer_id).yellow(),
                             short_peer_id(&source_peer_id).yellow()
                         );
@@ -243,9 +234,8 @@ impl<'a> NetworkEvents<'a> {
                         self.put_reverie_holder_kademlia(reverie.id, target_peer_id)
                             .map_err(|e| anyhow!("Failed to put: {}", e))?;
 
-                        // 3). Respond to broadcaster node and acknowledge receipt of Reverie/Ciphertext
-                        self.swarm.behaviour_mut()
-                            .request_response
+                        // 4). Respond to broadcaster node and acknowledge receipt of Reverie/Ciphertext
+                        self.swarm.behaviour_mut().request_response
                             .send_response(
                                 channel,
                                 FragmentResponseEnum::SaveCiphertextResponse
@@ -259,6 +249,12 @@ impl<'a> NetworkEvents<'a> {
                     } => {
                         info!("Inbound MarkRespawnCompleteRequest");
                         self.mark_pending_respawn_complete(prev_peer_id, prev_agent_name);
+
+                        self.swarm.behaviour_mut().request_response
+                            .send_response(
+                                channel,
+                                FragmentResponseEnum::MarkRespawnCompleteResponse
+                            ).map_err(|e| anyhow!("Failed to send: {:?}", e))?;
                     }
                 }
             }
@@ -306,12 +302,7 @@ impl<'a> NetworkEvents<'a> {
                 }
             },
             Event::InboundFailure { .. } => {}
-            Event::OutboundFailure {
-                request_id,
-                error,
-                peer,
-                ..
-            } => {
+            Event::OutboundFailure { request_id, error, peer, ..  } => {
                 match self.pending.request_fragments.remove(&request_id) {
                     None => tracing::warn!("RequestId({}) not found for {}", request_id, peer),
                     Some(sender) => {

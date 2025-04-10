@@ -20,12 +20,8 @@ use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
 use crate::types::{
     AgentNameWithNonce,
-    CapsuleFragmentMessage,
-    GossipTopic,
     NetworkEvent,
-    NextTopic,
     NodeVesselWithStatus,
-    PrevTopic,
     RespawnId,
     Reverie,
     ReverieCapsulefrag,
@@ -34,7 +30,6 @@ use crate::types::{
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
-    TopicSwitch,
     VesselStatus,
 };
 use crate::SendError;
@@ -140,7 +135,6 @@ impl<'a> NodeClient<'a> {
             ciphertext
         );
 
-        info!("create_reverie() => reverie_id {:?}", reverie.id);
         self.reveries.insert(reverie.id.clone(), reverie.clone());
         Ok(reverie)
     }
@@ -170,14 +164,16 @@ impl<'a> NodeClient<'a> {
             target_kfrag_providers
         ) = peer_nodes
             .split_first()
-            .ok_or(anyhow!("No empty vessels found."))?;
+            .ok_or(anyhow!("No Peers found."))?;
 
-        assert!(target_kfrag_providers.len() == peer_nodes.len() - 1);
-        assert!(!target_kfrag_providers.contains(&target_vessel));
-        // TODO: check that there are enough peers to host the fragments
-        info!("Remaining peers: {}", target_kfrag_providers.len());
+        if target_kfrag_providers.contains(&target_vessel) {
+            return Err(anyhow!("Target vessel cannot also be a kfrag provider"));
+        }
+        if target_kfrag_providers.len() < reverie.total_frags {
+            return Err(anyhow!("Not connected to enough peers, need: {}, got: {}", reverie.total_frags + 1, target_kfrag_providers.len() + 1));
+        }
+        info!("Kfrag providers: {}", target_kfrag_providers.len());
         info!("Total frags: {}", reverie.total_frags);
-        assert!(target_kfrag_providers.len() >= reverie.total_frags);
 
         let umbral_capsule = reverie.umbral_capsule.clone();
         let umbral_ciphertext = reverie.umbral_ciphertext.clone();
@@ -326,7 +322,7 @@ impl<'a> NodeClient<'a> {
     ) {
         let mut capsule_frags: HashMap<u32, VerifiedCapsuleFrag> = HashMap::new();
         let mut new_vessel_cfrags: Vec<ReverieCapsulefrag> = Vec::new();
-        let mut total_frags = 0;
+        let mut total_frags_received = 0;
 
         for cfrag_result in cfrags_raw.iter() {
             if let Ok(cfrag_bytes) = cfrag_result {
@@ -336,7 +332,7 @@ impl<'a> NodeClient<'a> {
                         None => warn!("No cfrags found."),
                         Some(reverie_cfrag) => {
 
-                            total_frags += 1;
+                            total_frags_received += 1;
 
                             let new_vessel_pk  = reverie_cfrag.bob_pk;
                             let kfrag_num = reverie_cfrag.frag_num;
@@ -345,7 +341,7 @@ impl<'a> NodeClient<'a> {
                                 // get_node_name(&cfrag.vessel_peer_id),
                                 reverie_cfrag.frag_num,
                                 get_node_name(&reverie_cfrag.kfrag_provider_peer_id),
-                                total_frags
+                                total_frags_received
                             );
 
                             let cfrag: umbral_pre::CapsuleFrag = serde_json::from_slice(
@@ -373,7 +369,7 @@ impl<'a> NodeClient<'a> {
             .map(|(_, verified_cfrags)| verified_cfrags)
             .collect::<Vec<VerifiedCapsuleFrag>>();
 
-        (verified_cfrags, new_vessel_cfrags, total_frags)
+        (verified_cfrags, new_vessel_cfrags, total_frags_received)
     }
 
     fn decrypt_cfrags(

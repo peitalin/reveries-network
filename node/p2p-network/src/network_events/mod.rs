@@ -32,7 +32,6 @@ use crate::node_client::NodeCommand;
 use crate::types::{
     AgentNameWithNonce,
     FragmentNumber,
-    GossipTopic,
     NetworkEvent,
     RespawnId,
     VesselPeerId,

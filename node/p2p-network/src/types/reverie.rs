@@ -3,10 +3,29 @@ use color_eyre::{eyre::anyhow, Result};
 use serde::{Deserialize, Serialize};
 use umbral_pre::Capsule;
 use libp2p::{PeerId, kad};
-use crate::utils::reverie_id;
-use crate::types::AgentNameWithNonce;
 
+use crate::utils::reverie_id;
+use crate::types::{
+    AgentNameWithNonce,
+    VesselPeerId,
+    VESSEL_KAD_KEY_PREFIX,
+};
 pub type ReverieId = String;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReverieKeyfragMessage {
+    pub reverie_keyfrag: ReverieKeyfrag,
+    pub source_peer_id: PeerId,
+    pub target_peer_id: PeerId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReverieMessage {
+    pub reverie: Reverie,
+    pub source_peer_id: PeerId,
+    pub target_peer_id: PeerId,
+}
+
 
 /// An encrypted memory module, used by an agent
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -88,7 +107,7 @@ impl Reverie {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ReverieIdToAgentName(pub String);
 
-const REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX: &'static str = "reverie_to_agent_name";
+pub const REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX: &'static str = "reverie_to_agent_name";
 
 
 impl Into<String> for ReverieIdToAgentName {
@@ -156,3 +175,36 @@ impl From<ReverieId> for ReverieIdToPeerId {
         ReverieIdToPeerId(reverie_id)
     }
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum KademliaKey {
+    VesselPeerId(VesselPeerId),
+    ReverieIdToAgentName(ReverieIdToAgentName),
+    Unknown(String),
+}
+
+impl From<&str> for KademliaKey {
+    fn from(s: &str) -> Self {
+        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
+            KademliaKey::VesselPeerId(VesselPeerId::from_string(s).unwrap())
+        } else if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
+            KademliaKey::ReverieIdToAgentName(ReverieIdToAgentName::from_string(s).unwrap())
+        } else {
+            KademliaKey::Unknown(s.to_string())
+        }
+    }
+}
+
+impl From<&kad::Record> for KademliaKey {
+    fn from(record: &kad::Record) -> Self {
+        match std::str::from_utf8(record.key.as_ref()) {
+            Ok(kad_key_str) => KademliaKey::from(kad_key_str),
+            Err(e) => {
+                tracing::error!("Error converting kad::Record to KademliaKey: {}", e);
+                KademliaKey::Unknown(format!("{:?}", e))
+            }
+        }
+    }
+}
+

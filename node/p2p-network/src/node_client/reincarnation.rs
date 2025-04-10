@@ -7,13 +7,8 @@ use colored::Colorize;
 use crate::network_events::NodeIdentity;
 use crate::types::{
     AgentNameWithNonce,
-    CapsuleFragmentMessage,
-    GossipTopic,
     NetworkEvent,
-    NextTopic,
-    PrevTopic,
     RespawnId,
-    TopicSwitch,
     NodeVesselWithStatus,
     Reverie,
     ReverieId,
@@ -39,7 +34,7 @@ impl<'a> NodeClient<'a> {
         prev_failed_vessel_peer_id: PeerId, // Previous (failed) vessel
     ) -> Result<()> {
 
-        info!("\nHandle Respawn Request: {:?}", prev_agent_name_nonce);
+        info!("\nHandle respawn request: {:?}", prev_agent_name_nonce);
         info!("total_frags: {:?}", total_frags);
         info!("next_vessel_peer_id: {:?}", next_vessel_peer_id);
         info!("prev_failed_vessel_peer_id: {:?}", prev_failed_vessel_peer_id);
@@ -75,8 +70,7 @@ impl<'a> NodeClient<'a> {
         // TODO: post-respawn checks:
         // 1. test LLM API works
         // 2. re-encrypt secrets + provide TEE attestation of it
-        // 3. confirm shutdown of old vessel
-        // 4. then broadcast topic switch to new Agent with new nonce
+        // 3. mark respawn complete / old vessel died
 
         let (
             reverie,
@@ -143,7 +137,9 @@ impl<'a> NodeClient<'a> {
         total_frags: usize,
     ) -> Result<NodeVesselWithStatus> {
 
-        assert!(threshold <= total_frags, "Threshold must be less than or equal to total fragments");
+        if threshold > total_frags {
+            return Err(anyhow!("Threshold must be less than or equal to total fragments"));
+        }
 
         // Create a "Reverie"––an encrypted memory that alters how a Host behaves
         let reverie = self.create_reverie(agent_secrets.clone(), threshold, total_frags)?;

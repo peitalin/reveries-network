@@ -8,12 +8,9 @@ use crate::types::{
     AgentVesselInfo,
     FragmentRequestEnum,
     FragmentResponseEnum,
-    GossipTopic,
-    TopicHash,
     NodeVesselWithStatus,
     VesselStatus,
     VesselPeerId,
-    CapsuleFragmentMessage,
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
@@ -162,35 +159,6 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }
-            // NodeCommand::SaveKfragProvider {
-            //     reverie_id,
-            //     frag_num,
-            //     kfrag_provider_peer_id,
-            //     channel
-            // } => {
-            //     info!(
-            //         "\n{} Adding peer to kfrags_providers({}, {}, {})",
-            //         self.nname(),
-            //         reverie_id,
-            //         frag_num,
-            //         short_peer_id(&kfrag_provider_peer_id)
-            //     );
-
-            //     // 1). Add to PeerManager locally on this node
-            //     self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
-            //     self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
-
-            //     // 2). Respond to broadcasting node and acknowledge receipt of Kfrag
-            //     self.swarm
-            //         .behaviour_mut()
-            //         .request_response
-            //         .send_response(
-            //             channel,
-            //             FragmentResponseEnum::KfragProviderAck
-            //         )
-            //         .expect("Connection to peer to be still open.");
-
-            // }
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
                 peer_id,
@@ -218,7 +186,7 @@ impl<'a> NetworkEvents<'a> {
             }
             NodeCommand::MarkPendingRespawnComplete {
                 prev_reverie_id,
-                prev_peer_id,
+                prev_peer_id, // failed vessel's peer_id
                 prev_agent_name_nonce,
             } => {
 

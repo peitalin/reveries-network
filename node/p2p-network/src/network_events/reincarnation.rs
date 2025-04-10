@@ -23,7 +23,6 @@ use crate::node_client::NodeCommand;
 use crate::types::{
     AgentNameWithNonce,
     FragmentNumber,
-    GossipTopic,
     NetworkEvent,
     RespawnId,
     VesselPeerId,
@@ -59,6 +58,7 @@ impl<'a> NetworkEvents<'a> {
         self.pending.respawns.remove(&respawn_id);
 
         // remove peer from PeerManager
+        self.remove_peer(&prev_peer_id);
         self.peer_manager.remove_peer_info(&prev_peer_id);
     }
 
@@ -87,11 +87,7 @@ impl<'a> NetworkEvents<'a> {
 
             if duration > max_time_before_respawn {
 
-                if let None = &peer_info.agent_vessel {
-                    println!("{} failed but wasn't hosting an agent.", node_name);
-                    // node will automatically self.remove_peer() after timeout
-                }
-
+                // Only next vessell will store previous vessel's agent_vessel info
                 if let Some(AgentVesselInfo {
                     reverie_id,
                     agent_name_nonce: prev_agent,
@@ -143,25 +139,12 @@ impl<'a> NetworkEvents<'a> {
                         // 1) remove Vessel from PeerManagers and Swarm
                         self.remove_peer(&peer_id);
 
-                        // 2) broadcast peers, tell peers to update their PeerManager fields as well:
-                        // - kfrags_peers
-                        // - peers_to_agent_frags
-                        // - peer_info
-
                     } else {
-
-                        // If node is not the next vessel:
-                        // wait for next vessel to re-broadcast cfrags
-
-                        // TODO: once respawn is finished,
-                        // 1) new Vessel will tell other nodes to update PeerManager and
-                        // 2) update pending.respawns:
-                        // self.pending.respawns.remove(&respawn_id_result);
-
-                        if self.pending.respawns.contains(&respawn_id) {
-                            info!("Respawn pending: {} -> {}", next_agent, next_vessel_peer_id);
-                        } else {
-                        }
+                        // If node is not the next vessel: wait for next vessel to re-broadcast cfrags
+                        // Once respawn is finished:
+                        // 1) New vessel will tell other nodes to update PeerManager and
+                        // 2) update pending.respawns: self.pending.respawns.remove(&respawn_id);
+                        info!("Respawn pending: {} in {}", next_agent, next_vessel_peer_id);
                     }
                 }
             }

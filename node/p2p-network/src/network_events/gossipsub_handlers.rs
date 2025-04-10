@@ -2,6 +2,9 @@ use color_eyre::Result;
 use libp2p::gossipsub;
 use super::NetworkEvents;
 
+/**
+ * Not currently used
+ */
 impl<'a> NetworkEvents<'a> {
     pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) -> Result<()> {
         match gevent {

@@ -1,9 +1,13 @@
+use core::str;
+
 use libp2p::{
     kad,
     PeerId,
 };
 use color_eyre::Result;
 use tracing::{info, warn, debug};
+use serde::{Deserialize, Serialize};
+
 use crate::{get_node_name, short_peer_id, SendError};
 use crate::types::{
     VesselPeerId,
@@ -11,11 +15,11 @@ use crate::types::{
     SignedVesselStatus,
     ReverieIdToAgentName,
     ReverieId,
+    KademliaKey,
 };
 use super::NetworkEvents;
 
 
-//// Kademlia only used for tracking Umbral PublicKeys (Proxy Reencryption) for each PeerId
 impl<'a> NetworkEvents<'a> {
 
     pub(crate) fn should_dial_peer(&self, peer_id: &PeerId) -> bool {
@@ -31,7 +35,6 @@ impl<'a> NetworkEvents<'a> {
 
     pub(super) async fn handle_kademlia_event(&mut self, kad_event: kad::Event) -> Result<()> {
         match kad_event {
-
             // Add handling for routing table updates
             kad::Event::RoutingUpdated { peer: peer_id, addresses, .. } => {
                 // info!("Kademlia RoutingUpdated: peer={:?}, addresses={:?}", peer_id, addresses);
@@ -47,33 +50,50 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             },
+            kad::Event::OutboundQueryProgressed { id, result, ..} => {
+                self.handle_kademlia_query_result(id, result).await?;
+            },
+            // ignore other Kademlia events
+            _kad_event => {}
+        }
 
-            kad::Event::OutboundQueryProgressed { id, result, ..} => match result {
-                kad::QueryResult::StartProviding(..) => {}
-                kad::QueryResult::GetClosestPeers(Ok(_ok)) => {}
-                // GetProviders event
-                kad::QueryResult::GetProviders(Ok(p)) => match p {
-                    kad::GetProvidersOk::FoundProviders { providers, .. } => {
-                        if let Some(sender) = self.pending.get_providers.remove(&id) {
-                            // send providers back
-                            sender.send(providers).map_err(SendError::from)?;
+        Ok(())
+    }
 
-                            self.swarm
-                                .behaviour_mut()
-                                .kademlia
-                                .query_mut(&id)
-                                .unwrap()
-                                .finish();
-                        }
+    pub(super) async fn handle_kademlia_query_result(
+        &mut self,
+        query_id: kad::QueryId,
+        query_result: kad::QueryResult
+    ) -> Result<()> {
+
+        match query_result {
+
+            kad::QueryResult::StartProviding(..) => {}
+
+            kad::QueryResult::GetClosestPeers(Ok(_ok)) => {}
+
+            kad::QueryResult::GetProviders(Ok(p)) => match p {
+                kad::GetProvidersOk::FoundProviders { providers, .. } => {
+                    if let Some(sender) = self.pending.get_providers.remove(&query_id) {
+                        // send providers back
+                        sender.send(providers).map_err(SendError::from)?;
+
+                        self.swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .query_mut(&query_id)
+                            .unwrap()
+                            .finish();
                     }
-                    kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {},
                 }
-                kad::QueryResult::GetRecord(Ok(
-                    kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, ..  })
-                )) => {
-                    let kad_key = std::str::from_utf8(record.key.as_ref())?;
-                    // select the vessel kademlia keys
-                    if let Ok(vessel_key) = VesselPeerId::is_kademlia_key(kad_key) {
+                kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {},
+            }
+
+            kad::QueryResult::GetRecord(Ok(
+                kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, ..  })
+            )) => {
+                match KademliaKey::from(&record) {
+                    KademliaKey::VesselPeerId(vessel_key) => {
                         if let Some(sender) = self.pending.get_node_vessels.remove(&vessel_key) {
                             match serde_json::from_slice::<SignedVesselStatus>(&record.value) {
                                 Ok(signed_status) => {
@@ -89,9 +109,8 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
-
-                    if let Ok(reverie_to_agent_name_key) = ReverieIdToAgentName::is_kademlia_key(kad_key) {
-                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&reverie_to_agent_name_key) {
+                    KademliaKey::ReverieIdToAgentName(reverie_id_to_agent_name_key) => {
+                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&reverie_id_to_agent_name_key) {
                             match serde_json::from_slice::<ReverieId>(&record.value) {
                                 Ok(reverie_id) => {
                                     oneshot_sender.send(Some(reverie_id)).ok();
@@ -102,41 +121,44 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
-
-                    // Finish kademlia query
-                    self.swarm.behaviour_mut()
-                        .kademlia
-                        .query_mut(&id)
-                        .unwrap()
-                        .finish();
-                }
-                kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. })) => {}
-                kad::QueryResult::PutRecord(..) => {}
-                kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
-                    if peer_id == self.node_id.peer_id {
-                        debug!("BootstrapOk: publishing NodeVesselStatus and Umbral PK {:?} {}\n",
-                            get_node_name(&peer_id),
-                            self.node_id.umbral_key.public_key
-                        );
-
-                        let node_vessel_status = NodeVesselWithStatus {
-                            peer_id: peer_id,
-                            umbral_public_key: self.node_id.umbral_key.public_key,
-                            agent_vessel_info: None, // None initially
-                            vessel_status: self.peer_manager.vessel_status,
-                        };
-                        // Publish signed vessel status during bootstrap
-                        self.put_signed_vessel_status_kademlia(node_vessel_status)?;
+                    KademliaKey::Unknown(s) => {
+                        warn!("Unknown Kademlia key: {}", s);
                     }
                 }
-                qresult => debug!("{}: {:?}", self.nname(), qresult)
-            },
 
-            // ignore other Kademlia events
-            _kad_event => {}
+                // Finish kademlia query
+                self.swarm.behaviour_mut()
+                    .kademlia
+                    .query_mut(&query_id)
+                    .unwrap()
+                    .finish();
+            }
+
+            kad::QueryResult::PutRecord(..) => {}
+
+            kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
+                if peer_id == self.node_id.peer_id {
+                    debug!("BootstrapOk: publishing NodeVesselStatus and Umbral PK {:?} {}\n",
+                        get_node_name(&peer_id),
+                        self.node_id.umbral_key.public_key
+                    );
+
+                    let node_vessel_status = NodeVesselWithStatus {
+                        peer_id: peer_id,
+                        umbral_public_key: self.node_id.umbral_key.public_key,
+                        agent_vessel_info: None, // None initially
+                        vessel_status: self.peer_manager.vessel_status,
+                    };
+                    // Publish signed vessel status during bootstrap
+                    self.put_signed_vessel_status_kademlia(node_vessel_status)?;
+                }
+            }
+
+            qresult => debug!("{}: {:?}", self.nname(), qresult)
         }
 
         Ok(())
     }
+
 }
 

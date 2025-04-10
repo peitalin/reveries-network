@@ -12,7 +12,6 @@ use crate::types::{
     FragmentNumber,
     FragmentResponseEnum,
     ReverieKeyfragMessage,
-    TopicSwitch,
     NodeVesselWithStatus,
     ReverieId,
     ReverieMessage,

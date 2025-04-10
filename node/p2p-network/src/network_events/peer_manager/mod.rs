@@ -10,7 +10,6 @@ use tracing::{warn, info};
 
 use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
 use crate::types::{
-    CapsuleFragmentMessage,
     FragmentNumber,
     VesselStatus,
     ReverieId,
@@ -26,14 +25,6 @@ pub(crate) struct TrackReverieFragment {
     pub reverie_id: ReverieId,
     frag_num: usize
 }
-
-
-// /// Each PRE secret has
-// - a unique ID
-// - ciphertext
-// - peers that hold cfrags
-// - decryptor (some peer ID with a pubkey)
-// - cfrags (private)
 
 
 /// Manages Peers and their events
@@ -55,8 +46,8 @@ pub(crate) struct PeerManager {
     pub(crate) cfrags: HashMap<ReverieId, ReverieCapsulefrag>,
     pub(crate) reverie_metadata: HashMap<ReverieId, AgentVesselInfo>,
     pub(crate) reverie: HashMap<ReverieId, ReverieMessage>,
-    // Tracks which AgentFragments a specific Peer holds, so that when a node dies
-    // we know which fragments to delete from a peer
+    // Tracks which Fragments a Peer holds, so we know which fragments
+    // to delete from a peer when a node fails
     pub(crate) peers_to_reverie_frags: HashMap<PeerId, HashSet<TrackReverieFragment>>,
     // average heartbeat window for peers (number of entries to track)
     avg_window: u32
@@ -102,10 +93,7 @@ impl PeerManager {
         }
     }
 
-    pub fn set_peer_info_agent_vessel(
-        &mut self,
-        agent_vessel_info: &AgentVesselInfo,
-    ) {
+    pub fn set_peer_info_agent_vessel(&mut self, agent_vessel_info: &AgentVesselInfo) {
 
         let AgentVesselInfo {
             agent_name_nonce,
@@ -217,7 +205,7 @@ impl PeerManager {
                 hset
             });
 
-        // Record which AgentFragments a Peer holds.
+        // Record which Reverie KeyFragments a Peer holds.
         self.track_reverie_fragment(
             &peer_id,
             TrackReverieFragment {
@@ -256,8 +244,7 @@ impl PeerManager {
                 if let Some(hset) = self.kfrag_providers.get_mut(&rf.reverie_id) {
                     let _removed = hset.remove(peer_id);
                 };
-                info!("{}: {:?}", "kfrag_providers".blue(),
-                    self.kfrag_providers.get(&rf.reverie_id));
+                info!("{}: {:?}", "kfrag_providers".blue(), self.kfrag_providers.get(&rf.reverie_id));
             }
             // remove Peer from peers_to_reverie_frags Hashmap
             self.peers_to_reverie_frags.remove(&peer_id);
