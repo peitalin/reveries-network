@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, debug, error, warn};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use sha3::{Digest, Keccak256};
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
@@ -100,13 +101,19 @@ impl<'a> NodeClient<'a> {
                 umbral_capsule: reverie.umbral_capsule.clone(),
                 alice_pk: self.umbral_key.public_key,
                 bob_pk: target_vessel.umbral_public_key,
-                verifying_pk: self.umbral_key.verifying_pk,
+                alice_verifying_pk: self.umbral_key.verifying_pk,
+                bob_verifying_pk: target_vessel.verifying_pk,
             }
         }).collect::<Vec<ReverieKeyfrag>>();
         Ok(kfrags)
     }
 
-    pub fn create_reverie(&mut self, agent_secrets: AgentSecretsJson, threshold: usize, total_frags: usize) -> Result<Reverie> {
+    pub fn create_reverie(
+        &mut self,
+        agent_secrets: AgentSecretsJson,  // TODO: generalize to generic
+        threshold: usize,
+        total_frags: usize
+    ) -> Result<Reverie> {
 
         let (
             capsule,
@@ -150,13 +157,12 @@ impl<'a> NodeClient<'a> {
     ) -> Result<(Reverie, NodeVesselWithStatus)> {
 
         // Encrypt using PRE
-        // let reverie = self.create_reverie(memory.clone())?;
         let reverie = match self.reveries.get(&reverie_id) {
             Some(reverie) => reverie,
             None => return Err(anyhow!("Reverie not found"))
         };
 
-        let peer_nodes = self.get_node_vessels(true).await
+        let peer_nodes = self.get_node_vessels(false).await
             .into_iter()
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
             .collect::<Vec<NodeVesselWithStatus>>();
@@ -292,19 +298,30 @@ impl<'a> NodeClient<'a> {
         info!("filter out vessel peer: {:?}", prev_failed_vessel_peer_id);
         info!("providers: {:?}\n", providers);
 
+        // target vessel creates signature by signing the digest hash of reverie_id
+        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
+
+        // Sign with our umbral signer key (corresponds to the verifying key).
+        // The fragment provider verifies this signature with the (target) verifying key.
+        // That way only the intended recipient can request the cfrags from fragment providers
+        let signature = self.umbral_key.sign(&digest);
+
         let requests = providers.iter()
-            .map(|peer_id| {
+            .map(|kfrag_provider_peer_id| {
 
                 let reverie_id2 = reverie_id.clone();
                 let nc = self.clone();
-                info!("Requesting {} cfrag from {}", &reverie_id2, get_node_name(&peer_id));
+                let signature2 = signature.clone();
+
+                info!("Requesting {} cfrag from {}", &reverie_id2, get_node_name(&kfrag_provider_peer_id));
                 // Request key fragment from each node that holds that fragment.
                 async move {
                     let (sender, receiver) = oneshot::channel();
                     nc.command_sender
                         .send(NodeCommand::RequestCapsuleFragment {
                             reverie_id: reverie_id2.clone(),
-                            peer_id: peer_id.clone(),
+                            kfrag_provider_peer_id: kfrag_provider_peer_id.clone(),
+                            signature: signature2,
                             sender
                         })
                         .await?;
@@ -361,7 +378,7 @@ impl<'a> NodeClient<'a> {
                             // assemble kfrags, verify them as cfrags.
                             let verified_cfrag = cfrag.clone().verify(
                                 &capsule,
-                                &reverie_cfrag.verifying_pk, // verifying pk
+                                &reverie_cfrag.alice_verifying_pk, // verifying pk
                                 &reverie_cfrag.alice_pk, // alice pk
                                 &new_vessel_pk // bob pk
                             ).expect("Error verifying Cfrag");

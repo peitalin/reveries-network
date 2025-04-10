@@ -88,6 +88,7 @@ impl TryPeerId for VesselPeerId {
 pub struct NodeVesselWithStatus {
     pub peer_id: PeerId,
     pub umbral_public_key: umbral_pre::PublicKey,
+    pub verifying_pk: umbral_pre::PublicKey,
     pub agent_vessel_info: Option<AgentVesselInfo>,
     pub vessel_status: VesselStatus,
 }

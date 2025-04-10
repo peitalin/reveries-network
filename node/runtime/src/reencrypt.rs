@@ -21,7 +21,7 @@ pub use umbral_pre::{
 pub struct UmbralKey {
     secret_key: SecretKey, // keep private
     pub public_key: PublicKey,
-    pub signer: Signer,
+    signer: Signer,
     pub verifying_pk: PublicKey,
 }
 
@@ -131,6 +131,15 @@ impl UmbralKey {
             .map(|verified_keyfrag| verified_keyfrag.clone().unverify())
             .collect::<Vec<KeyFrag>>()
     }
+
+    pub fn sign(&self, digest: &[u8]) -> umbral_pre::Signature {
+        self.signer.sign(digest)
+    }
+
+    /// Verifies a signature against a digest using this UmbralKey's verifying_pk
+    pub fn verify_signature(&self, signature: &umbral_pre::Signature, digest: &[u8]) -> bool {
+        signature.verify(&self.verifying_pk, digest)
+    }
 }
 
 pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
@@ -227,6 +236,7 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha3::{Digest, Keccak256};
 
     #[test]
     fn test_pre_encryption() -> Result<()> {
@@ -239,6 +249,41 @@ mod tests {
 
         assert_eq!(&plaintext_bob as &[u8], plaintext_original);
         assert_eq!(&plaintext_alice as &[u8], plaintext_original);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_signature_verification() -> Result<()> {
+        // Create an UmbralKey
+        let umbral_key = UmbralKey::new(None);
+
+        // Create a test message (reverie_id) to sign
+        let reverie_id = "test_reverie_id_123".to_string();
+
+        // Create a digest using Keccak256
+        let digest = Keccak256::digest(reverie_id.as_bytes());
+
+        // Sign the digest
+        let signature = umbral_key.sign(&digest);
+
+        // Print for debug
+        println!("Signature created: {:?}", signature);
+        println!("Verification key: {:?}", umbral_key.verifying_pk);
+
+        // Verify using the helper method - should succeed
+        let verification_success = umbral_key.verify_signature(&signature, &digest);
+        println!("Verification result: {}", verification_success);
+        assert!(verification_success);
+
+        // Try with wrong data
+        let wrong_id = "wrong_id".to_string();
+        let wrong_digest = Keccak256::digest(wrong_id.as_bytes());
+        let wrong_verification = umbral_key.verify_signature(&signature, &wrong_digest);
+
+        // Should fail
+        println!("Wrong data verification result: {}", wrong_verification);
+        assert!(!wrong_verification);
 
         Ok(())
     }

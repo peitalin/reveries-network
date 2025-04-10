@@ -2,7 +2,8 @@ use colored::Colorize;
 use color_eyre::{Result, eyre::anyhow};
 use libp2p::request_response;
 use libp2p::request_response::{Event, Message};
-use tracing::info;
+use tracing::{info, warn};
+use sha3::{Digest, Keccak256};
 
 use crate::SendError;
 use crate::types::{
@@ -42,20 +43,31 @@ impl<'a> NetworkEvents<'a> {
                 match fragment_request {
                     FragmentRequestEnum::GetFragmentRequest(
                         reverie_id,
-                        kfrag_provider_peer_id
+                        signature
                     ) => {
 
-                        info!("{}",
-                            format!("{} Inbound RequestFragmentRequest {reverie_id} from {}",
-                            self.nname(),
-                            short_peer_id(&kfrag_provider_peer_id)
-                        ).yellow());
+                        info!("{}", format!("{} Inbound RequestFragmentRequest {reverie_id}", self.nname()).yellow());
 
-                        let cfrag_bytes =match self.peer_manager.get_cfrags(&reverie_id) {
+                        // Verify signature before allowing access to capsule fragment
+                        // Create digest hash from reverie_id
+                        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
+
+                        let cfrag_bytes = match self.peer_manager.get_cfrags(&reverie_id) {
                             None => Err(SendError(format!("No cfrag found for {}", reverie_id))),
                             Some(cfrag) => {
-                                serde_json::to_vec::<ReverieCapsulefrag>(&cfrag.clone())
-                                    .map_err(|e| SendError(e.to_string()))
+                                // NOTE: We need to verify using the verifying_pk (target vessel's public verifying key) stored in the cfrag
+                                info!("{}", format!("Signature from target verifying key: {} needed to unlock cfrags for {}", &cfrag.bob_verifying_pk, reverie_id).yellow());
+                                match signature.verify(&cfrag.bob_verifying_pk, &digest) {
+                                    false => {
+                                        info!("{}", format!("Invalid signature for fragment request for {reverie_id}").red());
+                                        Err(SendError("Invalid signature for fragment request for {reverie_id}".to_string()))
+                                    }
+                                    true => {
+                                        info!("{}", format!("Signature verified!").green());
+                                        serde_json::to_vec::<ReverieCapsulefrag>(&cfrag.clone())
+                                            .map_err(|e| SendError(e.to_string()))
+                                    }
+                                }
                             }
                         };
 
@@ -88,7 +100,7 @@ impl<'a> NetworkEvents<'a> {
                         // 1) When a node receives a Kfrag, verify the Kfrag
                         let keyfrag: umbral_pre::KeyFrag = serde_json::from_slice(&reverie_keyfrag.umbral_keyfrag).expect("serde err");
                         let verified_kfrag = keyfrag.verify(
-                            &reverie_keyfrag.verifying_pk,
+                            &reverie_keyfrag.alice_verifying_pk,
                             Some(&reverie_keyfrag.alice_pk),
                             Some(&reverie_keyfrag.bob_pk)
                         ).map_err(SendError::from).expect("keyfrag verification failed");
@@ -105,9 +117,10 @@ impl<'a> NetworkEvents<'a> {
                                 frag_num: reverie_keyfrag.frag_num,
                                 threshold: reverie_keyfrag.threshold,
                                 umbral_capsule_frag: serde_json::to_vec(&cfrag).expect("serde err"),
-                                alice_pk: reverie_keyfrag.alice_pk, // vessel
-                                bob_pk: reverie_keyfrag.bob_pk, // next vessel
-                                verifying_pk: reverie_keyfrag.verifying_pk,
+                                alice_pk: reverie_keyfrag.alice_pk, // source vessel
+                                bob_pk: reverie_keyfrag.bob_pk, // target vessel
+                                alice_verifying_pk: reverie_keyfrag.alice_verifying_pk, // source vessel verifying key
+                                bob_verifying_pk: reverie_keyfrag.bob_verifying_pk, // target vessel verifying key
                                 kfrag_provider_peer_id: self.node_id.peer_id,
                             }
                         );
@@ -214,6 +227,7 @@ impl<'a> NetworkEvents<'a> {
                                 NodeVesselWithStatus {
                                     peer_id: self.node_id.peer_id,
                                     umbral_public_key: self.node_id.umbral_key.public_key,
+                                    verifying_pk: self.node_id.umbral_key.verifying_pk,
                                     agent_vessel_info: Some(agent_metadata),
                                     vessel_status: VesselStatus::ActiveVessel,
                                 }

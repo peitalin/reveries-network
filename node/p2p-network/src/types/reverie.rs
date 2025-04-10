@@ -48,9 +48,10 @@ pub struct ReverieKeyfrag {
     pub total_frags: usize,
     pub umbral_keyfrag: Vec<u8>,
     pub umbral_capsule: Vec<u8>,
-    pub alice_pk: umbral_pre::PublicKey, // source
-    pub bob_pk: umbral_pre::PublicKey,   // target
-    pub verifying_pk: umbral_pre::PublicKey,
+    pub alice_pk: umbral_pre::PublicKey, // source_pubkey
+    pub bob_pk: umbral_pre::PublicKey,   // target_pubkey
+    pub alice_verifying_pk: umbral_pre::PublicKey, // source verifying key
+    pub bob_verifying_pk: umbral_pre::PublicKey,   // target verifying key
 }
 
 
@@ -61,9 +62,10 @@ pub struct ReverieCapsulefrag {
     pub frag_num: usize,
     pub threshold: usize,
     pub umbral_capsule_frag: Vec<u8>,
-    pub alice_pk: umbral_pre::PublicKey,
-    pub bob_pk: umbral_pre::PublicKey,
-    pub verifying_pk: umbral_pre::PublicKey,
+    pub alice_pk: umbral_pre::PublicKey, // source_pubkey
+    pub bob_pk: umbral_pre::PublicKey,   // target_pubkey
+    pub alice_verifying_pk: umbral_pre::PublicKey, // source verifying key
+    pub bob_verifying_pk: umbral_pre::PublicKey,   // target verifying key
     pub kfrag_provider_peer_id: PeerId,
 }
 
@@ -91,7 +93,7 @@ impl Reverie {
             description: description,
             threshold: threshold,
             total_frags: total_frags,
-            umbral_capsule: serde_json::to_vec(&capsule).expect(""),
+            umbral_capsule: serde_json::to_vec(&capsule).expect("Failed to serialize capsule"),
             umbral_ciphertext: ciphertext
         }
     }

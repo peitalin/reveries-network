@@ -24,9 +24,16 @@ pub enum NetworkEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FragmentRequestEnum {
     /// TargetVessel requests Capsule Frags to decrypt a Reverie
+    /// The signature is verified before giving access to the fragment,
+    /// ensuring that only authorized parties can decrypt fragments.
+    ///
+    /// The verification process:
+    /// 1. The target vessel signs the keccak256 hash of the reverie_id using its UmbralKey.signer
+    /// 2. The fragment holder verifies the signature against the target vessel's public key (bob_pk)
+    /// 3. If verification passes, the fragment is returned; otherwise, the request is rejected
     GetFragmentRequest(
         ReverieId,
-        PeerId
+        umbral_pre::Signature,  // signature over keccak256(reverie_id)
     ),
     /// Encryptor sends provider nodes a KeyFrag to save
     SaveFragmentRequest(

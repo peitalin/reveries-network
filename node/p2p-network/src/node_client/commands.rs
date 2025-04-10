@@ -64,7 +64,8 @@ pub enum NodeCommand {
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
         reverie_id: ReverieId,
-        peer_id: PeerId, // peer to request fragment from
+        kfrag_provider_peer_id: PeerId, // peer to request fragment from
+        signature: umbral_pre::Signature,
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 

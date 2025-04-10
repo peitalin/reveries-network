@@ -146,6 +146,7 @@ impl<'a> NetworkEvents<'a> {
                     let node_vessel_status = NodeVesselWithStatus {
                         peer_id: peer_id,
                         umbral_public_key: self.node_id.umbral_key.public_key,
+                        verifying_pk: self.node_id.umbral_key.verifying_pk,
                         agent_vessel_info: None, // None initially
                         vessel_status: self.peer_manager.vessel_status,
                     };

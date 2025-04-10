@@ -161,26 +161,28 @@ impl<'a> NetworkEvents<'a> {
             }
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
-                peer_id,
+                kfrag_provider_peer_id,
+                signature,
                 sender,
             } => {
 
                 info!("{}",
                     format!("RequestCapsuleFragment for {} from {} {}",
                         reverie_id,
-                        get_node_name(&peer_id),
-                        short_peer_id(&peer_id)
+                        get_node_name(&kfrag_provider_peer_id),
+                        short_peer_id(&kfrag_provider_peer_id)
                     ).yellow()
                 );
 
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
+                let request_id = self.swarm.behaviour_mut()
                     .request_response
-                    .send_request(&peer_id, FragmentRequestEnum::GetFragmentRequest(
-                        reverie_id,
-                        self.node_id.peer_id
-                    ));
+                    .send_request(
+                        &kfrag_provider_peer_id,
+                        FragmentRequestEnum::GetFragmentRequest(
+                            reverie_id,
+                            signature
+                        )
+                    );
 
                 self.pending.request_fragments.insert(request_id, sender);
             }

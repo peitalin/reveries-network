@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
             let NodeVesselWithStatus {
                 peer_id,
                 umbral_public_key,
+                verifying_pk,
                 agent_vessel_info,
                 vessel_status
             } = client.request(
