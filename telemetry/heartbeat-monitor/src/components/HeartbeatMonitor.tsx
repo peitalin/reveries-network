@@ -34,7 +34,7 @@ const HeartbeatMonitor: React.FC = () => {
     padding: '4px 4px',
   });
 
-  const getPeerManagerData = (data: HeartbeatData): PeerManagerData => {
+  const getPeerManagerData = (data: HeartbeatData | null): PeerManagerData => {
     if (!data) return { cfrags_summary: [], kfrag_providers: [], peer_info: [] };
     const nodeState: NodeState = data.node_state || {};
     const peerManager = nodeState.peer_manager || {};

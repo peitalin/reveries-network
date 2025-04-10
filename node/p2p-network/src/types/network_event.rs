@@ -29,36 +29,47 @@ pub enum NetworkEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FragmentRequestEnum {
-    /// TargetVessel requests KeyFrags to decrypt a Reverie
+    /// TargetVessel requests Capsule Frags to decrypt a Reverie
     GetFragmentRequest(
         ReverieId,
-        FragmentNumber,
         PeerId
     ),
-    /// KeyFrag holder notifies TargetVessel it holds a KeyFrag
+    /// Encryptor sends provider nodes a KeyFrag to save
+    SaveFragmentRequest(
+        ReverieKeyfragMessage,
+        Option<AgentNameWithNonce>
+    ),
+    /// KeyFrag holder notifies target vessel it holds a KeyFrag
     ProvidingFragmentRequest(
         ReverieId,
         FragmentNumber,
         PeerId
     ),
-    /// Encryptor sends node a KeyFrag to save
-    SaveFragmentRequest(
-        ReverieKeyfragMessage,
-        Option<AgentNameWithNonce>
-    ),
     /// Encryptor sends node a Reverie/Ciphertext to save
     SaveCiphertextRequest(
         ReverieMessage,
         Option<AgentNameWithNonce>
-    )
+    ),
+    /// Mark Respawn Complete
+    MarkRespawnCompleteRequest {
+        prev_reverie_id: ReverieId,
+        prev_peer_id: PeerId,
+        prev_agent_name: AgentNameWithNonce
+    }
 }
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FragmentResponseEnum {
-    FragmentResponse(
+    GetFragmentResponse(
         Result<Vec<u8>, SendError>,
     ),
-    KfragProviderAck,
-    ReverieProviderAck
+
+    SaveFragmentResponse,
+
+    ProvidingFragmentResponse,
+
+    SaveCiphertextResponse,
+
+    MarkRespawnCompleteResponse,
 }

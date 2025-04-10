@@ -167,17 +167,17 @@ impl<'a> NodeClient<'a> {
 
         let (
             target_vessel,
-            remaining_peers
+            target_kfrag_providers
         ) = peer_nodes
             .split_first()
             .ok_or(anyhow!("No empty vessels found."))?;
 
-        assert!(remaining_peers.len() == peer_nodes.len() - 1);
-        assert!(!remaining_peers.contains(&target_vessel));
+        assert!(target_kfrag_providers.len() == peer_nodes.len() - 1);
+        assert!(!target_kfrag_providers.contains(&target_vessel));
         // TODO: check that there are enough peers to host the fragments
-        info!("Remaining peers: {}", remaining_peers.len());
+        info!("Remaining peers: {}", target_kfrag_providers.len());
         info!("Total frags: {}", reverie.total_frags);
-        assert!(remaining_peers.len() >= reverie.total_frags);
+        assert!(target_kfrag_providers.len() >= reverie.total_frags);
 
         let umbral_capsule = reverie.umbral_capsule.clone();
         let umbral_ciphertext = reverie.umbral_ciphertext.clone();
@@ -190,10 +190,10 @@ impl<'a> NodeClient<'a> {
 
         // Send Kfrags to MPC nodes
         for (i, reverie_keyfrag) in kfrags.into_iter().enumerate() {
-            let keyfrag_provider_peer_id = remaining_peers[i].peer_id;
+            let keyfrag_provider = target_kfrag_providers[i].peer_id;
             self.command_sender.send(
                 NodeCommand::SendReverieKeyfrag {
-                    keyfrag_provider: keyfrag_provider_peer_id,
+                    keyfrag_provider: keyfrag_provider,
                     reverie_keyfrag_msg: ReverieKeyfragMessage {
                         reverie_keyfrag: reverie_keyfrag,
                         source_peer_id: self.node_id.peer_id,
@@ -249,7 +249,7 @@ impl<'a> NodeClient<'a> {
     pub async fn get_kfrag_providers(
         &mut self,
         reverie_id: ReverieId,
-    ) -> HashMap<usize, HashSet<PeerId>> {
+    ) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
         self.command_sender
             .send(NodeCommand::GetKfragProviders {
@@ -281,40 +281,25 @@ impl<'a> NodeClient<'a> {
         prev_failed_vessel_peer_id: PeerId
     ) -> Vec<Result<Vec<u8>, SendError>> {
 
-        let providers_hmap = self.get_kfrag_providers(reverie_id.clone()).await;
+        let providers = self.get_kfrag_providers(reverie_id.clone()).await;
 
         info!("Finding providers for: {}", reverie_id);
         info!("filter out vessel peer: {:?}", prev_failed_vessel_peer_id);
-        info!("providers HashMap<frag_num, peers>: {:?}\n", providers_hmap);
+        info!("providers: {:?}\n", providers);
 
-        let requests = providers_hmap.iter()
-            .map(|(frag_num, peers)| {
+        let requests = providers.iter()
+            .map(|peer_id| {
 
                 let reverie_id2 = reverie_id.clone();
                 let nc = self.clone();
-
+                info!("Requesting {} cfrag from {}", &reverie_id2, get_node_name(&peer_id));
+                // Request key fragment from each node that holds that fragment.
                 async move {
-
-                    let peer_id = peers.iter()
-                        .filter_map(|&peer_id| {
-                            if peer_id != prev_failed_vessel_peer_id {
-                                Some(peer_id)
-                            } else {
-                                None
-                            }
-                        })
-                        .next()
-                        .unwrap();
-
-                    info!("Requesting {} cfrag({}) from {}", &reverie_id2, &frag_num, get_node_name(&peer_id));
-                    // Request key fragment from each node that holds that fragment.
-
                     let (sender, receiver) = oneshot::channel();
                     nc.command_sender
                         .send(NodeCommand::RequestCapsuleFragment {
                             reverie_id: reverie_id2.clone(),
-                            frag_num: frag_num.clone(),
-                            peer_id: peer_id,
+                            peer_id: peer_id.clone(),
                             sender
                         })
                         .await?;
@@ -428,10 +413,10 @@ impl<'a> NodeClient<'a> {
             Err(e) => {
                 error!("{}", e);
                 if total_frags_received < threshold as u32 {
-                    warn!(">>> Not enough fragments. Need {threshold}, received {total_frags_received}");
+                    warn!("Not enough fragments. Need {threshold}, received {total_frags_received}");
                 } else {
-                    warn!(">>> Not decryptable by user {} with: {}", self.node_id.node_name, self.umbral_key.public_key);
-                    warn!(">>> Decryptable intended for new vessel with: {}", new_vessel_pk.bob_pk);
+                    warn!("Not decryptable by user {} with: {}", self.node_id.node_name, self.umbral_key.public_key);
+                    warn!("Target decryptor pubkey: {}", new_vessel_pk.bob_pk);
                 }
                 Err(anyhow!(e.to_string()))
             }

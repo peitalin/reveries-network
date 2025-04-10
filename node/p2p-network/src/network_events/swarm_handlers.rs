@@ -1,8 +1,11 @@
 use color_eyre::Result;
 use colored::Colorize;
 use libp2p::swarm::SwarmEvent;
+use libp2p::swarm::DialError;
 use tracing::{trace, info, warn, debug};
+
 use crate::behaviour::BehaviourEvent;
+use crate::get_node_name2;
 use super::NetworkEvents;
 
 
@@ -66,7 +69,16 @@ impl<'a> NetworkEvents<'a> {
             SwarmEvent::ExpiredListenAddr { .. } => { }
             SwarmEvent::IncomingConnectionError { .. } => { }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-                warn!("{} {}", self.nname(), format!("OutgoingConnectionError with peer: {:?}, error: {:?}", peer_id, error).red());
+                let err_msg = match error {
+                    DialError::Transport(transport_errors) => {
+                        let error_msg = transport_errors.iter().next().unwrap().1.to_string();
+                        format!("{}", error_msg).red()
+                    }
+                    _ => {
+                        format!("{}", error).red()
+                    }
+                };
+                tracing::error!("{} OutgoingConnectionError with peer: {:?} {}", self.nname(), peer_id, err_msg);
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 info!("{} {}", self.nname(), format!("ConnectionClosed peer: {:?}", peer_id));

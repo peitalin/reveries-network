@@ -93,6 +93,7 @@ impl<'a> NetworkEvents<'a> {
                 }
 
                 if let Some(AgentVesselInfo {
+                    reverie_id,
                     agent_name_nonce: prev_agent,
                     total_frags,
                     threshold,
@@ -123,6 +124,7 @@ impl<'a> NetworkEvents<'a> {
                         self.network_event_sender.send(
                             NetworkEvent::RespawnRequest(
                                 AgentVesselInfo {
+                                    reverie_id: reverie_id.clone(),
                                     agent_name_nonce: prev_agent.clone(),
                                     total_frags: *total_frags,
                                     threshold: *threshold,

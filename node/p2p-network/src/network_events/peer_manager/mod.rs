@@ -22,7 +22,7 @@ use peer_info::{PeerInfo, AgentVesselInfo};
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub(crate) struct AgentFragment {
+pub(crate) struct TrackReverieFragment {
     pub reverie_id: ReverieId,
     frag_num: usize
 }
@@ -49,7 +49,7 @@ pub(crate) struct PeerManager {
     // Tracks which Peers hold which AgentFragments: {agent_name: {frag_num: [PeerId]}}
     // pub(crate) peers_holding_kfrags: HashMap<AgentName, HashMap<FragmentNumber, HashSet<PeerId>>>,
     // Track which Peers are subscribed to whith AgentFragment broadcast channels:
-    pub(crate) kfrag_providers: HashMap<ReverieId, HashMap<FragmentNumber, HashSet<PeerId>>>,
+    pub(crate) kfrag_providers: HashMap<ReverieId, HashSet<PeerId>>,
     // Capsule frags for each Agent (encrypted secret key fragments)
     // also contains ciphtertexts atm.
     pub(crate) cfrags: HashMap<ReverieId, ReverieCapsulefrag>,
@@ -57,7 +57,7 @@ pub(crate) struct PeerManager {
     pub(crate) reverie: HashMap<ReverieId, ReverieMessage>,
     // Tracks which AgentFragments a specific Peer holds, so that when a node dies
     // we know which fragments to delete from a peer
-    pub(crate) peers_to_agent_frags: HashMap<PeerId, HashSet<AgentFragment>>,
+    pub(crate) peers_to_reverie_frags: HashMap<PeerId, HashSet<TrackReverieFragment>>,
     // average heartbeat window for peers (number of entries to track)
     avg_window: u32
 }
@@ -74,7 +74,7 @@ impl PeerManager {
             cfrags: HashMap::new(),
             reverie_metadata: HashMap::new(),
             reverie: HashMap::new(),
-            peers_to_agent_frags: HashMap::new(),
+            peers_to_reverie_frags: HashMap::new(),
             avg_window: 10,
         }
     }
@@ -109,6 +109,7 @@ impl PeerManager {
 
         let AgentVesselInfo {
             agent_name_nonce,
+            reverie_id,
             total_frags,
             threshold,
             current_vessel_peer_id,
@@ -124,6 +125,7 @@ impl PeerManager {
             Some(peer_info) => {
                 peer_info.agent_vessel = Some(AgentVesselInfo {
                     agent_name_nonce: agent_name_nonce.clone(),
+                    reverie_id: reverie_id.clone(),
                     total_frags: total_frags.clone(),
                     threshold: threshold.clone(),
                     current_vessel_peer_id: current_vessel_peer_id.clone(),
@@ -200,58 +202,45 @@ impl PeerManager {
         &mut self,
         peer_id: PeerId,
         reverie_id: ReverieId,
-        frag_num: usize
+        frag_num: usize,
     ) {
         // record Peer as Kfrag holder.
         // make it easy to query list of all Peers for a given Reverie
         self.kfrag_providers
             .entry(reverie_id.clone())
-            .and_modify(|hmap| {
-                let maybe_hset = hmap.get_mut(&frag_num);
-                match maybe_hset {
-                    Some(hset) => {
-                        hset.insert(peer_id);
-                    },
-                    None => {
-                        let mut hset = HashSet::new();
-                        hset.insert(peer_id);
-                        hmap.insert(frag_num, hset);
-                    }
-                }
+            .and_modify(|hset| {
+                hset.insert(peer_id);
             })
             .or_insert_with(|| {
-                let mut hmap = HashMap::new();
                 let mut hset = HashSet::new();
                 hset.insert(peer_id);
-                hmap.insert(frag_num, hset);
-                hmap
+                hset
             });
 
         // Record which AgentFragments a Peer holds.
-        self.insert_peer_agent_fragments(&peer_id, reverie_id, frag_num);
+        self.track_reverie_fragment(
+            &peer_id,
+            TrackReverieFragment {
+                reverie_id: reverie_id,
+                frag_num: frag_num,
+            }
+        );
     }
 
-    fn insert_peer_agent_fragments(
+    fn track_reverie_fragment(
         &mut self,
         peer_id: &PeerId,
-        reverie_id: ReverieId,
-        frag_num: usize
+        track_reverie_fragment: TrackReverieFragment
     ) {
-        println!("Adding peer_agent_fragments: '{}' frag({})", reverie_id, frag_num);
-        self.peers_to_agent_frags
+        println!("Tracking reverie_fragment: '{}' frag({})", track_reverie_fragment.reverie_id, track_reverie_fragment.frag_num);
+        self.peers_to_reverie_frags
             .entry(*peer_id)
             .and_modify(|hset| {
-                hset.insert(AgentFragment {
-                    reverie_id: reverie_id.clone(),
-                    frag_num: frag_num
-                });
+                hset.insert(track_reverie_fragment.clone());
             })
             .or_insert_with(|| {
                 let mut hset = HashSet::new();
-                hset.insert(AgentFragment {
-                    reverie_id: reverie_id,
-                    frag_num: frag_num
-                });
+                hset.insert(track_reverie_fragment);
                 hset
             });
     }
@@ -259,48 +248,25 @@ impl PeerManager {
     pub fn remove_kfrag_provider(&mut self, peer_id: &PeerId) {
         // lookup all the agents and fragments Peer holds
         println!("Removing kfrag_provider for {}", short_peer_id(peer_id));
-        let opt_agent_fragments = self.peers_to_agent_frags.get(&peer_id);
-        if let Some(agent_fragments) = opt_agent_fragments {
+        let opt_track_reverie_fragments = self.peers_to_reverie_frags.get(&peer_id);
+        if let Some(track_reverie_fragments) = opt_track_reverie_fragments {
             // remove all kfrag_broadcast_peers entries for the Peer
-            for af in agent_fragments.into_iter() {
-                info!("removing frag_num({}): {}", af.frag_num, af.reverie_id);
-                if let Some(
-                    hmap
-                ) = self.kfrag_providers.get_mut(&af.reverie_id) {
-                    if let Some(hset) = hmap.get_mut(&af.frag_num) {
-                        let _removed = hset.remove(peer_id);
-                    }
+            for rf in track_reverie_fragments.into_iter() {
+                info!("removing frag_num({}): {}", rf.frag_num, rf.reverie_id);
+                if let Some(hset) = self.kfrag_providers.get_mut(&rf.reverie_id) {
+                    let _removed = hset.remove(peer_id);
                 };
                 info!("{}: {:?}", "kfrag_providers".blue(),
-                    self.kfrag_providers.get(&af.reverie_id));
+                    self.kfrag_providers.get(&rf.reverie_id));
             }
-            // remove Peer from peers_to_agent_frags Hashmap
-            self.peers_to_agent_frags.remove(&peer_id);
+            // remove Peer from peers_to_reverie_frags Hashmap
+            self.peers_to_reverie_frags.remove(&peer_id);
         } else {
             warn!("{} No entry found.", self.nname());
         }
     }
 
-    // Returns peers that just hold a specific fragment
-    pub fn get_kfrag_peers_by_fragment(
-        &self,
-        reverie_id: ReverieId,
-        frag_num: usize
-    ) -> Vec<PeerId> {
-        match self.kfrag_providers.get(&reverie_id) {
-            None => vec![],
-            Some(peers_hmap) => {
-                match peers_hmap.get(&frag_num) {
-                    None => vec![],
-                    Some(peers) => {
-                        peers.into_iter().map(|p| *p).collect::<Vec<PeerId>>()
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn get_all_kfrag_providers(&self, reverie_id: &ReverieId) -> Option<&HashMap<FragmentNumber, HashSet<PeerId>>> {
+    pub fn get_kfrag_providers(&self, reverie_id: &ReverieId) -> Option<&HashSet<PeerId>> {
         self.kfrag_providers.get(reverie_id)
     }
 

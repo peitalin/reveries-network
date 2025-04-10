@@ -77,7 +77,7 @@ impl Reverie {
         }
     }
 
-    pub fn get_capsule(&self) -> Result<umbral_pre::Capsule> {
+    pub fn encode_capsule(&self) -> Result<umbral_pre::Capsule> {
         serde_json::from_slice(&self.umbral_capsule)
             .map_err(|e| anyhow!("Error deserializing Capsule: {}", e))
     }

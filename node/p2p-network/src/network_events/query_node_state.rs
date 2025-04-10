@@ -49,17 +49,12 @@ impl<'a> NetworkEvents<'a> {
         // self.peer_manager.kfrag_providers
         let kfrag_providers = self.peer_manager.kfrag_providers
             .iter()
-            .map(|(agent_name, hmap)| {
+            .map(|(reverie_id, hset)| {
                 serde_json::json!({
-                    "agent_name_nonce": agent_name.to_string(),
-                    "kfrag_providers": hmap.iter().map(|(frag_num, peers)| {
-                        serde_json::json!({
-                            "frag_num": frag_num,
-                            "peers": peers.iter()
-                                .map(|peer_id| short_peer_id(peer_id))
-                                .collect::<Vec<String>>()
-                        })
-                    }).collect::<Vec<serde_json::Value>>()
+                    "reverie_id": reverie_id.to_string(),
+                    "kfrag_providers": hset.iter()
+                        .map(|peer_id| short_peer_id(peer_id))
+                        .collect::<Vec<String>>()
                 })
             }).collect::<Vec<serde_json::Value>>();
 

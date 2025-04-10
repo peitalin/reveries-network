@@ -78,10 +78,9 @@ pub async fn run_server<'a: 'static>(
                 Some(reverie_id) => reverie_id,
             };
 
-            let peers: HashMap<usize, HashSet<libp2p::PeerId>> = nc
-                .get_kfrag_providers(reverie_id).await;
+            let peers: HashSet<libp2p::PeerId> = nc.get_kfrag_providers(reverie_id).await;
 
-            Ok::<HashMap<usize, HashSet<libp2p::PeerId>>, RpcError>(peers)
+            Ok::<HashSet<libp2p::PeerId>, RpcError>(peers)
         }
     })?;
 

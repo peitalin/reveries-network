@@ -114,7 +114,6 @@ export const ConnectionDisplay: React.FC<ConnectionDisplayProps> = ({
                     heartbeat={heartbeat}
                     isExpanded={expandedPeerId === '*' || expandedPeerId === peer.peer_id}
                     onToggleExpand={() => setExpandedPeerId(expandedPeerId === '*' ? peer.peer_id : expandedPeerId === peer.peer_id ? '' : '*')}
-                    getPeerManagerData={getPeerManagerData}
                   />
                 ))
               }

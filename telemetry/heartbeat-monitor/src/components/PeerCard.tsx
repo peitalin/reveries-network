@@ -8,7 +8,6 @@ interface PeerCardProps {
   heartbeat: HeartbeatData;
   isExpanded: boolean;
   onToggleExpand: () => void;
-  getPeerManagerData: (data: HeartbeatData) => any;
 }
 
 export const PeerCard: React.FC<PeerCardProps> = ({
@@ -16,7 +15,6 @@ export const PeerCard: React.FC<PeerCardProps> = ({
   heartbeat,
   isExpanded,
   onToggleExpand,
-  getPeerManagerData
 }) => {
   return (
     <div

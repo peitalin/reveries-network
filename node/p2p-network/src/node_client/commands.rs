@@ -45,17 +45,7 @@ pub enum NodeCommand {
     /// KfragBroadcastPeers = peers subscribed to a Kfrag broadcast channel
     GetKfragProviders {
         reverie_id: ReverieId,
-        // sender: oneshot::Sender<HashSet<PeerId>>,
-        // returns: {frag_num: [peer_id]}
-        sender: oneshot::Sender<HashMap<usize, HashSet<PeerId>>>,
-    },
-
-    /// Saves the provider of the kfrag for retrieval later
-    SaveKfragProvider {
-        reverie_id: ReverieId,
-        frag_num: usize,
-        kfrag_provider_peer_id: PeerId, // peer who holds the kfrag
-        channel: ResponseChannel<FragmentResponseEnum>,
+        sender: oneshot::Sender<HashSet<PeerId>>,
     },
 
     /// Sends Reverie Kfrags to specific peers
@@ -75,7 +65,6 @@ pub enum NodeCommand {
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
         reverie_id: ReverieId,
-        frag_num: FragmentNumber,
         peer_id: PeerId, // peer to request fragment from
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },

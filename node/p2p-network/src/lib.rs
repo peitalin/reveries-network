@@ -128,3 +128,11 @@ pub fn get_node_name<'a>(peer_id: &libp2p::PeerId) -> &'a str {
         _ => "Unnamed",
     }
 }
+
+pub fn get_node_name2(peer_id: &libp2p::PeerId) -> String {
+    let nname = get_node_name(peer_id);
+    match nname {
+        "Unnamed" => format!("{}", short_peer_id(peer_id)),
+        _ => format!("{}", nname),
+    }
+}

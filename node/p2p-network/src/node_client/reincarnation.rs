@@ -31,20 +31,21 @@ impl<'a> NodeClient<'a> {
 
    pub(super) async fn handle_respawn_request(
         &mut self,
-        agent_name_nonce: AgentNameWithNonce,
+        prev_reverie_id: ReverieId,
+        prev_agent_name_nonce: AgentNameWithNonce,
         total_frags: usize,
         threshold: usize,
         next_vessel_peer_id: PeerId,    // This node is the next vessel
         prev_failed_vessel_peer_id: PeerId, // Previous (failed) vessel
     ) -> Result<()> {
 
-        info!("\nHandle Respawn Request: {:?}", agent_name_nonce);
+        info!("\nHandle Respawn Request: {:?}", prev_agent_name_nonce);
         info!("total_frags: {:?}", total_frags);
         info!("next_vessel_peer_id: {:?}", next_vessel_peer_id);
         info!("prev_failed_vessel_peer_id: {:?}", prev_failed_vessel_peer_id);
 
-        let prev_agent = agent_name_nonce.clone();
-        let next_agent = agent_name_nonce.make_next_agent();
+        let prev_agent = prev_agent_name_nonce.clone();
+        let next_agent = prev_agent_name_nonce.make_next_agent();
         let next_nonce = next_agent.nonce();
 
         let mut agent_secrets_json = self.request_respawn_cfrags(
@@ -82,6 +83,12 @@ impl<'a> NodeClient<'a> {
             target_vessel
         ) = self.broadcast_reverie_keyfrags(reverie.id.clone(), Some(next_agent)).await?;
 
+        self.command_sender.send(NodeCommand::MarkPendingRespawnComplete {
+            prev_reverie_id: prev_reverie_id.clone(),
+            prev_peer_id: prev_failed_vessel_peer_id,
+            prev_agent_name_nonce: prev_agent,
+        }).await.ok();
+
         info!("{}", format!("Respawn Request complete.\n\n").green());
         Ok(())
     }
@@ -95,7 +102,11 @@ impl<'a> NodeClient<'a> {
     ) -> Result<AgentSecretsJson> {
 
         let reverie_id = match self.get_reverie_id_from_agent_name(agent_name_nonce).await {
-            None => return Err(anyhow!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce)),
+            None => {
+                // TODO: handle error and retry if not found
+                error!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce);
+                return Err(anyhow!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce))
+            }
             Some(reverie_id) => reverie_id,
         };
 
@@ -105,7 +116,7 @@ impl<'a> NodeClient<'a> {
         ).await;
 
         let reverie_msg = self.get_reverie(reverie_id.clone()).await?;
-        let capsule = reverie_msg.reverie.get_capsule()?;
+        let capsule = reverie_msg.reverie.encode_capsule()?;
 
         let (
             verified_cfrags,

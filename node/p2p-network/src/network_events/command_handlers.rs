@@ -72,6 +72,7 @@ impl<'a> NetworkEvents<'a> {
                     self.peer_manager.set_peer_info_agent_vessel(
                         &AgentVesselInfo {
                             agent_name_nonce: agent_name_nonce.clone(),
+                            reverie_id: reverie.id.clone(),
                             total_frags: reverie.total_frags,
                             threshold: reverie.threshold,
                             current_vessel_peer_id: source_peer_id,
@@ -80,11 +81,13 @@ impl<'a> NetworkEvents<'a> {
                     );
 
                     // Put agent_name_nonce => reverie_id on DHT
+                    let reverie_id_bytes = serde_json::to_vec(&reverie.id)
+                        .expect("serde_json::to_vec(reverie_id)");
+
                     self.swarm.behaviour_mut().kademlia.put_record(
                         kad::Record {
                             key: agent_name_nonce.to_reverie_id().to_kad_key(),
-                            // value: serde_json::to_vec(&reverie.id).expect("serde_json::to_vec(reverie_id)"),
-                            value: reverie.id.as_bytes().into(),
+                            value: reverie_id_bytes,
                             publisher: Some(self.node_id.peer_id),
                             expires: None,
                         },
@@ -151,7 +154,7 @@ impl<'a> NetworkEvents<'a> {
                 match self.peer_manager.kfrag_providers.get(&reverie_id) {
                     None => {
                         error!("missing kfrag_providers: {:?}", self.peer_manager.kfrag_providers);
-                        sender.send(std::collections::HashMap::new()).ok();
+                        sender.send(std::collections::HashSet::new()).ok();
                     }
                     Some(peers) => {
                         // unsorted
@@ -159,46 +162,44 @@ impl<'a> NetworkEvents<'a> {
                     }
                 }
             }
-            NodeCommand::SaveKfragProvider {
-                reverie_id,
-                frag_num,
-                kfrag_provider_peer_id,
-                channel
-            } => {
-                info!(
-                    "\n{} Adding peer to kfrags_providers({}, {}, {})",
-                    self.nname(),
-                    reverie_id,
-                    frag_num,
-                    short_peer_id(&kfrag_provider_peer_id)
-                );
+            // NodeCommand::SaveKfragProvider {
+            //     reverie_id,
+            //     frag_num,
+            //     kfrag_provider_peer_id,
+            //     channel
+            // } => {
+            //     info!(
+            //         "\n{} Adding peer to kfrags_providers({}, {}, {})",
+            //         self.nname(),
+            //         reverie_id,
+            //         frag_num,
+            //         short_peer_id(&kfrag_provider_peer_id)
+            //     );
 
-                // 1). Add to PeerManager locally on this node
-                self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
-                self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
+            //     // 1). Add to PeerManager locally on this node
+            //     self.peer_manager.insert_kfrag_provider(kfrag_provider_peer_id.clone(), reverie_id, frag_num);
+            //     self.peer_manager.insert_peer_info(kfrag_provider_peer_id.clone());
 
-                // 2). Respond to broadcasting node and acknowledge receipt of Kfrag
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(
-                        channel,
-                        FragmentResponseEnum::KfragProviderAck
-                    )
-                    .expect("Connection to peer to be still open.");
+            //     // 2). Respond to broadcasting node and acknowledge receipt of Kfrag
+            //     self.swarm
+            //         .behaviour_mut()
+            //         .request_response
+            //         .send_response(
+            //             channel,
+            //             FragmentResponseEnum::KfragProviderAck
+            //         )
+            //         .expect("Connection to peer to be still open.");
 
-            }
+            // }
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
-                frag_num,
                 peer_id,
                 sender,
             } => {
 
                 info!("{}",
-                    format!("RequestCapsuleFragment for {} frag_num: {} from {} {}",
+                    format!("RequestCapsuleFragment for {} from {} {}",
                         reverie_id,
-                        frag_num,
                         get_node_name(&peer_id),
                         short_peer_id(&peer_id)
                     ).yellow()
@@ -210,7 +211,6 @@ impl<'a> NetworkEvents<'a> {
                     .request_response
                     .send_request(&peer_id, FragmentRequestEnum::GetFragmentRequest(
                         reverie_id,
-                        frag_num,
                         self.node_id.peer_id
                     ));
 
@@ -223,22 +223,29 @@ impl<'a> NetworkEvents<'a> {
             } => {
 
                 // 1) Mark respawn complete locally
-                // - self.peer_manager.peer_info.remove(&prev_peer_id);
-                // - remove respawn_id from pending.respawns
-                self.mark_pending_respawn_complete(prev_peer_id, prev_agent_name_nonce);
+                self.mark_pending_respawn_complete(prev_peer_id, prev_agent_name_nonce.clone());
 
                 // 2) Get previous kfrag providers of the previous vessel
-                let prev_kfrag_providers = self.peer_manager.kfrag_providers.get(&prev_reverie_id);
-
-                // 3) Broadcast to previoius Kfrag Providers to do the same
-                // for peer_id in prev_kfrag_providers {
-                //     self.swarm.behaviour_mut()
-                //         .request_response
-                //         .send_request(
-                //             &peer_id,
-                //             FragmentRequestEnum::MarkRespawnComplete(prev_reverie_id)
-                //         );
-                // }
+                match self.peer_manager.kfrag_providers.get(&prev_reverie_id) {
+                    None => {
+                        tracing::warn!("No previous kfrag providers found for: {}", prev_reverie_id);
+                    },
+                    Some(prev_kfrag_providers) => {
+                        // 3) Broadcast to previous Kfrag Providers to do the same
+                        for peer_id in prev_kfrag_providers {
+                            self.swarm.behaviour_mut()
+                                .request_response
+                                .send_request(
+                                    &peer_id,
+                                    FragmentRequestEnum::MarkRespawnCompleteRequest {
+                                        prev_reverie_id: prev_reverie_id.clone(),
+                                        prev_peer_id: prev_peer_id.clone(),
+                                        prev_agent_name: prev_agent_name_nonce.clone(),
+                                    }
+                                );
+                        }
+                    }
+                }
 
             }
             NodeCommand::StartListening { addr, sender } => {

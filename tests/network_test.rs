@@ -180,18 +180,10 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
         }
 
         // Verify unique fields are different
-        let mut seen_frag_nums = HashSet::new();
         let mut seen_cfrags = HashSet::new();
         let mut seen_kfrag_provider_peer_ids = HashSet::new();
 
         for cfrag_data in &all_cfrags {
-            // Check frag_num uniqueness
-            let frag_num = cfrag_data["cfrag"]["frag_num"].as_u64().unwrap();
-            assert!(
-                seen_frag_nums.insert(frag_num),
-                "Duplicate frag_num found: {}",
-                frag_num
-            );
 
             // Check cfrag uniqueness
             let cfrag_value = cfrag_data["cfrag"]["cfrag"].as_str().unwrap();

@@ -38,14 +38,18 @@ impl<'a> NodeClient<'a> {
         loop {
             tokio::select! {
                 event = network_event_receiver.recv() => match event {
-                    Some(NetworkEvent::RespawnRequest(AgentVesselInfo {
-                        agent_name_nonce,
-                        total_frags,
-                        threshold,
-                        next_vessel_peer_id, // This node is the next vessel
-                        current_vessel_peer_id: prev_failed_vessel_peer_id // Previous (failed) vessel
-                    })) => {
+                    Some(NetworkEvent::RespawnRequest(
+                        AgentVesselInfo {
+                            agent_name_nonce,
+                            reverie_id,
+                            total_frags,
+                            threshold,
+                            next_vessel_peer_id, // This node is the next vessel
+                            current_vessel_peer_id: prev_failed_vessel_peer_id // Previous (failed) vessel
+                        }
+                    )) => {
                         self.handle_respawn_request(
+                            reverie_id,
                             agent_name_nonce,
                             total_frags,
                             threshold,
