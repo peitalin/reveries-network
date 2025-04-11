@@ -79,7 +79,6 @@ pub struct AgentSecretsJson {
     pub agent_nonce: usize,
 
     /// seckp256k1 private key, used to encrypt sensitive agent logins/keys
-    /// before posting on Github, IPFS, or broadcsting on the network's Kademlia DHT
     // core_secret_key: [u8; 32],
     corekey_secp256k1: AgentKeypair,
 

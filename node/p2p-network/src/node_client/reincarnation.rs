@@ -116,7 +116,7 @@ impl<'a> NodeClient<'a> {
             verified_cfrags,
             new_vessel_cfrags,
             total_frags_received
-        ) = self.parse_cfrags(cfrags_raw, capsule.clone());
+        ) = self.parse_cfrags(cfrags_raw, capsule.clone())?;
 
         let next_agent_secrets = self.decrypt_cfrags(
             reverie_msg,

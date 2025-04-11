@@ -48,10 +48,10 @@ pub struct ReverieKeyfrag {
     pub total_frags: usize,
     pub umbral_keyfrag: Vec<u8>,
     pub umbral_capsule: Vec<u8>,
-    pub alice_pk: umbral_pre::PublicKey, // source_pubkey
-    pub bob_pk: umbral_pre::PublicKey,   // target_pubkey
-    pub alice_verifying_pk: umbral_pre::PublicKey, // source verifying key
-    pub bob_verifying_pk: umbral_pre::PublicKey,   // target verifying key
+    pub source_pubkey: umbral_pre::PublicKey, // source_pubkey
+    pub target_pubkey: umbral_pre::PublicKey,   // target_pubkey
+    pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
+    pub target_verifying_pubkey: umbral_pre::PublicKey,   // target verifying key
 }
 
 
@@ -62,10 +62,10 @@ pub struct ReverieCapsulefrag {
     pub frag_num: usize,
     pub threshold: usize,
     pub umbral_capsule_frag: Vec<u8>,
-    pub alice_pk: umbral_pre::PublicKey, // source_pubkey
-    pub bob_pk: umbral_pre::PublicKey,   // target_pubkey
-    pub alice_verifying_pk: umbral_pre::PublicKey, // source verifying key
-    pub bob_verifying_pk: umbral_pre::PublicKey,   // target verifying key
+    pub source_pubkey: umbral_pre::PublicKey, // source_pubkey
+    pub target_pubkey: umbral_pre::PublicKey,   // target_pubkey
+    pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
+    pub target_verifying_pubkey: umbral_pre::PublicKey,   // target verifying key
     pub kfrag_provider_peer_id: PeerId,
 }
 

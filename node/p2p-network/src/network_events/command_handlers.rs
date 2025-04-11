@@ -166,13 +166,11 @@ impl<'a> NetworkEvents<'a> {
                 sender,
             } => {
 
-                info!("{}",
-                    format!("RequestCapsuleFragment for {} from {} {}",
-                        reverie_id,
-                        get_node_name(&kfrag_provider_peer_id),
-                        short_peer_id(&kfrag_provider_peer_id)
-                    ).yellow()
-                );
+                info!("{}", format!("RequestCapsuleFragment for {} from {} {}",
+                    reverie_id,
+                    get_node_name(&kfrag_provider_peer_id),
+                    short_peer_id(&kfrag_provider_peer_id)
+                ).yellow());
 
                 let request_id = self.swarm.behaviour_mut()
                     .request_response
