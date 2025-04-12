@@ -30,7 +30,6 @@ use crate::{
 use crate::behaviour::heartbeat_behaviour::HeartbeatConfig;
 use crate::node_client::NodeCommand;
 use crate::types::{
-    AgentNameWithNonce,
     FragmentNumber,
     NetworkEvent,
     RespawnId,

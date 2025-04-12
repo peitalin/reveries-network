@@ -2,7 +2,7 @@ use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     AgentVesselInfo,
     FragmentNumber,
     ReverieId,
@@ -38,7 +38,6 @@ pub enum FragmentRequestEnum {
     /// Encryptor sends provider nodes a KeyFrag to save
     SaveFragmentRequest(
         ReverieKeyfragMessage,
-        Option<AgentNameWithNonce>
     ),
     /// KeyFrag holder notifies target vessel it holds a KeyFrag
     ProvidingFragmentRequest(
@@ -49,13 +48,12 @@ pub enum FragmentRequestEnum {
     /// Encryptor sends node a Reverie/Ciphertext to save
     SaveCiphertextRequest(
         ReverieMessage,
-        Option<AgentNameWithNonce>
     ),
     /// Mark Respawn Complete
     MarkRespawnCompleteRequest {
         prev_reverie_id: ReverieId,
         prev_peer_id: PeerId,
-        prev_agent_name: AgentNameWithNonce
+        prev_agent_name: ReverieNameWithNonce
     }
 }
 

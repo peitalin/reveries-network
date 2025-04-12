@@ -6,7 +6,7 @@ use libp2p::{PeerId, kad};
 
 use crate::utils::reverie_id;
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     VesselPeerId,
     VESSEL_KAD_KEY_PREFIX,
 };
@@ -72,10 +72,10 @@ pub struct ReverieCapsulefrag {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReverieType {
-    Agent,
+    Agent(ReverieNameWithNonce),
+    Memory,
     Retrieval,
     Tools,
-    Memory,
 }
 
 impl Reverie {
@@ -118,8 +118,8 @@ impl Into<String> for ReverieIdToAgentName {
     }
 }
 
-impl From<AgentNameWithNonce> for ReverieIdToAgentName {
-    fn from(agent_name_nonce: AgentNameWithNonce) -> Self {
+impl From<ReverieNameWithNonce> for ReverieIdToAgentName {
+    fn from(agent_name_nonce: ReverieNameWithNonce) -> Self {
         ReverieIdToAgentName(agent_name_nonce.to_string())
     }
 }

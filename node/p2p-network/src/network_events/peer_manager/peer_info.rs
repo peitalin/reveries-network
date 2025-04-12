@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use libp2p::PeerId;
-use crate::types::{AgentNameWithNonce, ReverieId};
+use crate::types::{ReverieNameWithNonce, ReverieId};
 use super::heartbeat_data;
 
 #[derive(Clone, Debug)]
@@ -24,8 +24,8 @@ impl PeerInfo {
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AgentVesselInfo {
-    pub agent_name_nonce: AgentNameWithNonce,
     pub reverie_id: ReverieId,
+    pub agent_name_nonce: ReverieNameWithNonce,
     pub total_frags: usize,
     pub threshold: usize,
     pub current_vessel_peer_id: PeerId,

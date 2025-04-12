@@ -8,7 +8,7 @@ use libp2p::{
 };
 use crate::{short_peer_id, TryPeerId};
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     ReverieId,
     ReverieType,
     ReverieKeyfrag,
@@ -111,13 +111,13 @@ impl Display for NodeVesselWithStatus  {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RespawnId {
-    prev_agent: AgentNameWithNonce,
+    prev_agent: ReverieNameWithNonce,
     next_vessel_peer_id: libp2p::PeerId,
 }
 
 impl RespawnId {
     pub fn new(
-        prev_agent: &AgentNameWithNonce,
+        prev_agent: &ReverieNameWithNonce,
         next_vessel_peer_id: &libp2p::PeerId,
     ) -> Self {
         Self {

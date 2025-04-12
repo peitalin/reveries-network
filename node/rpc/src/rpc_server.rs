@@ -14,7 +14,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     NodeVesselWithStatus
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
@@ -68,7 +68,7 @@ pub async fn run_server<'a: 'static>(
 
         let (agent_name, agent_nonce) = params.parse::<(String, usize)>()
             .expect("error parsing params");
-        let agent_name_nonce = AgentNameWithNonce(agent_name, agent_nonce);
+        let agent_name_nonce = ReverieNameWithNonce(agent_name, agent_nonce);
 
         let mut nc = nc.clone();
         async move {

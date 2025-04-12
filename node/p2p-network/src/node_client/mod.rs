@@ -22,7 +22,7 @@ use sha3::{Digest, Keccak256};
 use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     NetworkEvent,
     NodeVesselWithStatus,
     RespawnId,
@@ -111,6 +111,7 @@ impl<'a> NodeClient<'a> {
     pub fn create_reverie(
         &mut self,
         agent_secrets: AgentSecretsJson,  // TODO: generalize to generic
+        reverie_type: ReverieType,
         threshold: usize,
         total_frags: usize
     ) -> Result<Reverie> {
@@ -136,8 +137,8 @@ impl<'a> NodeClient<'a> {
         // println!("agent_secrets_json {:?}", self.agent_secrets_json);
 
         let reverie = Reverie::new(
-            "agent_secrets_json".to_string(),
-            ReverieType::Memory,
+            "agent_secrets_json description".to_string(),
+            reverie_type,
             threshold,
             total_frags,
             capsule,
@@ -148,12 +149,11 @@ impl<'a> NodeClient<'a> {
         Ok(reverie)
     }
 
-    /// Client sends a memory over TLS or some secure channel.
+    /// Client sends a secret/memory over TLS channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
     pub async fn broadcast_reverie_keyfrags(
         &mut self,
         reverie_id: String,
-        agent_name_nonce: Option<AgentNameWithNonce>,
     ) -> Result<(Reverie, NodeVesselWithStatus)> {
 
         let reverie = match self.reveries.get(&reverie_id) {
@@ -191,7 +191,7 @@ impl<'a> NodeClient<'a> {
             target_vessel.clone()
         )?;
 
-        // Send Kfrags to MPC nodes
+        // Send Kfrags to peer nodes
         for (i, reverie_keyfrag) in kfrags.into_iter().enumerate() {
             let keyfrag_provider = target_kfrag_providers[i].peer_id;
             self.command_sender.send(
@@ -202,7 +202,6 @@ impl<'a> NodeClient<'a> {
                         source_peer_id: self.node_id.peer_id,
                         target_peer_id: target_vessel.peer_id,
                     },
-                    agent_name_nonce: agent_name_nonce.clone(),
                 }
             ).await?;
         }
@@ -217,7 +216,6 @@ impl<'a> NodeClient<'a> {
                     source_peer_id: self.node_id.peer_id,
                     target_peer_id: target_vessel.peer_id,
                 },
-                agent_name_nonce: agent_name_nonce.clone(),
             }
         ).await?;
 

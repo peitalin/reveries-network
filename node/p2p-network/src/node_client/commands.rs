@@ -8,7 +8,7 @@ use libp2p::{
 use tokio::sync::{mpsc, oneshot};
 use crate::SendError;
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     FragmentNumber,
     FragmentResponseEnum,
     ReverieKeyfragMessage,
@@ -29,7 +29,7 @@ pub enum NodeCommand {
 
     /// Gets the ReverieId for an agent from Kademlia
     GetReverieIdFromAgentName {
-        agent_name_nonce: AgentNameWithNonce,
+        agent_name_nonce: ReverieNameWithNonce,
         sender: oneshot::Sender<Option<ReverieId>>,
     },
 
@@ -51,14 +51,12 @@ pub enum NodeCommand {
     SendReverieKeyfrag {
         keyfrag_provider: PeerId, // Key Fragment Provider
         reverie_keyfrag_msg: ReverieKeyfragMessage,
-        agent_name_nonce: Option<AgentNameWithNonce>,
     },
 
     /// Sends a Reverie to a specific peer
     SendReverie {
         ciphertext_holder: PeerId, // Ciphertext Holder
         reverie_msg: ReverieMessage,
-        agent_name_nonce: Option<AgentNameWithNonce>,
     },
 
     /// Request Capsule Fragments for threshold decryption
@@ -86,6 +84,6 @@ pub enum NodeCommand {
     MarkPendingRespawnComplete {
         prev_reverie_id: ReverieId,
         prev_peer_id: PeerId,
-        prev_agent_name_nonce: AgentNameWithNonce,
+        prev_agent_name_nonce: ReverieNameWithNonce,
     },
 }

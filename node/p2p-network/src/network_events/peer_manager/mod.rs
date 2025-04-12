@@ -6,11 +6,12 @@ use color_eyre::owo_colors::OwoColorize;
 use libp2p::PeerId;
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use tracing::{warn, info};
 
-use crate::{get_node_name, short_peer_id, types::AgentNameWithNonce};
+use crate::{get_node_name, short_peer_id};
 use crate::types::{
-    FragmentNumber,
+    ReverieNameWithNonce,
     VesselStatus,
     ReverieId,
     ReverieCapsulefrag,
@@ -146,6 +147,32 @@ impl PeerManager {
                 self.peer_info.insert(peer_id, new_peer_info);
             }
         };
+    }
+
+    pub fn is_peer_offline(
+        &self,
+        peer_id: &PeerId,
+        max_time_before_respawn: Duration,
+        log: bool
+    ) -> bool {
+
+        let peer_info= match self.peer_info.get(peer_id) {
+            None => return true,
+            Some(peer_info) => peer_info,
+        };
+
+        let duration = peer_info.heartbeat_data.duration_since_last_heartbeat();
+        let node_name = get_node_name(&peer_id);
+
+        let node_offline = duration > max_time_before_respawn;
+        if log {
+            if node_offline {
+                println!("{}", format!("{}\tlast seen {:.2?} seconds ago: OFFLINE", node_name, duration).red());
+            } else {
+                println!("{}", format!("{}\tlast seen {:.2?} seconds ago", node_name, duration).white());
+            }
+        }
+        node_offline
     }
 
     pub fn make_heartbeat_tee_log(&self, peer_id: PeerId) -> Option<String> {
@@ -308,7 +335,7 @@ impl PeerManager {
                 },
                 None => {
                     (
-                        AgentNameWithNonce("NA".to_string(), 0),
+                        ReverieNameWithNonce("NA".to_string(), 0),
                         None,
                         None
                     )

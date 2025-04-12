@@ -22,7 +22,7 @@ use crate::{
 use crate::behaviour::heartbeat_behaviour::HeartbeatConfig;
 use crate::node_client::NodeCommand;
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     FragmentNumber,
     NetworkEvent,
     RespawnId,
@@ -49,7 +49,7 @@ impl<'a> NetworkEvents<'a> {
     pub(crate) fn mark_pending_respawn_complete(
         &mut self,
         prev_peer_id: PeerId,
-        prev_agent_name_nonce: AgentNameWithNonce,
+        prev_agent_name_nonce: ReverieNameWithNonce,
     ) {
         // remove pending RespawnIds if need be
         let respawn_id = RespawnId::new(
@@ -76,16 +76,15 @@ impl<'a> NetworkEvents<'a> {
         // Check if we have peers in peer_info that aren't in connected_peers
         for peer_id in peer_info.keys() {
             if !connected_peers.contains(peer_id) {
-                tracing::warn!("PeerId mismatch: {} exists in peer_info but not in connected_peers", short_peer_id(peer_id));
+                println!("{}", format!("{} exists in peer_info but not in connected_peers", short_peer_id(peer_id)).white());
             }
         }
         // Check if we have connected peers that aren't in peer_info
         for &peer_id in &connected_peers {
             if !peer_info.contains_key(peer_id) {
-                tracing::warn!("PeerId mismatch: {} exists in connected_peers but not in peer_info", short_peer_id(peer_id));
+                println!("{}", format!("{} exists in connected_peers but not in peer_info", short_peer_id(peer_id)).white());
             }
         }
-
         // let peer_names = connected_peers.iter()
         //     .map(|p| format!("{}", get_node_name(p)))
         //     .collect::<Vec<String>>();
@@ -97,7 +96,7 @@ impl<'a> NetworkEvents<'a> {
             let node_name = get_node_name(peer_id);
             // check if peer's heartbeat exceeds max_time_before_respawn
 
-            if self.peer_manager.is_peer_offline(peer_id, max_time_before_respawn) {
+            if self.peer_manager.is_peer_offline(peer_id, max_time_before_respawn, false) {
                 info!("{}", format!("{} {} heartbeat failed. Respawn pending.", node_name, peer_id).magenta());
                 // Only the next_vessel and kfrag_providers store previous vessel's agent_vessel info
                 if let Some(AgentVesselInfo {
@@ -116,6 +115,10 @@ impl<'a> NetworkEvents<'a> {
                     // If this node is the next vessel for the agent
                     if self.node_id.peer_id == *next_vessel_peer_id {
                         // Dispatch a RespawnRequest event to NetworkEvents
+                        info!("Dispatching RespawnRequest for agent {} into new vessel {}",
+                            prev_agent.to_string().green(),
+                            node_name.green()
+                        );
                         // Only the correct next_vessel has the valid signature to get the cfrags and respawn
                         self.network_event_sender.send(
                             NetworkEvent::RespawnRequest(
@@ -129,21 +132,15 @@ impl<'a> NetworkEvents<'a> {
                                 }
                             )
                         ).await?;
-
-                        info!("Respawning agent {} in new vessel {}",
-                            prev_agent.to_string().green(),
-                            node_name.green()
-                        );
-
-                        // 1) Only next_vessel removes peer from PeerManagers
+                        // Only next_vessel removes peer from PeerManagers
                         self.remove_peer(&peer_id);
                         // If node is not the next vessel: wait for next vessel to re-broadcast cfrags
                         // Once respawn is finished:
-                        // 1) New vessel will tell other nodes to update PeerManager and
-                        // 2) update pending.respawns: self.pending.respawns.remove(&respawn_id);
+                        // - New vessel will tell other nodes to update PeerManager and
+                        // - update pending.respawns: self.pending.respawns.remove(&respawn_id);
                     }
                 } else {
-                    // Not a kfrag_provider or next_vessel, remove from PeerManager immediately
+                    // Not a kfrag_provider or next_vessel, safe to remove from PeerManager immediately
                     self.remove_peer(&peer_id);
                 }
             }
@@ -152,7 +149,7 @@ impl<'a> NetworkEvents<'a> {
     }
 
     pub(crate) async fn handle_internal_heartbeat_failure(&mut self, heartbeat_config: HeartbeatConfig) {
-        // Internal heartbeat failure is when this node fails to send heartbeats to external
+        // Internal heartbeat failure is when a node fails to send heartbeats to external
         // nodes. It realizes it is no longer connected to the network.
         info!("{}", format!("{:?}", heartbeat_config).red());
         info!("{}", "Initiating recovery...".green());

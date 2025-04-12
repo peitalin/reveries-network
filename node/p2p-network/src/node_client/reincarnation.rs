@@ -6,12 +6,13 @@ use tracing::{info, debug, error, warn};
 use colored::Colorize;
 use crate::network_events::NodeIdentity;
 use crate::types::{
-    AgentNameWithNonce,
+    ReverieNameWithNonce,
     NetworkEvent,
     RespawnId,
     NodeVesselWithStatus,
     Reverie,
     ReverieId,
+    ReverieType,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -24,10 +25,58 @@ use super::NodeClient;
 
 impl<'a> NodeClient<'a> {
 
-   pub(super) async fn handle_respawn_request(
+    /// Client sends AgentSecretsJson over TLS or some secure channel.
+    /// Node encrypts with PRE and broadcasts fragments to the network
+    pub async fn spawn_agent(
+        &mut self,
+        agent_secrets: AgentSecretsJson,
+        threshold: usize,
+        total_frags: usize,
+    ) -> Result<NodeVesselWithStatus> {
+
+        if threshold > total_frags {
+            return Err(anyhow!("Threshold must be less than or equal to total fragments"));
+        }
+
+        let agent_name_nonce = ReverieNameWithNonce(
+            agent_secrets.agent_name.clone(),
+            agent_secrets.agent_nonce.clone()
+        );
+
+        // Create a "Reverie"––an encrypted memory that alters how a Host behaves
+        let reverie = self.create_reverie(
+            agent_secrets,
+            ReverieType::Agent(agent_name_nonce.clone()),
+            threshold,
+            total_frags
+        )?;
+
+        let (
+            reverie,
+            target_vessel
+        ) = self.broadcast_reverie_keyfrags(reverie.id.clone()).await?;
+
+        info!("RequestResponse broadcast of kfrags complete.");
+
+        Ok(target_vessel)
+    }
+
+    pub async fn get_reverie_id_from_agent_name(&self, agent_name_nonce: &ReverieNameWithNonce) -> Option<ReverieId> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.command_sender
+            .send(NodeCommand::GetReverieIdFromAgentName {
+                agent_name_nonce: agent_name_nonce.clone(),
+                sender: sender,
+            })
+            .await.expect("Command receiver not to bee dropped");
+
+        receiver.await.expect("get reverie receiver not to drop")
+    }
+
+    pub(super) async fn handle_respawn_request(
         &mut self,
         prev_reverie_id: ReverieId,
-        prev_agent_name_nonce: AgentNameWithNonce,
+        prev_agent_name_nonce: ReverieNameWithNonce,
         total_frags: usize,
         threshold: usize,
         next_vessel_peer_id: PeerId,    // This node is the next vessel
@@ -40,18 +89,23 @@ impl<'a> NodeClient<'a> {
         info!("prev_failed_vessel_peer_id: {:?}", prev_failed_vessel_peer_id);
 
         let prev_agent = prev_agent_name_nonce.clone();
-        let next_agent = prev_agent_name_nonce.make_next_agent();
+        let next_agent = prev_agent_name_nonce.increment_nonce();
         let next_nonce = next_agent.nonce();
 
         let mut agent_secrets_json = self.request_respawn_cfrags(
-            &prev_agent,
+            prev_reverie_id.clone(),
             prev_failed_vessel_peer_id
         ).await?;
 
         agent_secrets_json.agent_nonce = next_nonce;
         self.agent_secrets_json = Some(agent_secrets_json.clone());
 
-        // Test LLM API key from decrypted Reverie works
+        // Respawn checks:
+        // 1. test LLM API works
+        // 2. re-encrypt secrets + provide TEE attestation of it
+        // 3. mark respawn complete / old vessel died
+
+        // 1. Test LLM API key from decrypted Reverie works
         if let Some(_anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
             info!("Decrypted LLM API keys, querying LLM (paused)");
             // let response = test_claude_query(
@@ -62,21 +116,20 @@ impl<'a> NodeClient<'a> {
             // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
         }
 
+        // 2. re-encrypt secrets + provide TEE attestation of it
         let reverie = self.create_reverie(
             agent_secrets_json.clone(),
+            ReverieType::Agent(next_agent.clone()),
             threshold,
             total_frags
         )?;
-        // TODO: post-respawn checks:
-        // 1. test LLM API works
-        // 2. re-encrypt secrets + provide TEE attestation of it
-        // 3. mark respawn complete / old vessel died
 
         let (
             reverie,
             target_vessel
-        ) = self.broadcast_reverie_keyfrags(reverie.id.clone(), Some(next_agent)).await?;
+        ) = self.broadcast_reverie_keyfrags(reverie.id.clone()).await?;
 
+        // 3. mark respawn complete / old vessel died
         self.command_sender.send(NodeCommand::MarkPendingRespawnComplete {
             prev_reverie_id: prev_reverie_id.clone(),
             prev_peer_id: prev_failed_vessel_peer_id,
@@ -91,26 +144,17 @@ impl<'a> NodeClient<'a> {
     // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
     pub async fn request_respawn_cfrags(
         &mut self,
-        agent_name_nonce: &AgentNameWithNonce,
+        prev_reverie_id: ReverieId,
         prev_failed_vessel_peer_id: PeerId
     ) -> Result<AgentSecretsJson> {
 
-        let reverie_id = match self.get_reverie_id_from_agent_name(agent_name_nonce).await {
-            None => {
-                // TODO: handle error and retry if not found
-                error!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce);
-                return Err(anyhow!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce))
-            }
-            Some(reverie_id) => reverie_id,
-        };
+        let reverie_msg = self.get_reverie(prev_reverie_id.clone()).await?;
+        let capsule = reverie_msg.reverie.encode_capsule()?;
 
         let cfrags_raw = self.request_cfrags(
-            reverie_id.clone(),
+            prev_reverie_id.clone(),
             prev_failed_vessel_peer_id
         ).await;
-
-        let reverie_msg = self.get_reverie(reverie_id.clone()).await?;
-        let capsule = reverie_msg.reverie.encode_capsule()?;
 
         let (
             verified_cfrags,
@@ -128,53 +172,4 @@ impl<'a> NodeClient<'a> {
         next_agent_secrets
     }
 
-    /// Client sends AgentSecretsJson over TLS or some secure channel.
-    /// Node encrypts with PRE and broadcasts fragments to the network
-    pub async fn spawn_agent(
-        &mut self,
-        agent_secrets: AgentSecretsJson,
-        threshold: usize,
-        total_frags: usize,
-    ) -> Result<NodeVesselWithStatus> {
-
-        if threshold > total_frags {
-            return Err(anyhow!("Threshold must be less than or equal to total fragments"));
-        }
-
-        // Create a "Reverie"––an encrypted memory that alters how a Host behaves
-        let reverie = self.create_reverie(agent_secrets.clone(), threshold, total_frags)?;
-
-        let agent_name_nonce = AgentNameWithNonce(
-            agent_secrets.agent_name,
-            agent_secrets.agent_nonce
-        );
-
-        let (
-            reverie,
-            target_vessel
-        ) = self.broadcast_reverie_keyfrags(
-            reverie.id.clone(),
-            Some(agent_name_nonce),
-        ).await?;
-
-        info!("RequestResponse broadcast of kfrags complete.");
-
-        Ok(target_vessel)
-    }
-
-    pub async fn get_reverie_id_from_agent_name(
-        &self,
-        agent_name_nonce: &AgentNameWithNonce
-    ) -> Option<ReverieId> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-
-        self.command_sender
-            .send(NodeCommand::GetReverieIdFromAgentName {
-                agent_name_nonce: agent_name_nonce.clone(),
-                sender: sender,
-            })
-            .await.expect("Command receiver not to bee dropped");
-
-        receiver.await.expect("get reverie receiver not to drop")
-    }
 }

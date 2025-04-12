@@ -40,8 +40,8 @@ impl<'a> NodeClient<'a> {
                 event = network_event_receiver.recv() => match event {
                     Some(NetworkEvent::RespawnRequest(
                         AgentVesselInfo {
-                            agent_name_nonce,
                             reverie_id,
+                            agent_name_nonce,
                             total_frags,
                             threshold,
                             next_vessel_peer_id, // This node is the next vessel

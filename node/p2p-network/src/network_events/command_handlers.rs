@@ -36,7 +36,6 @@ impl<'a> NetworkEvents<'a> {
                     source_peer_id,
                     target_peer_id,
                 },
-                agent_name_nonce,
             } => {
                 let _request_id = self.swarm.behaviour_mut()
                     .request_response
@@ -48,7 +47,6 @@ impl<'a> NetworkEvents<'a> {
                                 source_peer_id,
                                 target_peer_id,
                             },
-                            agent_name_nonce
                         )
                     );
             }
@@ -59,11 +57,10 @@ impl<'a> NetworkEvents<'a> {
                     source_peer_id,
                     target_peer_id,
                 },
-                agent_name_nonce,
             } => {
 
                 // 1. Save agent metadata
-                if let Some(agent_name_nonce) = &agent_name_nonce {
+                if let ReverieType::Agent(agent_name_nonce) = &reverie.reverie_type {
 
                     // Set broadcaster's peer info
                     self.peer_manager.set_peer_info_agent_vessel(
@@ -103,7 +100,6 @@ impl<'a> NetworkEvents<'a> {
                                 source_peer_id,
                                 target_peer_id,
                             },
-                            agent_name_nonce.clone()
                         )
                     );
             }

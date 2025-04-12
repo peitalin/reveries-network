@@ -17,6 +17,7 @@ use crate::types::{
     ReverieCapsulefrag,
     ReverieKeyfragMessage,
     ReverieMessage,
+    ReverieType,
 };
 use crate::{short_peer_id, get_node_name, get_node_name2};
 use super::NetworkEvents;
@@ -86,7 +87,6 @@ impl<'a> NetworkEvents<'a> {
                             target_peer_id,
                             ..
                         },
-                        agent_name_nonce
                     ) => {
 
                         info!("\n\tReceived message: \n\t{:?}", reverie_keyfrag);
@@ -107,7 +107,26 @@ impl<'a> NetworkEvents<'a> {
                         let capsule = serde_json::from_slice(&reverie_keyfrag.umbral_capsule).expect("serde err");
                         let cfrag = umbral_pre::reencrypt(&capsule, verified_kfrag).unverify();
 
-                        // 2) Node stores Capsulefrags locally
+                        // 2) Save Agent metadata if ReverieType is Agent
+                        if let ReverieType::Agent(agent_name_nonce) = reverie_keyfrag.reverie_type.clone() {
+
+                            let agent_metadata = AgentVesselInfo {
+                                reverie_id: reverie_keyfrag.id.clone(),
+                                agent_name_nonce: agent_name_nonce,
+                                total_frags: reverie_keyfrag.total_frags,
+                                threshold: reverie_keyfrag.threshold,
+                                current_vessel_peer_id: source_peer_id,
+                                next_vessel_peer_id: target_peer_id,
+                            };
+
+                            self.peer_manager.set_peer_info_agent_vessel(&agent_metadata);
+                            self.peer_manager.insert_reverie_metadata(
+                                &reverie_keyfrag.id,
+                                agent_metadata
+                            );
+                        }
+
+                        // 3) Node stores Capsulefrags locally
                         self.peer_manager.insert_cfrags(
                             &reverie_keyfrag.id,
                             ReverieCapsulefrag {
@@ -123,20 +142,6 @@ impl<'a> NetworkEvents<'a> {
                                 kfrag_provider_peer_id: self.node_id.peer_id,
                             }
                         );
-
-                        if let Some(agent_name_nonce) = agent_name_nonce {
-                            self.peer_manager.insert_reverie_metadata(
-                                &reverie_keyfrag.id,
-                                AgentVesselInfo {
-                                    reverie_id: reverie_keyfrag.id.clone(),
-                                    agent_name_nonce: agent_name_nonce,
-                                    total_frags: reverie_keyfrag.total_frags,
-                                    threshold: reverie_keyfrag.threshold,
-                                    current_vessel_peer_id: source_peer_id,
-                                    next_vessel_peer_id: target_peer_id,
-                                }
-                            );
-                        }
 
                         // 3) Notify target vessel that this node is a KfragProvider for this ReverieId
                         let request_id = self.swarm.behaviour_mut().request_response
@@ -193,7 +198,6 @@ impl<'a> NetworkEvents<'a> {
                             source_peer_id,
                             target_peer_id,
                         },
-                        agent_name_nonce
                     ) => {
 
                         info!("{}\n\tfrom peer: {} {}",
@@ -203,7 +207,7 @@ impl<'a> NetworkEvents<'a> {
                         );
 
                         // 1) Save Agent metadata if need be
-                        if let Some(agent_name_nonce) = agent_name_nonce {
+                        if let ReverieType::Agent(agent_name_nonce) = reverie.reverie_type.clone() {
 
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie.id.clone(),
@@ -215,7 +219,6 @@ impl<'a> NetworkEvents<'a> {
                             };
 
                             self.peer_manager.set_peer_info_agent_vessel(&agent_metadata);
-
                             self.peer_manager.insert_reverie_metadata(
                                 &reverie.id,
                                 agent_metadata.clone()

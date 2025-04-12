@@ -10,8 +10,6 @@ use std::str::FromStr;
 
 use crate::create_network::NODE_SEED_NUM;
 use crate::types::reverie::ReverieIdToAgentName;
-pub type AgentName = String;
-pub type AgentNonce = usize;
 pub type FragmentNumber = usize;
 pub type TotalFragments = usize;
 
@@ -22,16 +20,16 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AgentNameWithNonce(pub AgentName, pub AgentNonce);
+pub struct ReverieNameWithNonce(pub String, pub usize);
 
-impl AgentNameWithNonce {
+impl ReverieNameWithNonce {
     pub fn as_key(&self) -> String {
         self.to_string()
     }
 
-    pub fn make_next_agent(&self) -> AgentNameWithNonce {
+    pub fn increment_nonce(&self) -> ReverieNameWithNonce {
         let next_nonce = self.1 + 1;
-        AgentNameWithNonce(
+        ReverieNameWithNonce(
             self.0.clone(),
             next_nonce
         )
@@ -46,26 +44,26 @@ impl AgentNameWithNonce {
     }
 }
 
-impl Display for AgentNameWithNonce {
+impl Display for ReverieNameWithNonce {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}", self.0, self.1)
     }
 }
 
-impl Into<String> for AgentNameWithNonce {
+impl Into<String> for ReverieNameWithNonce {
     fn into(self) -> String {
         format!("{}-{}", self.0, self.1)
     }
 }
 
-impl From<String> for AgentNameWithNonce {
+impl From<String> for ReverieNameWithNonce {
     fn from(s: String) -> Self {
         match AGENT_NAME_NONCE_REGEX.captures(&s).map(|c| c.extract()) {
             Some((_c, [name, nonce])) => {
-                AgentNameWithNonce(name.to_string(), nonce.parse::<usize>().unwrap())
+                ReverieNameWithNonce(name.to_string(), nonce.parse::<usize>().unwrap())
             }
             None => {
-                AgentNameWithNonce("".to_string(), 0)
+                ReverieNameWithNonce("".to_string(), 0)
             }
         }
     }
