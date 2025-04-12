@@ -41,7 +41,7 @@ impl<'a> NodeClient<'a> {
                     Some(NetworkEvent::RespawnRequest(
                         AgentVesselInfo {
                             reverie_id,
-                            agent_name_nonce,
+                            reverie_type,
                             total_frags,
                             threshold,
                             next_vessel_peer_id, // This node is the next vessel
@@ -50,7 +50,7 @@ impl<'a> NodeClient<'a> {
                     )) => {
                         self.handle_respawn_request(
                             reverie_id,
-                            agent_name_nonce,
+                            reverie_type,
                             total_frags,
                             threshold,
                             next_vessel_peer_id,

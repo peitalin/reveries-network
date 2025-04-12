@@ -41,6 +41,7 @@ use crate::types::{
     ReverieId,
     ReverieIdToAgentName,
     ReverieIdToPeerId,
+    ReverieMessage,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -119,6 +120,10 @@ struct PendingRequests {
         ReverieIdToPeerId,
         oneshot::Sender<Option<PeerId>>
     >,
+    get_reverie_from_network: HashMap<
+        ReverieId,
+        oneshot::Sender<Result<ReverieMessage>>
+    >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, SendError>>
@@ -133,6 +138,7 @@ impl PendingRequests {
             get_node_vessels: Default::default(),
             get_reverie_agent_name: Default::default(),
             get_reverie_peer_id: Default::default(),
+            get_reverie_from_network: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }

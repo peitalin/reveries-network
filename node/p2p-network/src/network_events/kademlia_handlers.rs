@@ -4,7 +4,7 @@ use libp2p::{
     kad,
     PeerId,
 };
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow};
 use tracing::{info, warn, debug};
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,7 @@ use crate::types::{
     SignedVesselStatus,
     ReverieIdToAgentName,
     ReverieId,
+    ReverieMessage,
     KademliaKey,
 };
 use super::NetworkEvents;
@@ -121,6 +122,14 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
+                    KademliaKey::Reverie(reverie_id) => {
+                        if let Some(oneshot_sender) = self.pending.get_reverie_from_network.remove(&reverie_id) {
+                            let reverie_msg = serde_json::from_slice::<ReverieMessage>(&record.value)
+                                .map_err(|e| anyhow!(e.to_string()));
+
+                            oneshot_sender.send(reverie_msg).ok();
+                        }
+                    }
                     KademliaKey::Unknown(s) => {
                         warn!("Unknown Kademlia key: {}", s);
                     }
@@ -134,7 +143,7 @@ impl<'a> NetworkEvents<'a> {
                     .finish();
             }
 
-            kad::QueryResult::PutRecord(..) => {}
+            kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {}
 
             kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { peer: peer_id, .. })) => {
                 if peer_id == self.node_id.peer_id {

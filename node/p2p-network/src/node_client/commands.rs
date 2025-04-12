@@ -15,6 +15,7 @@ use crate::types::{
     NodeVesselWithStatus,
     ReverieId,
     ReverieMessage,
+    ReverieType,
 };
 use super::container_manager::RestartReason;
 
@@ -36,6 +37,7 @@ pub enum NodeCommand {
     /// Gets the Reverie for an agent from Kademlia
     GetReverie {
         reverie_id: ReverieId,
+        reverie_type: ReverieType,
         sender: oneshot::Sender<Result<ReverieMessage>>,
     },
 
@@ -54,8 +56,13 @@ pub enum NodeCommand {
     },
 
     /// Sends a Reverie to a specific peer
-    SendReverie {
+    SendReverieToSpecificPeer {
         ciphertext_holder: PeerId, // Ciphertext Holder
+        reverie_msg: ReverieMessage,
+    },
+
+    /// Stores Reverie on the network
+    SaveReverieOnNetwork {
         reverie_msg: ReverieMessage,
     },
 

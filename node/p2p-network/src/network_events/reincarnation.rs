@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use color_eyre::Result;
+
+use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use futures::StreamExt;
 use libp2p::{
@@ -33,6 +34,7 @@ use crate::types::{
     SignedVesselStatus,
     ReverieId,
     ReverieIdToAgentName,
+    ReverieType,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -97,47 +99,60 @@ impl<'a> NetworkEvents<'a> {
             // check if peer's heartbeat exceeds max_time_before_respawn
 
             if self.peer_manager.is_peer_offline(peer_id, max_time_before_respawn, false) {
+
                 info!("{}", format!("{} {} heartbeat failed. Respawn pending.", node_name, peer_id).magenta());
+
                 // Only the next_vessel and kfrag_providers store previous vessel's agent_vessel info
                 if let Some(AgentVesselInfo {
                     reverie_id,
-                    agent_name_nonce: prev_agent,
+                    reverie_type,
                     total_frags,
                     threshold,
                     next_vessel_peer_id,
                     current_vessel_peer_id
                 }) = &peer_info.agent_vessel {
 
-                    info!("{}", format!("Reincarnating agent: {}", prev_agent).yellow());
-                    // all kfrag_providers mark agent as respawning
-                    self.pending.respawns.insert(RespawnId::new(&prev_agent, &current_vessel_peer_id));
+                    info!("found agent in vessel: reverie_type: {:?}", reverie_type);
 
-                    // If this node is the next vessel for the agent
-                    if self.node_id.peer_id == *next_vessel_peer_id {
-                        // Dispatch a RespawnRequest event to NetworkEvents
-                        info!("Dispatching RespawnRequest for agent {} into new vessel {}",
-                            prev_agent.to_string().green(),
-                            node_name.green()
-                        );
-                        // Only the correct next_vessel has the valid signature to get the cfrags and respawn
-                        self.network_event_sender.send(
-                            NetworkEvent::RespawnRequest(
-                                AgentVesselInfo {
-                                    reverie_id: reverie_id.clone(),
-                                    agent_name_nonce: prev_agent.clone(),
-                                    total_frags: *total_frags,
-                                    threshold: *threshold,
-                                    next_vessel_peer_id: *next_vessel_peer_id,
-                                    current_vessel_peer_id: current_vessel_peer_id.clone()
-                                }
-                            )
-                        ).await?;
-                        // Only next_vessel removes peer from PeerManagers
-                        self.remove_peer(&peer_id);
-                        // If node is not the next vessel: wait for next vessel to re-broadcast cfrags
-                        // Once respawn is finished:
-                        // - New vessel will tell other nodes to update PeerManager and
-                        // - update pending.respawns: self.pending.respawns.remove(&respawn_id);
+                    let (prev_agent, is_agent) = match reverie_type {
+                        ReverieType::Agent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+                        ReverieType::SovereignAgent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+                        _ => return Err(anyhow!("Invalid ReverieType")),
+                    };
+
+                    if is_agent {
+
+                        info!("{}", format!("Reincarnating agent: {}", prev_agent).yellow());
+                        // all kfrag_providers mark agent as respawning
+                        self.pending.respawns.insert(RespawnId::new(&prev_agent, &current_vessel_peer_id));
+
+                        // If this node is the next vessel for the agent
+                        if self.node_id.peer_id == *next_vessel_peer_id {
+                            // Dispatch a RespawnRequest event to NetworkEvents
+                            info!("Dispatching RespawnRequest for agent {} into new vessel {}",
+                                prev_agent.to_string().green(),
+                                node_name.green()
+                            );
+                            // Only the correct next_vessel has the valid signature to get the cfrags and respawn
+                            self.network_event_sender.send(
+                                NetworkEvent::RespawnRequest(
+                                    AgentVesselInfo {
+                                        reverie_id: reverie_id.clone(),
+                                        reverie_type: reverie_type.clone(),
+                                        total_frags: *total_frags,
+                                        threshold: *threshold,
+                                        next_vessel_peer_id: *next_vessel_peer_id,
+                                        current_vessel_peer_id: current_vessel_peer_id.clone()
+                                    }
+                                )
+                            ).await?;
+                            // Only next_vessel removes peer from PeerManagers
+                            self.remove_peer(&peer_id);
+                            // If node is not the next vessel: wait for next vessel to re-broadcast cfrags
+                            // Once respawn is finished:
+                            // - New vessel will tell other nodes to update PeerManager and
+                            // - update pending.respawns: self.pending.respawns.remove(&respawn_id);
+                        }
                     }
                 } else {
                     // Not a kfrag_provider or next_vessel, safe to remove from PeerManager immediately

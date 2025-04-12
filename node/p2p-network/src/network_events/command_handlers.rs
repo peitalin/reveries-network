@@ -50,7 +50,71 @@ impl<'a> NetworkEvents<'a> {
                         )
                     );
             }
-            NodeCommand::SendReverie {
+            NodeCommand::SaveReverieOnNetwork {
+                reverie_msg: ReverieMessage {
+                    reverie,
+                    source_peer_id,
+                    target_peer_id,
+                }
+            } => {
+                info!("{}", format!("SaveReverieOnNetwork type: {:?}", reverie.reverie_type).green());
+
+
+                let (agent_name_nonce, is_agent) = match reverie.reverie_type.clone() {
+                    ReverieType::Agent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+                    ReverieType::SovereignAgent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+                    _ => return,
+                };
+
+                // 1) Save Agent metadata if need be
+                if is_agent {
+                    // Set broadcaster's peer info
+                    self.peer_manager.set_peer_info_agent_vessel(
+                        &AgentVesselInfo {
+                            reverie_id: reverie.id.clone(),
+                            reverie_type: reverie.reverie_type.clone(),
+                            total_frags: reverie.total_frags,
+                            threshold: reverie.threshold,
+                            current_vessel_peer_id: source_peer_id,
+                            next_vessel_peer_id: target_peer_id,
+                        }
+                    );
+                    // Put agent_name_nonce => reverie_id on DHT
+                    self.swarm.behaviour_mut().kademlia.put_record(
+                        kad::Record {
+                            key: agent_name_nonce.to_reverie_id().to_kad_key(),
+                            value: serde_json::to_vec(&reverie.id).expect("serde_json::to_vec(reverie_id)"),
+                            publisher: Some(self.node_id.peer_id),
+                            expires: None,
+                        },
+                        kad::Quorum::Majority
+                    ).expect("put_record err");
+                }
+
+                info!("{}: {} {}",
+                    format!("SaveReverieOnNetwork").green(),
+                    get_node_name(&source_peer_id).yellow(),
+                    short_peer_id(&source_peer_id).yellow()
+                );
+                // Dispatch Reverie (ciphertext) to the network
+                self.swarm.behaviour_mut().kademlia
+                    .put_record(
+                        kad::Record {
+                            key: kad::RecordKey::new(&reverie.id),
+                            value: serde_json::to_vec(
+                                &ReverieMessage {
+                                    reverie,
+                                    source_peer_id,
+                                    target_peer_id,
+                                }
+                            ).expect("serde_json::to_vec(reverie)"),
+                            publisher: Some(self.node_id.peer_id),
+                            expires: None,
+                        },
+                        kad::Quorum::Majority
+                    ).expect("put_record err");
+            }
+            NodeCommand::SendReverieToSpecificPeer {
                 ciphertext_holder, // Ciphertext Holder
                 reverie_msg: ReverieMessage {
                     reverie,
@@ -58,30 +122,24 @@ impl<'a> NetworkEvents<'a> {
                     target_peer_id,
                 },
             } => {
-
                 // 1. Save agent metadata
                 if let ReverieType::Agent(agent_name_nonce) = &reverie.reverie_type {
-
                     // Set broadcaster's peer info
                     self.peer_manager.set_peer_info_agent_vessel(
                         &AgentVesselInfo {
-                            agent_name_nonce: agent_name_nonce.clone(),
                             reverie_id: reverie.id.clone(),
+                            reverie_type: reverie.reverie_type.clone(),
                             total_frags: reverie.total_frags,
                             threshold: reverie.threshold,
                             current_vessel_peer_id: source_peer_id,
                             next_vessel_peer_id: target_peer_id,
                         }
                     );
-
                     // Put agent_name_nonce => reverie_id on DHT
-                    let reverie_id_bytes = serde_json::to_vec(&reverie.id)
-                        .expect("serde_json::to_vec(reverie_id)");
-
                     self.swarm.behaviour_mut().kademlia.put_record(
                         kad::Record {
                             key: agent_name_nonce.to_reverie_id().to_kad_key(),
-                            value: reverie_id_bytes,
+                            value: serde_json::to_vec(&reverie.id).expect("serde_json::to_vec(reverie_id)"),
                             publisher: Some(self.node_id.peer_id),
                             expires: None,
                         },
@@ -90,7 +148,7 @@ impl<'a> NetworkEvents<'a> {
                 }
 
                 // Dispatch Reverie (ciphertext) to target vessel
-                let _request_id = self.swarm.behaviour_mut()
+                self.swarm.behaviour_mut()
                     .request_response
                     .send_request(
                         &ciphertext_holder,
@@ -105,14 +163,29 @@ impl<'a> NetworkEvents<'a> {
             }
             NodeCommand::GetReverie {
                 reverie_id,
+                reverie_type,
                 sender,
             } => {
-                info!("{}", format!("GetReverie for: {}", reverie_id).green());
-                let reverie = match self.peer_manager.get_reverie(&reverie_id) {
-                    Some(reverie) => Ok(reverie.clone()),
-                    None => Err(anyhow!("Reverie not found")),
-                };
-                sender.send(reverie).ok();
+                match reverie_type {
+                    ReverieType::SovereignAgent(agent_name_nonce) => {
+                        info!("{}", format!("GetReverie({}) from local node", reverie_id).green());
+                        // get agent Reverie locally from the node.
+                        let reverie = match self.peer_manager.get_reverie(&reverie_id) {
+                            Some(reverie) => Ok(reverie.clone()),
+                            None => Err(anyhow!("Reverie not found")),
+                        };
+                        sender.send(reverie).ok();
+                    }
+                    _ => {
+                        info!("\n{}\n", format!("GetReverie({}) from DHT Network", reverie_id).green());
+                        // Get other Reverie types from the network
+                        self.swarm.behaviour_mut()
+                            .kademlia
+                            .get_record(kad::RecordKey::new(&reverie_id));
+
+                        self.pending.get_reverie_from_network.insert(reverie_id, sender);
+                    }
+                }
             }
             NodeCommand::GetNodeVesselStatusesFromKademlia { sender } => {
 
@@ -161,7 +234,6 @@ impl<'a> NetworkEvents<'a> {
                 signature,
                 sender,
             } => {
-
                 info!("{}", format!("RequestCapsuleFragment for {} from {} {}",
                     reverie_id,
                     get_node_name(&kfrag_provider_peer_id),
@@ -185,7 +257,6 @@ impl<'a> NetworkEvents<'a> {
                 prev_peer_id, // failed vessel's peer_id
                 prev_agent_name_nonce,
             } => {
-
                 // 1) Mark respawn complete locally
                 self.mark_pending_respawn_complete(prev_peer_id, prev_agent_name_nonce.clone());
 

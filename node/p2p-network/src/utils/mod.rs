@@ -10,6 +10,8 @@ pub fn nanoid4() -> String {
     nanoid!(4, &NANOID_ALPHABET) //=> "4f90"
 }
 
+pub const REVERIE_ID_PREFIX: &'static str = "reverie_";
+
 pub fn reverie_id() -> ReverieId {
-    format!("reverie_{}", nanoid!(16, &NANOID_ALPHABET))
+    format!("{}{}", REVERIE_ID_PREFIX, nanoid!(16, &NANOID_ALPHABET))
 }

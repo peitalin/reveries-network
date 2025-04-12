@@ -4,12 +4,17 @@ use serde::{Deserialize, Serialize};
 use umbral_pre::Capsule;
 use libp2p::{PeerId, kad};
 
-use crate::utils::reverie_id;
+use crate::utils::{
+    reverie_id,
+    REVERIE_ID_PREFIX,
+};
 use crate::types::{
     ReverieNameWithNonce,
     VesselPeerId,
     VESSEL_KAD_KEY_PREFIX,
 };
+
+
 pub type ReverieId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,12 +75,31 @@ pub struct ReverieCapsulefrag {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReverieType {
+    SovereignAgent(ReverieNameWithNonce),
     Agent(ReverieNameWithNonce),
     Memory,
     Retrieval,
     Tools,
+}
+
+impl ReverieType {
+    pub fn to_string(&self) -> String {
+        self.clone().into()
+    }
+}
+
+impl Into<String> for ReverieType {
+    fn into(self) -> String {
+        match self {
+            ReverieType::SovereignAgent(agent_name_nonce) => agent_name_nonce.into(),
+            ReverieType::Agent(agent_name_nonce) => agent_name_nonce.into(),
+            ReverieType::Memory => "Memory".to_string(),
+            ReverieType::Retrieval => "Retrieval".to_string(),
+            ReverieType::Tools => "Tools".to_string(),
+        }
+    }
 }
 
 impl Reverie {
@@ -183,6 +207,7 @@ impl From<ReverieId> for ReverieIdToPeerId {
 pub enum KademliaKey {
     VesselPeerId(VesselPeerId),
     ReverieIdToAgentName(ReverieIdToAgentName),
+    Reverie(ReverieId),
     Unknown(String),
 }
 
@@ -192,6 +217,8 @@ impl From<&str> for KademliaKey {
             KademliaKey::VesselPeerId(VesselPeerId::from_string(s).unwrap())
         } else if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
             KademliaKey::ReverieIdToAgentName(ReverieIdToAgentName::from_string(s).unwrap())
+        } else if s.starts_with(REVERIE_ID_PREFIX) {
+            KademliaKey::Reverie(ReverieId::from(s))
         } else {
             KademliaKey::Unknown(s.to_string())
         }

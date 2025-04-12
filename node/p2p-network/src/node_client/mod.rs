@@ -206,18 +206,60 @@ impl<'a> NodeClient<'a> {
             ).await?;
         }
 
-        // Send Ciphertext to target vessel
-        // TODO: or should Reveries be stored on DHT for easier access?
-        self.command_sender.send(
-            NodeCommand::SendReverie {
-                ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
-                reverie_msg: ReverieMessage {
-                    reverie: reverie.clone(),
-                    source_peer_id: self.node_id.peer_id,
-                    target_peer_id: target_vessel.peer_id,
-                },
+        // Save Reverie Ciphertext to IPFS
+        // Make it retrieveable via reverie_id
+
+        // Add Memory trading:
+        // make it easy for a user ALICE (not running a node) to
+        // - submit a memory + PRE it for BOB (not running a node)
+        // - BOB to decrypt and run the memory as context for a TEE Agent
+
+        // Expand memories to MCP plugins
+        // - Alice can now upload MCP plugins with API keys and rent access to them to BOB
+        //
+
+        match reverie.reverie_type {
+            ReverieType::SovereignAgent(..) => {
+                // Send Ciphertext to target vessel if ReverieType::SovereignAgent
+                // These agents live in an isolated TEE instance
+                self.command_sender.send(
+                    NodeCommand::SendReverieToSpecificPeer {
+                        ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
+                        reverie_msg: ReverieMessage {
+                            reverie: reverie.clone(),
+                            source_peer_id: self.node_id.peer_id,
+                            target_peer_id: target_vessel.peer_id,
+                        },
+                    }
+                ).await?;
             }
-        ).await?;
+            _ => {
+                // Save Reverie on DHT for other ReverieTypes (Memory, Retrieval, Tools)
+                self.command_sender.send(
+                    NodeCommand::SaveReverieOnNetwork {
+                        reverie_msg: ReverieMessage {
+                            reverie: reverie.clone(),
+                            source_peer_id: self.node_id.peer_id,
+                            target_peer_id: target_vessel.peer_id,
+                        },
+                    }
+                ).await?;
+
+                // still need to send to the target vessel for now
+                // TODO: refactor to allow any peer to request the reverie and kfrags
+                // instread of needing a specific peer/node for non-SovereignAgents
+                self.command_sender.send(
+                    NodeCommand::SendReverieToSpecificPeer {
+                        ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
+                        reverie_msg: ReverieMessage {
+                            reverie: reverie.clone(),
+                            source_peer_id: self.node_id.peer_id,
+                            target_peer_id: target_vessel.peer_id,
+                        },
+                    }
+                ).await?;
+            }
+        }
 
         Ok((reverie.clone(), target_vessel.clone()))
     }
@@ -269,12 +311,13 @@ impl<'a> NodeClient<'a> {
         receiver.await.expect("get kfrags providers not to drop")
     }
 
-    pub async fn get_reverie(&self, reverie_id: ReverieId) -> Result<ReverieMessage> {
+    pub async fn get_reverie(&self, reverie_id: ReverieId, reverie_type: ReverieType) -> Result<ReverieMessage> {
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
             .send(NodeCommand::GetReverie {
                 reverie_id: reverie_id,
+                reverie_type: reverie_type,
                 sender: sender
             })
             .await?;

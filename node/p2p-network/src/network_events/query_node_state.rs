@@ -32,7 +32,8 @@ impl<'a> NetworkEvents<'a> {
                             "peer_id": short_peer_id(peer_id),
                             "node_name": get_node_name(peer_id),
                             "agent_vessel": {
-                                "agent_name_nonce": av.agent_name_nonce.to_string(),
+                                "reverie_id": av.reverie_id.to_string(),
+                                "reverie_type": av.reverie_type.to_string(),
                                 "next_vessel": get_node_name(&av.next_vessel_peer_id),
                                 "current_vessel": get_node_name(&av.current_vessel_peer_id),
                                 "total_frags": av.total_frags,

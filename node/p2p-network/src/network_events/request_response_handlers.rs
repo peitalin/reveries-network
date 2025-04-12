@@ -112,7 +112,7 @@ impl<'a> NetworkEvents<'a> {
 
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie_keyfrag.id.clone(),
-                                agent_name_nonce: agent_name_nonce,
+                                reverie_type: reverie_keyfrag.reverie_type.clone(),
                                 total_frags: reverie_keyfrag.total_frags,
                                 threshold: reverie_keyfrag.threshold,
                                 current_vessel_peer_id: source_peer_id,
@@ -206,12 +206,18 @@ impl<'a> NetworkEvents<'a> {
                             short_peer_id(&source_peer_id).yellow()
                         );
 
+                        let is_agent = match reverie.reverie_type {
+                            ReverieType::Agent(..) => true,
+                            ReverieType::SovereignAgent(..) => true,
+                            _ => false,
+                        };
+
                         // 1) Save Agent metadata if need be
-                        if let ReverieType::Agent(agent_name_nonce) = reverie.reverie_type.clone() {
+                        if is_agent {
 
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie.id.clone(),
-                                agent_name_nonce: agent_name_nonce,
+                                reverie_type: reverie.reverie_type.clone(),
                                 total_frags: reverie.total_frags,
                                 threshold: reverie.threshold,
                                 current_vessel_peer_id: source_peer_id,

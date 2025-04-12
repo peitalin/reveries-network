@@ -16,6 +16,7 @@ use crate::types::{
     ReverieId,
     ReverieCapsulefrag,
     ReverieMessage,
+    ReverieType,
 };
 use crate::behaviour::heartbeat_behaviour::TeeAttestation;
 use peer_info::{PeerInfo, AgentVesselInfo};
@@ -97,15 +98,24 @@ impl PeerManager {
     pub fn set_peer_info_agent_vessel(&mut self, agent_vessel_info: &AgentVesselInfo) {
 
         let AgentVesselInfo {
-            agent_name_nonce,
             reverie_id,
+            reverie_type,
             total_frags,
             threshold,
             current_vessel_peer_id,
             next_vessel_peer_id,
         } = agent_vessel_info;
 
-        info!("Setting vessel for Agent: {}", agent_name_nonce.yellow());
+
+        let (agent_name_nonce, is_agent) = match reverie_type {
+            ReverieType::Agent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+            ReverieType::SovereignAgent(agent_name_nonce) => (agent_name_nonce.clone(), true),
+            _ => {
+                info!("Not setting vessel, received non-agent ReverieType: {:?}", reverie_type);
+                return
+            }
+        };
+
         println!("{}", format!("\tCurrent vessel:\t{}", get_node_name(&current_vessel_peer_id).bright_blue()));
         println!("{}", format!("\tNext vessel:\t{}", get_node_name(&next_vessel_peer_id).bright_blue()));
 
@@ -113,8 +123,8 @@ impl PeerManager {
             None => {},
             Some(peer_info) => {
                 peer_info.agent_vessel = Some(AgentVesselInfo {
-                    agent_name_nonce: agent_name_nonce.clone(),
                     reverie_id: reverie_id.clone(),
+                    reverie_type: reverie_type.clone(),
                     total_frags: total_frags.clone(),
                     threshold: threshold.clone(),
                     current_vessel_peer_id: current_vessel_peer_id.clone(),
@@ -326,20 +336,17 @@ impl PeerManager {
                 source_peer_id,
                 target_peer_id
             ) = match self.reverie_metadata.get(reverie_id) {
-                Some(a) => {
-                    (
-                        a.agent_name_nonce.clone(),
-                        Some(a.current_vessel_peer_id),
-                        Some(a.next_vessel_peer_id)
-                    )
+                None => (&ReverieNameWithNonce("NA".to_string(), 0), None, None),
+                Some(a) => match &a.reverie_type {
+                    ReverieType::Agent(agent_name_nonce) => {
+                        (
+                            agent_name_nonce,
+                            Some(a.current_vessel_peer_id),
+                            Some(a.next_vessel_peer_id)
+                        )
+                    }
+                    _ => (&ReverieNameWithNonce("NA".to_string(), 0), None, None)
                 },
-                None => {
-                    (
-                        ReverieNameWithNonce("NA".to_string(), 0),
-                        None,
-                        None
-                    )
-                }
             };
 
             let cfrag_str: String = format!("{:?}...", cfrag.umbral_capsule_frag.to_vec())[..128].to_string();

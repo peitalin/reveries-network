@@ -46,7 +46,7 @@ impl<'a> NodeClient<'a> {
         // Create a "Reverie"––an encrypted memory that alters how a Host behaves
         let reverie = self.create_reverie(
             agent_secrets,
-            ReverieType::Agent(agent_name_nonce.clone()),
+            ReverieType::SovereignAgent(agent_name_nonce.clone()),
             threshold,
             total_frags
         )?;
@@ -76,13 +76,17 @@ impl<'a> NodeClient<'a> {
     pub(super) async fn handle_respawn_request(
         &mut self,
         prev_reverie_id: ReverieId,
-        prev_agent_name_nonce: ReverieNameWithNonce,
+        prev_reverie_type: ReverieType,
         total_frags: usize,
         threshold: usize,
         next_vessel_peer_id: PeerId,    // This node is the next vessel
         prev_failed_vessel_peer_id: PeerId, // Previous (failed) vessel
     ) -> Result<()> {
 
+        let prev_agent_name_nonce = match &prev_reverie_type {
+            ReverieType::SovereignAgent(agent_name_nonce) => agent_name_nonce.clone(),
+            _ => return Err(anyhow!("Previous Reverie is not a SovereignAgent")),
+        };
         info!("\nHandle respawn request: {:?}", prev_agent_name_nonce);
         info!("total_frags: {:?}", total_frags);
         info!("next_vessel_peer_id: {:?}", next_vessel_peer_id);
@@ -94,6 +98,7 @@ impl<'a> NodeClient<'a> {
 
         let mut agent_secrets_json = self.request_respawn_cfrags(
             prev_reverie_id.clone(),
+            prev_reverie_type,
             prev_failed_vessel_peer_id
         ).await?;
 
@@ -119,7 +124,7 @@ impl<'a> NodeClient<'a> {
         // 2. re-encrypt secrets + provide TEE attestation of it
         let reverie = self.create_reverie(
             agent_secrets_json.clone(),
-            ReverieType::Agent(next_agent.clone()),
+            ReverieType::SovereignAgent(next_agent.clone()),
             threshold,
             total_frags
         )?;
@@ -145,10 +150,11 @@ impl<'a> NodeClient<'a> {
     pub async fn request_respawn_cfrags(
         &mut self,
         prev_reverie_id: ReverieId,
+        prev_reverie_type: ReverieType,
         prev_failed_vessel_peer_id: PeerId
     ) -> Result<AgentSecretsJson> {
 
-        let reverie_msg = self.get_reverie(prev_reverie_id.clone()).await?;
+        let reverie_msg = self.get_reverie(prev_reverie_id.clone(), prev_reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
 
         let cfrags_raw = self.request_cfrags(
