@@ -17,6 +17,7 @@ use tracing::{info, warn, debug};
 use crate::{
     SendError,
     get_node_name,
+    short_peer_id,
 };
 use crate::behaviour::heartbeat_behaviour::HeartbeatConfig;
 use crate::node_client::NodeCommand;
@@ -69,25 +70,36 @@ impl<'a> NetworkEvents<'a> {
             .config
             .max_time_before_rotation();
 
-        let connected_peers = self.swarm.connected_peers()
-            .map(|p| format!("{}", get_node_name(p)))
-            .collect::<Vec<String>>();
-
-        // info!("{} connected peers: {:?}", self.nname(), connected_peers);
-
-        let mut failed_agents_placeholder = vec![];
+        let connected_peers: HashSet<&PeerId> = self.swarm.connected_peers().collect();
         let peer_info = self.peer_manager.peer_info.clone();
 
-        // iterate and check which peers have stopped sending heartbeats
+        // Check if we have peers in peer_info that aren't in connected_peers
+        for peer_id in peer_info.keys() {
+            if !connected_peers.contains(peer_id) {
+                tracing::warn!("PeerId mismatch: {} exists in peer_info but not in connected_peers", short_peer_id(peer_id));
+            }
+        }
+        // Check if we have connected peers that aren't in peer_info
+        for &peer_id in &connected_peers {
+            if !peer_info.contains_key(peer_id) {
+                tracing::warn!("PeerId mismatch: {} exists in connected_peers but not in peer_info", short_peer_id(peer_id));
+            }
+        }
+
+        // let peer_names = connected_peers.iter()
+        //     .map(|p| format!("{}", get_node_name(p)))
+        //     .collect::<Vec<String>>();
+        // info!("{} connected peers: {:?}", self.nname(), connected_peers);
+
+        // Check which peers have stopped sending heartbeats
         for (peer_id, peer_info) in peer_info.iter() {
 
-            let duration = peer_info.heartbeat_data.duration_since_last_heartbeat();
-            let node_name = get_node_name(&peer_id).magenta();
-            // println!("{}\tlast seen {:.2?} seconds ago", node_name, duration);
+            let node_name = get_node_name(peer_id);
+            // check if peer's heartbeat exceeds max_time_before_respawn
 
-            if duration > max_time_before_respawn {
-
-                // Only next vessell will store previous vessel's agent_vessel info
+            if self.peer_manager.is_peer_offline(peer_id, max_time_before_respawn) {
+                info!("{}", format!("{} {} heartbeat failed. Respawn pending.", node_name, peer_id).magenta());
+                // Only the next_vessel and kfrag_providers store previous vessel's agent_vessel info
                 if let Some(AgentVesselInfo {
                     reverie_id,
                     agent_name_nonce: prev_agent,
@@ -97,26 +109,14 @@ impl<'a> NetworkEvents<'a> {
                     current_vessel_peer_id
                 }) = &peer_info.agent_vessel {
 
-                    let next_agent = AgentNameWithNonce(prev_agent.0.clone(), prev_agent.1 + 1);
-                    info!("{}", format!("{} failed. Consensus: voting to reincarnate agent '{}'",
-                        node_name,
-                        prev_agent
-                    ).magenta());
+                    info!("{}", format!("Reincarnating agent: {}", prev_agent).yellow());
+                    // all kfrag_providers mark agent as respawning
+                    self.pending.respawns.insert(RespawnId::new(&prev_agent, &current_vessel_peer_id));
 
-                    // TODO: consensus mechanism to vote for reincarnation
-                    failed_agents_placeholder.push(prev_agent);
-
-                    // all peers mark agent as respawning...
-                    let respawn_id = RespawnId::new(&prev_agent, &current_vessel_peer_id);
-                    self.pending.respawns.insert(respawn_id.clone());
-
-                    ////////////////////////////////////////////////
                     // If this node is the next vessel for the agent
                     if self.node_id.peer_id == *next_vessel_peer_id {
-
-                        // Dispatch a Respawn(agent_name) event to NetworkEvents
-                        // - regenerates PRE ciphertexts, and reencryption key frags
-                        // - re-broadcasts the new key fragments to peers
+                        // Dispatch a RespawnRequest event to NetworkEvents
+                        // Only the correct next_vessel has the valid signature to get the cfrags and respawn
                         self.network_event_sender.send(
                             NetworkEvent::RespawnRequest(
                                 AgentVesselInfo {
@@ -130,22 +130,21 @@ impl<'a> NetworkEvents<'a> {
                             )
                         ).await?;
 
-                        info!("{} '{}' {} {}", "Respawning agent".blue(),
+                        info!("Respawning agent {} in new vessel {}",
                             prev_agent.to_string().green(),
-                            "in new vessel:".blue(),
-                            self.node_id.node_name.yellow()
+                            node_name.green()
                         );
 
-                        // 1) remove Vessel from PeerManagers and Swarm
+                        // 1) Only next_vessel removes peer from PeerManagers
                         self.remove_peer(&peer_id);
-
-                    } else {
                         // If node is not the next vessel: wait for next vessel to re-broadcast cfrags
                         // Once respawn is finished:
                         // 1) New vessel will tell other nodes to update PeerManager and
                         // 2) update pending.respawns: self.pending.respawns.remove(&respawn_id);
-                        info!("Respawn pending: {} in {}", next_agent, next_vessel_peer_id);
                     }
+                } else {
+                    // Not a kfrag_provider or next_vessel, remove from PeerManager immediately
+                    self.remove_peer(&peer_id);
                 }
             }
         }
@@ -157,8 +156,7 @@ impl<'a> NetworkEvents<'a> {
         // nodes. It realizes it is no longer connected to the network.
         info!("{}", format!("{:?}", heartbeat_config).red());
         info!("{}", "Initiating recovery...".green());
-        info!("{}", "Todo: attempting to broadcast/save last good agent_secrets reencryption fragments.".green());
-        info!("{}", "Todo: Delete agent secrets, to prevent duplicated agents.".green());
+        info!("{}", "Todo: Delete agent secrets, prevent duplicate agents.".green());
 
         let peers: Vec<PeerId> = self.swarm.connected_peers().cloned().collect();
         let total_peers = peers.len();
@@ -186,10 +184,10 @@ impl<'a> NetworkEvents<'a> {
             .trigger_restart(RestartReason::ScheduledHeartbeatFailure)
             .await.ok();
 
-        // TODO: Shutdown LLM runtime (if in Vessel Mode), but continue attempting
+        // Shutdown LLM runtime (if in Vessel Mode), but continue attempting
         // to broadcast the agent_secrets reencryption fragments and ciphertexts.
         //
-        // If the node never reconnects to the network, then 1up-network nodes will
+        // If the node never reconnects to the network, then nodes will
         // form consensus that the Vessel is dead, and begin reincarnating the Agent
         // from it's last public agent_secret ciphertexts on the Kademlia network.
         //
