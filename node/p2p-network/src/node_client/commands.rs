@@ -30,8 +30,8 @@ pub enum NodeCommand {
     },
 
     /// Gets the ReverieId for an agent from Kademlia
-    GetReverieIdFromAgentName {
-        agent_name_nonce: ReverieNameWithNonce,
+    GetReverieIdByName {
+        reverie_name_nonce: ReverieNameWithNonce,
         sender: oneshot::Sender<Option<ReverieId>>,
     },
 

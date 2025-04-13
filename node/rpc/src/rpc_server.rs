@@ -73,7 +73,7 @@ pub async fn run_server<'a: 'static>(
         let mut nc = nc.clone();
         async move {
 
-            let reverie_id = match nc.get_reverie_id_from_agent_name(&agent_name_nonce).await {
+            let reverie_id = match nc.get_reverie_id_by_name(&agent_name_nonce).await {
                 None => return Err(RpcError(format!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce))),
                 Some(reverie_id) => reverie_id,
             };

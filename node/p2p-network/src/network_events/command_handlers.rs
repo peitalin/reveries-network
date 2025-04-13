@@ -200,18 +200,18 @@ impl<'a> NetworkEvents<'a> {
                     self.pending.get_node_vessels.insert(vessel_kademlia_key, sender.clone());
                 };
             }
-            NodeCommand::GetReverieIdFromAgentName {
-                agent_name_nonce,
+            NodeCommand::GetReverieIdByName {
+                reverie_name_nonce,
                 sender,
             } => {
                 // add prefix as kademlia key
-                let agent_reverie_kadkey = ReverieIdToAgentName::from(agent_name_nonce.clone());
+                let reverie_by_name_kadkey = ReverieIdToAgentName::from(reverie_name_nonce.clone());
 
                 self.swarm.behaviour_mut()
                     .kademlia
-                    .get_record(kad::RecordKey::new(&agent_reverie_kadkey.to_string()));
+                    .get_record(kad::RecordKey::new(&reverie_by_name_kadkey.to_string()));
 
-                self.pending.get_reverie_agent_name.insert(agent_reverie_kadkey, sender);
+                self.pending.get_reverie_agent_name.insert(reverie_by_name_kadkey, sender);
             }
             NodeCommand::GetKfragProviders { reverie_id, sender } => {
                 match self.peer_manager.kfrag_providers.get(&reverie_id) {

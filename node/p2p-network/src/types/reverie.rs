@@ -74,6 +74,12 @@ pub struct ReverieCapsulefrag {
     pub kfrag_provider_peer_id: PeerId,
 }
 
+impl ReverieCapsulefrag {
+    pub fn encode_capsule_frag(&self) -> Result<umbral_pre::CapsuleFrag> {
+        serde_json::from_slice(&self.umbral_capsule_frag)
+            .map_err(|e| anyhow!("Error deserializing CapsuleFrag: {}", e))
+    }
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReverieType {
@@ -133,12 +139,12 @@ impl Reverie {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ReverieIdToAgentName(pub String);
 
-pub const REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX: &'static str = "reverie_to_agent_name";
+pub const REVERIE_ID_TO_NAME_KADKEY_PREFIX: &'static str = "reverie_to_name";
 
 
 impl Into<String> for ReverieIdToAgentName {
     fn into(self) -> String {
-        format!("{}{}", REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX, self.0)
+        format!("{}{}", REVERIE_ID_TO_NAME_KADKEY_PREFIX, self.0)
     }
 }
 
@@ -151,11 +157,11 @@ impl From<ReverieNameWithNonce> for ReverieIdToAgentName {
 impl ReverieIdToAgentName {
     pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
         let s: String = s.into();
-        if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
-            let ssplit = s.split(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX).collect::<Vec<&str>>();
+        if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) {
+            let ssplit = s.split(REVERIE_ID_TO_NAME_KADKEY_PREFIX).collect::<Vec<&str>>();
             Ok(ReverieIdToAgentName(ssplit[1].to_string()))
         } else {
-            Err(anyhow!("Invalid ReverieIdToAgentName: {}. Must begin with {}", s, REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX))
+            Err(anyhow!("Invalid ReverieIdToAgentName: {}. Must begin with {}", s, REVERIE_ID_TO_NAME_KADKEY_PREFIX))
         }
     }
 
@@ -169,11 +175,11 @@ impl ReverieIdToAgentName {
 
     pub fn is_kademlia_key<S: Into<String>>(s: S) -> Result<Self> {
         let s: String = s.into();
-        if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
-            let ssplit = s.split(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX).collect::<Vec<&str>>();
+        if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) {
+            let ssplit = s.split(REVERIE_ID_TO_NAME_KADKEY_PREFIX).collect::<Vec<&str>>();
             Ok(ReverieIdToAgentName(ssplit[1].to_string()))
         } else {
-            Err(anyhow!("Invalid ReverieIdToAgentName kademlia key: {}. Must begin with {}", s, REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX))
+            Err(anyhow!("Invalid ReverieIdToAgentName kademlia key: {}. Must begin with {}", s, REVERIE_ID_TO_NAME_KADKEY_PREFIX))
         }
     }
 }
@@ -213,14 +219,19 @@ pub enum KademliaKey {
 
 impl From<&str> for KademliaKey {
     fn from(s: &str) -> Self {
-        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
-            KademliaKey::VesselPeerId(VesselPeerId::from_string(s).unwrap())
-        } else if s.starts_with(REVERIE_ID_TO_AGENTNAME_KADKEY_PREFIX) {
-            KademliaKey::ReverieIdToAgentName(ReverieIdToAgentName::from_string(s).unwrap())
-        } else if s.starts_with(REVERIE_ID_PREFIX) {
-            KademliaKey::Reverie(ReverieId::from(s))
-        } else {
-            KademliaKey::Unknown(s.to_string())
+        match s {
+            s if s.starts_with(VESSEL_KAD_KEY_PREFIX) => {
+                KademliaKey::VesselPeerId(VesselPeerId::from_string(s).unwrap())
+            }
+            s if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) => {
+                KademliaKey::ReverieIdToAgentName(ReverieIdToAgentName::from_string(s).unwrap())
+            }
+            s if s.starts_with(REVERIE_ID_PREFIX) => {
+                KademliaKey::Reverie(ReverieId::from(s))
+            }
+            _ => {
+                KademliaKey::Unknown(s.to_string())
+            }
         }
     }
 }

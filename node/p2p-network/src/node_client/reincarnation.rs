@@ -52,26 +52,25 @@ impl<'a> NodeClient<'a> {
             total_frags
         )?;
 
-        let (
-            reverie,
-            target_vessel
-        ) = self.broadcast_reverie_keyfrags(reverie.id.clone()).await?;
+        info!("{}{}", "Encrypted AgentSecretsJson:\n",
+            format!("{}", hex::encode(reverie.umbral_ciphertext.clone())).black()
+        );
+
+        // check agent_secrets are decryptable and parsable
+        let agent_secrets_json: Option<AgentSecretsJson> = serde_json::from_slice(
+            &self.umbral_key.decrypt_original(
+                &reverie.encode_capsule()?,
+                &reverie.umbral_ciphertext
+            )?
+        ).ok();
+
+        self.agent_secrets_json = agent_secrets_json;
+
+        let target_vessel = self.broadcast_reverie_keyfrags(&reverie).await?;
 
         info!("RequestResponse broadcast of kfrags complete.");
 
         Ok(target_vessel)
-    }
-
-    pub async fn get_reverie_id_from_agent_name(&self, agent_name_nonce: &ReverieNameWithNonce) -> Option<ReverieId> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        self.command_sender
-            .send(NodeCommand::GetReverieIdFromAgentName {
-                agent_name_nonce: agent_name_nonce.clone(),
-                sender: sender,
-            })
-            .await.expect("Command receiver not to bee dropped");
-
-        receiver.await.expect("get reverie receiver not to drop")
     }
 
     pub(super) async fn handle_respawn_request(
@@ -97,7 +96,7 @@ impl<'a> NodeClient<'a> {
         let next_agent = prev_agent_name_nonce.increment_nonce();
         let next_nonce = next_agent.nonce();
 
-        let mut agent_secrets_json = self.request_respawn_cfrags(
+        let mut agent_secrets_json = self.reconstruct_agent_secrets_cfrags(
             prev_reverie_id.clone(),
             prev_reverie_type,
             prev_failed_vessel_peer_id
@@ -130,10 +129,7 @@ impl<'a> NodeClient<'a> {
             total_frags
         )?;
 
-        let (
-            reverie,
-            target_vessel
-        ) = self.broadcast_reverie_keyfrags(reverie.id.clone()).await?;
+        let target_vessel = self.broadcast_reverie_keyfrags(&reverie).await?;
 
         // 3. mark respawn complete / old vessel died
         self.command_sender.send(NodeCommand::MarkPendingRespawnComplete {
@@ -148,7 +144,7 @@ impl<'a> NodeClient<'a> {
 
     // This needs to happen within the TEE as there is a decryption step, and the original
     // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
-    pub async fn request_respawn_cfrags(
+    pub async fn reconstruct_agent_secrets_cfrags(
         &mut self,
         prev_reverie_id: ReverieId,
         prev_reverie_type: ReverieType,
@@ -157,23 +153,19 @@ impl<'a> NodeClient<'a> {
 
         let reverie_msg = self.get_reverie(prev_reverie_id.clone(), prev_reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
-
-        let cfrags_raw = self.request_cfrags(
-            prev_reverie_id.clone(),
-            prev_failed_vessel_peer_id
-        ).await;
+        let cfrags_raw = self.request_cfrags(prev_reverie_id.clone()).await;
 
         let (
             verified_cfrags,
-            new_vessel_cfrags,
+            delegator_pubkey,
             total_frags_received
         ) = self.parse_cfrags(cfrags_raw, capsule.clone())?;
 
         let next_agent_secrets = self.decrypt_cfrags(
-            reverie_msg,
+            capsule,
+            reverie_msg.reverie.umbral_ciphertext,
+            delegator_pubkey,
             verified_cfrags,
-            new_vessel_cfrags,
-            total_frags_received
         );
 
         next_agent_secrets
