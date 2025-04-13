@@ -167,8 +167,8 @@ impl<'a> NetworkEvents<'a> {
         // Internal heartbeat failure is when a node fails to send heartbeats to external
         // nodes. It realizes it is no longer connected to the network.
         info!("{}", format!("{:?}", heartbeat_config).red());
-        info!("{}", "Initiating recovery...".green());
-        info!("{}", "Todo: Delete agent secrets, prevent duplicate agents.".green());
+        info!("{}", "Todo: Delete agent secrets, prevent duplicate agents.".yellow());
+        info!("{}", "Initiating recovery...".yellow());
 
         let peers: Vec<PeerId> = self.swarm.connected_peers().cloned().collect();
         let total_peers = peers.len();

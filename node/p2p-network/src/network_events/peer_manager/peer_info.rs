@@ -30,8 +30,8 @@ impl PeerInfo {
 pub struct AgentVesselInfo {
     pub reverie_id: ReverieId,
     pub reverie_type: ReverieType,
-    pub total_frags: usize,
     pub threshold: usize,
+    pub total_frags: usize,
     pub current_vessel_peer_id: PeerId,
     pub next_vessel_peer_id: PeerId,
 }

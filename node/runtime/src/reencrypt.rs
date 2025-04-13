@@ -168,12 +168,13 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
     alice_pre_key.check_ciphertext_decryptable(&capsule, &ciphertext, plaintext_original);
 
     // Alice generates reencryption key fragments for Bob (MPC node)
-    let shares = 3;
     let threshold = 2;
+    let total_shares = 3;
+    // 2-of-3 multi-party computation
     let kfrags = alice_pre_key.generate_pre_keyfrags(
         &bob_pk,
         threshold,
-        shares
+        total_shares
     );
 
     // Simulate network transfer to Usulas

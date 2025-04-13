@@ -42,20 +42,23 @@ impl<'a> NodeClient<'a> {
                         AgentVesselInfo {
                             reverie_id,
                             reverie_type,
-                            total_frags,
                             threshold,
+                            total_frags,
                             next_vessel_peer_id, // This node is the next vessel
                             current_vessel_peer_id: prev_failed_vessel_peer_id // Previous (failed) vessel
                         }
                     )) => {
-                        self.handle_respawn_request(
+                        match self.handle_respawn_request(
                             reverie_id,
                             reverie_type,
-                            total_frags,
                             threshold,
+                            total_frags,
                             next_vessel_peer_id,
                             prev_failed_vessel_peer_id
-                        ).await?;
+                        ).await {
+                            Ok(_) => info!("Respawn request handled successfully"),
+                            Err(e) => error!("Error handling respawn request: {:?}", e),
+                        };
                     }
                     event => panic!("Error <network_event_receiver>: {:?}", event),
                 }

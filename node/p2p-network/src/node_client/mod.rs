@@ -206,9 +206,6 @@ impl<'a> NodeClient<'a> {
             ).await?;
         }
 
-        // Save Reverie Ciphertext to IPFS
-        // Make it retrieveable via reverie_id
-
         // Add Memory trading:
         // make it easy for a user ALICE (not running a node) to
         // - submit a memory + PRE it for BOB (not running a node)
@@ -216,7 +213,9 @@ impl<'a> NodeClient<'a> {
 
         // Expand memories to MCP plugins
         // - Alice can now upload MCP plugins with API keys and rent access to them to BOB
-        //
+        // - Alice can even delegate access to entire github repos to execute in TEEs to BOB
+        // - Problem is marketing the MCP plugins: how does BOB know what the plugin does without seeing the code?
+        // - Use an AI description of the plugin? document endpoints?
 
         match reverie.reverie_type {
             ReverieType::SovereignAgent(..) => {
@@ -234,7 +233,7 @@ impl<'a> NodeClient<'a> {
                 ).await?;
             }
             _ => {
-                // Save Reverie on DHT for other ReverieTypes (Memory, Retrieval, Tools)
+                // Save Reverie on DHT for other ReverieTypes (Agent, Memory, Retrieval, Tools)
                 self.command_sender.send(
                     NodeCommand::SaveReverieOnNetwork {
                         reverie_msg: ReverieMessage {
@@ -245,7 +244,7 @@ impl<'a> NodeClient<'a> {
                     }
                 ).await?;
 
-                // still need to send to the target vessel for now
+                // Still need to send to the target vessel for now
                 // TODO: refactor to allow any peer to request the reverie and kfrags
                 // instread of needing a specific peer/node for non-SovereignAgents
                 self.command_sender.send(

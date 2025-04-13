@@ -1,9 +1,27 @@
 use std::time::Duration;
 use std::net::SocketAddr;
+use color_eyre::{Result, eyre::anyhow};
 use tracing::{info, warn};
 use rpc::rpc_client::create_rpc_client;
-use color_eyre::{Result, eyre::anyhow};
+use std::{
+    process::{Command, Stdio},
+    sync::Once,
+};
+use tokio::time;
 
+// Initialize logger only once across test runs
+static LOGGER_INIT: Once = Once::new();
+
+pub fn init_test_logger() {
+    LOGGER_INIT.call_once(|| {
+        let _ = color_eyre::install();
+        telemetry::init_logger(telemetry::LoggerConfig {
+            show_log_level: true,
+            show_path: true,
+            ..Default::default()
+        });
+    });
+}
 
 pub async fn wait_for_rpc_server(port: u16) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));

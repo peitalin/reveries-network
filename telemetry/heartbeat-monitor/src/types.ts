@@ -74,9 +74,9 @@ export interface CFrag {
   bob_pk: string;
   cfrag: string;
   frag_num: number;
+  threshold: number;
   next_vessel_peer_id: string;
   sender_peer_id: string;
-  threshold: number;
   verifying_pk: string;
   vessel_peer_id: string;
 }

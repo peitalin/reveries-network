@@ -16,6 +16,7 @@ use crate::types::{
     ReverieId,
     ReverieMessage,
     ReverieType,
+    AgentVesselInfo,
 };
 use super::container_manager::RestartReason;
 

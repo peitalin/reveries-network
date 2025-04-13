@@ -59,22 +59,17 @@ impl<'a> NetworkEvents<'a> {
             } => {
                 info!("{}", format!("SaveReverieOnNetwork type: {:?}", reverie.reverie_type).green());
 
-
-                let (agent_name_nonce, is_agent) = match reverie.reverie_type.clone() {
-                    ReverieType::Agent(agent_name_nonce) => (agent_name_nonce.clone(), true),
-                    ReverieType::SovereignAgent(agent_name_nonce) => (agent_name_nonce.clone(), true),
-                    _ => return,
-                };
-
                 // 1) Save Agent metadata if need be
-                if is_agent {
+                if let ReverieType::SovereignAgent(agent_name_nonce)
+                    | ReverieType::Agent(agent_name_nonce) = &reverie.reverie_type {
+
                     // Set broadcaster's peer info
                     self.peer_manager.set_peer_info_agent_vessel(
                         &AgentVesselInfo {
                             reverie_id: reverie.id.clone(),
                             reverie_type: reverie.reverie_type.clone(),
-                            total_frags: reverie.total_frags,
                             threshold: reverie.threshold,
+                            total_frags: reverie.total_frags,
                             current_vessel_peer_id: source_peer_id,
                             next_vessel_peer_id: target_peer_id,
                         }
@@ -123,14 +118,16 @@ impl<'a> NetworkEvents<'a> {
                 },
             } => {
                 // 1. Save agent metadata
-                if let ReverieType::Agent(agent_name_nonce) = &reverie.reverie_type {
+                if let ReverieType::SovereignAgent(agent_name_nonce)
+                    | ReverieType::Agent(agent_name_nonce) = &reverie.reverie_type {
+
                     // Set broadcaster's peer info
                     self.peer_manager.set_peer_info_agent_vessel(
                         &AgentVesselInfo {
                             reverie_id: reverie.id.clone(),
                             reverie_type: reverie.reverie_type.clone(),
-                            total_frags: reverie.total_frags,
                             threshold: reverie.threshold,
+                            total_frags: reverie.total_frags,
                             current_vessel_peer_id: source_peer_id,
                             next_vessel_peer_id: target_peer_id,
                         }
@@ -290,8 +287,8 @@ impl<'a> NetworkEvents<'a> {
                 };
             }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
-                info!("{} Simulating network failure:", self.nname());
-                info!("Triggering heartbeat failure in 500ms: {:?}", reason);
+                info!("{}", format!("Simulating network failure: {}", self.nname()).red());
+                info!("{}", format!("Triggering heartbeat failure in 500ms: {:?}", reason).red());
                 sender.send(reason.clone()).ok();
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.simulate_heartbeat_failure().await;

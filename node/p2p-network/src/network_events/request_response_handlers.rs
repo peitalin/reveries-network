@@ -113,8 +113,8 @@ impl<'a> NetworkEvents<'a> {
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie_keyfrag.id.clone(),
                                 reverie_type: reverie_keyfrag.reverie_type.clone(),
-                                total_frags: reverie_keyfrag.total_frags,
                                 threshold: reverie_keyfrag.threshold,
+                                total_frags: reverie_keyfrag.total_frags,
                                 current_vessel_peer_id: source_peer_id,
                                 next_vessel_peer_id: target_peer_id,
                             };
@@ -218,8 +218,8 @@ impl<'a> NetworkEvents<'a> {
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie.id.clone(),
                                 reverie_type: reverie.reverie_type.clone(),
-                                total_frags: reverie.total_frags,
                                 threshold: reverie.threshold,
+                                total_frags: reverie.total_frags,
                                 current_vessel_peer_id: source_peer_id,
                                 next_vessel_peer_id: target_peer_id,
                             };

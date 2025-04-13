@@ -100,8 +100,8 @@ impl PeerManager {
         let AgentVesselInfo {
             reverie_id,
             reverie_type,
-            total_frags,
             threshold,
+            total_frags,
             current_vessel_peer_id,
             next_vessel_peer_id,
         } = agent_vessel_info;
@@ -125,8 +125,8 @@ impl PeerManager {
                 peer_info.agent_vessel = Some(AgentVesselInfo {
                     reverie_id: reverie_id.clone(),
                     reverie_type: reverie_type.clone(),
-                    total_frags: total_frags.clone(),
                     threshold: threshold.clone(),
+                    total_frags: total_frags.clone(),
                     current_vessel_peer_id: current_vessel_peer_id.clone(),
                     next_vessel_peer_id: next_vessel_peer_id.clone(),
                 })
@@ -136,8 +136,8 @@ impl PeerManager {
         if current_vessel_peer_id == &self.peer_id {
             self.vessel_agent = Some(serde_json::json!({
                 "agent_name_nonce": agent_name_nonce.clone().to_string(),
-                "total_frags": total_frags.clone(),
                 "threshold": threshold.clone(),
+                "total_frags": total_frags.clone(),
                 "current_vessel_peer_id": current_vessel_peer_id,
                 "current_vessel_node_name": get_node_name(&current_vessel_peer_id),
                 "next_vessel_peer_id": next_vessel_peer_id,

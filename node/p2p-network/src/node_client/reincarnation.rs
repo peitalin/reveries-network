@@ -13,6 +13,7 @@ use crate::types::{
     Reverie,
     ReverieId,
     ReverieType,
+    AgentVesselInfo,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -77,8 +78,8 @@ impl<'a> NodeClient<'a> {
         &mut self,
         prev_reverie_id: ReverieId,
         prev_reverie_type: ReverieType,
-        total_frags: usize,
         threshold: usize,
+        total_frags: usize,
         next_vessel_peer_id: PeerId,    // This node is the next vessel
         prev_failed_vessel_peer_id: PeerId, // Previous (failed) vessel
     ) -> Result<()> {
