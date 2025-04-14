@@ -22,7 +22,7 @@ pub struct UmbralKey {
     secret_key: SecretKey, // keep private
     pub public_key: PublicKey,
     signer: Signer,
-    pub verifying_pk: PublicKey,
+    pub verifying_public_key: PublicKey,
 }
 
 impl UmbralKey {
@@ -51,7 +51,7 @@ impl UmbralKey {
             secret_key: secret_key,
             public_key: public_key,
             signer: signer,
-            verifying_pk: verifying_pk
+            verifying_public_key: verifying_pk
         }
     }
 
@@ -104,23 +104,29 @@ impl UmbralKey {
         );
     }
 
+    /// If `sign_delegating_key` or `sign_receiving_key` are `true`,
+    /// the reencrypting party will be able to verify that a [`KeyFrag`](`crate::KeyFrag`)
+    /// corresponds to given delegating or receiving public keys
+    /// by supplying them to [`KeyFrag::verify()`](`crate::KeyFrag::verify`).
     pub fn generate_pre_keyfrags(
         &self,
-        bob_pk: &PublicKey,
+        target_pubkey: &PublicKey,
         threshold: usize,
         total_shares: usize,
+        sign_delegating_key: bool,
+        sign_receiving_key: bool,
     ) -> Vec<KeyFrag> {
 
         let verified_kfrags = umbral_pre::generate_kfrags(
-            &self.secret_key, // alice secret key
-            bob_pk,
+            &self.secret_key, // delegator's (source) secret key
+            target_pubkey, // recipient's (target) public key
             &self.signer,
             // `signer` is used to sign the resulting [`KeyFrag`](`crate::KeyFrag`) objects,
             // which can be later verified by the associated public key.
             threshold,
             total_shares,
-            true, // sign_delegating_key
-            true, // sign_receiving_key
+            sign_delegating_key,
+            sign_receiving_key,
             // If `sign_delegating_key` or `sign_receiving_key` are `true`,
             // the reencrypting party will be able to verify that a [`KeyFrag`](`crate::KeyFrag`)
             // corresponds to given delegating or receiving public keys
@@ -138,7 +144,7 @@ impl UmbralKey {
 
     /// Verifies a signature against a digest using this UmbralKey's verifying_pk
     pub fn verify_signature(&self, signature: &umbral_pre::Signature, digest: &[u8]) -> bool {
-        signature.verify(&self.verifying_pk, digest)
+        signature.verify(&self.verifying_public_key, digest)
     }
 }
 
@@ -150,7 +156,7 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
     // Key Generation (on Alice's side)
     let alice_pre_key = UmbralKey::new(None);
     let alice_pk = alice_pre_key.public_key;
-    let verifying_pk = alice_pre_key.verifying_pk;
+    let verifying_pk = alice_pre_key.verifying_public_key;
     println!("alice_pk : {}", alice_pk);
     println!("signer verifying_pk: {}", verifying_pk);
 
@@ -174,22 +180,24 @@ pub fn run_reencrypt_example() -> Result<(Box<[u8]>, Box<[u8]>, Vec<u8>)> {
     let kfrags = alice_pre_key.generate_pre_keyfrags(
         &bob_pk,
         threshold,
-        total_shares
+        total_shares,
+        true, // sign_delegating_key
+        true, // sign_receiving_key
     );
 
-    // Simulate network transfer to Usulas
+    // Simulate network transfer to Chads
     let kfrag0 = kfrags[0].clone();
     let kfrag1 = kfrags[1].clone();
 
-    // Ursula 0
+    // Chads 0
     let verified_kfrag0 = kfrag0.verify(&verifying_pk, Some(&alice_pk), Some(&bob_pk)).unwrap();
     let verified_cfrag0 = reencrypt(&capsule, verified_kfrag0);
 
-    // Ursula 1
+    // Chads 1
     let verified_kfrag1 = kfrag1.verify(&verifying_pk, Some(&alice_pk), Some(&bob_pk)).unwrap();
     let verified_cfrag1 = reencrypt(&capsule, verified_kfrag1);
 
-    // Simulate network transfer from Usrula to Bob
+    // Simulate network transfer from Chads to Bob
     let cfrag0 = verified_cfrag0.clone().unverify();
     let cfrag1 = verified_cfrag1.clone().unverify();
 
@@ -270,7 +278,7 @@ mod tests {
 
         // Print for debug
         println!("Signature created: {:?}", signature);
-        println!("Verification key: {:?}", umbral_key.verifying_pk);
+        println!("Verification key: {:?}", umbral_key.verifying_public_key);
 
         // Verify using the helper method - should succeed
         let verification_success = umbral_key.verify_signature(&signature, &digest);

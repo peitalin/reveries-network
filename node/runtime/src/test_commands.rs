@@ -14,6 +14,5 @@ pub(crate) struct Cmd {
 pub enum CliArgument {
     TestUmbral,
     TestTee,
-    TestLlm,
     TestEvm
 }

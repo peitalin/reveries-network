@@ -1,4 +1,3 @@
-
 use color_eyre::{Result, eyre::anyhow};
 use libp2p::PeerId;
 use tracing::{info, debug, error, warn};
@@ -9,11 +8,12 @@ use crate::types::{
     ReverieNameWithNonce,
     NetworkEvent,
     RespawnId,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     Reverie,
     ReverieId,
     ReverieType,
     AgentVesselInfo,
+    VerifyingKey,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -33,7 +33,7 @@ impl<'a> NodeClient<'a> {
         agent_secrets: AgentSecretsJson,
         threshold: usize,
         total_frags: usize,
-    ) -> Result<NodeVesselWithStatus> {
+    ) -> Result<NodeKeysWithVesselStatus> {
 
         if threshold > total_frags {
             return Err(anyhow!("Threshold must be less than or equal to total fragments"));
@@ -44,29 +44,23 @@ impl<'a> NodeClient<'a> {
             agent_secrets.agent_nonce.clone()
         );
 
+        // get list of target vessel and kfrag provider nodes
+        let (
+            target_vessel,
+            target_kfrag_providers
+        ) = self.get_prospect_vessels(false).await?;
+
         // Create a "Reverie"––an encrypted memory that alters how a Host behaves
         let reverie = self.create_reverie(
             agent_secrets,
-            ReverieType::SovereignAgent(agent_name_nonce.clone()),
+            ReverieType::SovereignAgent(agent_name_nonce),
             threshold,
-            total_frags
+            total_frags,
+            target_vessel.umbral_public_key,
+            VerifyingKey::Umbral(target_vessel.umbral_verifying_public_key)
         )?;
 
-        info!("{}{}", "Encrypted AgentSecretsJson:\n",
-            format!("{}", hex::encode(reverie.umbral_ciphertext.clone())).black()
-        );
-
-        // check agent_secrets are decryptable and parsable
-        let agent_secrets_json: Option<AgentSecretsJson> = serde_json::from_slice(
-            &self.umbral_key.decrypt_original(
-                &reverie.encode_capsule()?,
-                &reverie.umbral_ciphertext
-            )?
-        ).ok();
-
-        self.agent_secrets_json = agent_secrets_json;
-
-        let target_vessel = self.broadcast_reverie_keyfrags(&reverie).await?;
+        self.broadcast_reverie_keyfrags(&reverie, target_vessel.peer_id, target_kfrag_providers).await?;
 
         info!("RequestResponse broadcast of kfrags complete.");
 
@@ -103,7 +97,6 @@ impl<'a> NodeClient<'a> {
         ).await?;
 
         agent_secrets_json.agent_nonce = next_nonce;
-        self.agent_secrets_json = Some(agent_secrets_json.clone());
 
         // Respawn checks:
         // 1. test LLM API works
@@ -121,24 +114,33 @@ impl<'a> NodeClient<'a> {
             // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
         }
 
-        // 2. re-encrypt secrets + provide TEE attestation of it
+        // 2. get a new list of target vessel and kfrag provider nodes
+        let (
+            target_vessel,
+            target_kfrag_providers
+        ) = self.get_prospect_vessels(false).await?;
+
+        // 3. re-encrypt secrets + provide TEE attestation of it
         let reverie = self.create_reverie(
             agent_secrets_json.clone(),
             ReverieType::SovereignAgent(next_agent.clone()),
             threshold,
-            total_frags
+            total_frags,
+            target_vessel.umbral_public_key,
+            VerifyingKey::Umbral(target_vessel.umbral_verifying_public_key)
         )?;
 
-        let target_vessel = self.broadcast_reverie_keyfrags(&reverie).await?;
+        // 4. broadcast keyfrags to new providers
+        self.broadcast_reverie_keyfrags(&reverie, target_vessel.peer_id, target_kfrag_providers).await?;
 
-        // 3. mark respawn complete / old vessel died
+        // 5. mark respawn complete / old vessel died
         self.command_sender.send(NodeCommand::MarkPendingRespawnComplete {
             prev_reverie_id: prev_reverie_id.clone(),
             prev_peer_id: prev_failed_vessel_peer_id,
             prev_agent_name_nonce: prev_agent,
         }).await.ok();
 
-        info!("{}", format!("Respawn Request complete.\n\n").green());
+        info!("\n\n\t{}\n", format!("Respawn Request complete.").green());
         Ok(())
     }
 
@@ -153,7 +155,7 @@ impl<'a> NodeClient<'a> {
 
         let reverie_msg = self.get_reverie(prev_reverie_id.clone(), prev_reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
-        let cfrags_raw = self.request_cfrags(prev_reverie_id.clone()).await;
+        let cfrags_raw = self.request_cfrags(prev_reverie_id.clone(), None).await;
 
         let (
             verified_cfrags,

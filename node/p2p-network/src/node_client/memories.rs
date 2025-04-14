@@ -1,4 +1,3 @@
-
 use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use libp2p::PeerId;
@@ -10,11 +9,13 @@ use crate::types::{
     ReverieNameWithNonce,
     NetworkEvent,
     RespawnId,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     Reverie,
     ReverieId,
     ReverieType,
     AgentVesselInfo,
+    SignatureType,
+    VerifyingKey,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -34,26 +35,30 @@ impl<'a> NodeClient<'a> {
         memory_secrets: serde_json::Value,
         threshold: usize,
         total_frags: usize,
-    ) -> Result<NodeVesselWithStatus> {
+        verifying_public_key: VerifyingKey,
+    ) -> Result<NodeKeysWithVesselStatus> {
 
         if threshold > total_frags {
             return Err(anyhow!("Threshold must be less than or equal to total fragments"));
         }
 
-        let reverie_name_nonce = ReverieNameWithNonce(
-            memory_secrets["name"].as_str().unwrap().to_string(),
-            memory_secrets["nonce"].as_str().unwrap().parse::<usize>().unwrap()
-        );
+        // get list of target vessel and kfrag provider nodes
+        let (
+            target_vessel,
+            target_kfrag_providers
+        ) = self.get_prospect_vessels(false).await?;
 
         // Create a "Reverie"––an encrypted memory that alters how a Host behaves
         let reverie = self.create_reverie(
             memory_secrets,
             ReverieType::Memory,
             threshold,
-            total_frags
+            total_frags,
+            target_vessel.umbral_public_key,
+            verifying_public_key
         )?;
 
-        let target_vessel = self.broadcast_reverie_keyfrags(&reverie).await?;
+        self.broadcast_reverie_keyfrags(&reverie, target_vessel.peer_id, target_kfrag_providers).await?;
 
         info!("RequestResponse broadcast of kfrags complete.");
         Ok(target_vessel)
@@ -65,13 +70,14 @@ impl<'a> NodeClient<'a> {
         &mut self,
         reverie_id: ReverieId,
         reverie_type: ReverieType,
-        prev_failed_vessel_peer_id: libp2p::PeerId
+        prev_failed_vessel_peer_id: libp2p::PeerId,
+        signature: Option<SignatureType>
     ) -> Result<T> {
 
         let reverie_msg = self.get_reverie(reverie_id.clone(), reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
 
-        let cfrags_raw = self.request_cfrags(reverie_id.clone()).await;
+        let cfrags_raw = self.request_cfrags(reverie_id.clone(), signature).await;
 
         let (
             verified_cfrags,
@@ -89,16 +95,18 @@ impl<'a> NodeClient<'a> {
         next_agent_secrets
     }
 
-    pub async fn execute_with_reverie(
+    pub async fn execute_with_memory_reverie(
         &mut self,
         reverie_id: ReverieId,
-        reverie_type: ReverieType
+        reverie_type: ReverieType,
+        signature: Option<SignatureType>
     ) -> Result<()> {
 
         let memory_secrets_json: serde_json::Value = self.reconstruct_memory_cfrags(
             reverie_id.clone(),
             reverie_type,
-            self.node_id.peer_id
+            self.node_id.peer_id,
+            signature
         ).await?;
 
         println!("memory_secrets_json: {:?}", memory_secrets_json);

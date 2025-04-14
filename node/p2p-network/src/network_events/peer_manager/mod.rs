@@ -106,7 +106,6 @@ impl PeerManager {
             next_vessel_peer_id,
         } = agent_vessel_info;
 
-
         let (agent_name_nonce, is_agent) = match reverie_type {
             ReverieType::Agent(agent_name_nonce) => (agent_name_nonce.clone(), true),
             ReverieType::SovereignAgent(agent_name_nonce) => (agent_name_nonce.clone(), true),
@@ -257,7 +256,6 @@ impl PeerManager {
         peer_id: &PeerId,
         track_reverie_fragment: TrackReverieFragment
     ) {
-        println!("Tracking reverie_fragment: '{}' frag({})", track_reverie_fragment.reverie_id, track_reverie_fragment.frag_num);
         self.peers_to_reverie_frags
             .entry(*peer_id)
             .and_modify(|hset| {

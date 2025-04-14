@@ -85,11 +85,11 @@ impl TryPeerId for VesselPeerId {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct NodeVesselWithStatus {
+pub struct NodeKeysWithVesselStatus {
     pub peer_id: PeerId,
     pub umbral_public_key: umbral_pre::PublicKey,
-    pub verifying_pk: umbral_pre::PublicKey,
-    pub agent_vessel_info: Option<AgentVesselInfo>,
+    pub umbral_verifying_public_key: umbral_pre::PublicKey,
+    // pub agent_vessel_info: Option<AgentVesselInfo>,
     pub vessel_status: VesselStatus,
 }
 
@@ -103,9 +103,9 @@ pub enum VesselStatus {
     ActiveVessel
 }
 
-impl Display for NodeVesselWithStatus  {
+impl Display for NodeKeysWithVesselStatus  {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeVesselWithStatus({}, {})", self.peer_id, self.umbral_public_key)
+        write!(f, "NodeKeysWithVesselStatus({}, {})", self.peer_id, self.umbral_public_key)
     }
 }
 
@@ -134,12 +134,12 @@ impl RespawnId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedVesselStatus {
-    pub node_vessel_status: NodeVesselWithStatus,
+    pub node_vessel_status: NodeKeysWithVesselStatus,
     pub signature: Vec<u8>,
 }
 
 impl SignedVesselStatus {
-    pub fn new(status: NodeVesselWithStatus, id_keys: &identity::Keypair) -> Result<Self> {
+    pub fn new(status: NodeKeysWithVesselStatus, id_keys: &identity::Keypair) -> Result<Self> {
         let status_bytes = serde_json::to_vec(&status)?;
         let signature = id_keys.sign(&status_bytes)?;
         Ok(Self {

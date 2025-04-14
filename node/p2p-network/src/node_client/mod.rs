@@ -26,7 +26,7 @@ use crate::network_events::NodeIdentity;
 use crate::types::{
     ReverieNameWithNonce,
     NetworkEvent,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     RespawnId,
     Reverie,
     ReverieCapsulefrag,
@@ -36,11 +36,13 @@ use crate::types::{
     ReverieMessage,
     ReverieType,
     VesselStatus,
+    SignatureType,
+    VerifyingKey,
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
-use runtime::llm::{test_claude_query, AgentSecretsJson};
+use runtime::llm::AgentSecretsJson;
 
 
 
@@ -53,7 +55,7 @@ pub struct NodeClient<'a> {
     // hb subscriptions for rpc clients
     pub heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     // keep private in TEE
-    agent_secrets_json: Option<AgentSecretsJson>,
+    // agent_secrets_json: Option<AgentSecretsJson>,
     umbral_key: UmbralKey,
 }
 
@@ -73,23 +75,66 @@ impl<'a> NodeClient<'a> {
             // hb subscriptions for rpc clients
             heartbeat_receiver: heartbeat_receiver,
             // keep private in TEE
-            agent_secrets_json: None,
             umbral_key: umbral_key,
         }
     }
 
-    pub fn make_reverie_keyfrags(
+    pub fn create_reverie<T: Serialize + DeserializeOwned>(
+        &mut self,
+        secrets: T,
+        reverie_type: ReverieType,
+        threshold: usize,
+        total_frags: usize,
+        target_public_key: umbral_pre::PublicKey,
+        verifying_public_key: VerifyingKey,
+    ) -> Result<Reverie> {
+
+        let (
+            capsule,
+            ciphertext
+        ) = self.umbral_key.encrypt_bytes(&serde_json::to_vec(&secrets)?)?;
+
+        // Check secrets are decryptable and parsable
+        println!("{}{}", "Encrypted AgentSecretsJson:\n",
+            format!("{}", hex::encode(ciphertext.clone())).black()
+        );
+        let agent_secrets_json: Option<AgentSecretsJson> = serde_json::from_slice(
+            &self.umbral_key.decrypt_original(&capsule, &ciphertext)?
+        ).ok();
+
+        let reverie = Reverie::new(
+            "secrets description".to_string(),
+            reverie_type,
+            threshold,
+            total_frags,
+            target_public_key,
+            verifying_public_key,
+            capsule,
+            ciphertext
+        );
+
+        Ok(reverie)
+    }
+
+    pub fn create_reverie_keyfrags(
         &self,
         reverie: &Reverie,
-        target_vessel: NodeVesselWithStatus,
     ) -> Result<Vec<ReverieKeyfrag>> {
-        let bob_pk = target_vessel.umbral_public_key;
         // Alice generates reencryption key fragments for MPC nodes
-        info!("Generating fragments for new vessel: {}-of-{} key", reverie.threshold, reverie.total_frags);
+        info!("Generating {}-of-{} keyfrags for reverie: {}", reverie.threshold, reverie.total_frags, reverie.id);
+
+        let sign_target_key = match reverie.verifying_public_key {
+            VerifyingKey::Umbral(..) => true, // verify kfrag belongs to a given target pubkey
+            VerifyingKey::Ethereum(..) => false,
+            VerifyingKey::Ed25519(..) => false,
+        };
+
         let kfrags = self.umbral_key.generate_pre_keyfrags(
-            &bob_pk, // bob_pk
+            &reverie.target_public_key,
             reverie.threshold,
-            reverie.total_frags
+            reverie.total_frags,
+            true, // verify kfrag corresponds to a given delegating pubkey
+            sign_target_key, // verify kfrag belongs to a given target pubkey
         ).iter().enumerate().map(|(i, kfrag)| {
             ReverieKeyfrag {
                 id: reverie.id.clone(),
@@ -100,50 +145,24 @@ impl<'a> NodeClient<'a> {
                 umbral_keyfrag: serde_json::to_vec(&kfrag).expect(""),
                 umbral_capsule: reverie.umbral_capsule.clone(),
                 source_pubkey: self.umbral_key.public_key,
-                target_pubkey: target_vessel.umbral_public_key,
-                source_verifying_pubkey: self.umbral_key.verifying_pk,
-                target_verifying_pubkey: target_vessel.verifying_pk,
+                target_pubkey: reverie.target_public_key,
+                source_verifying_pubkey: self.umbral_key.verifying_public_key,
+                target_verifying_pubkey: reverie.verifying_public_key.clone(),
             }
         }).collect::<Vec<ReverieKeyfrag>>();
+
         Ok(kfrags)
     }
 
-    pub fn create_reverie<T: Serialize + DeserializeOwned>(
-        &mut self,
-        secrets: T,
-        reverie_type: ReverieType,
-        threshold: usize,
-        total_frags: usize
-    ) -> Result<Reverie> {
+    pub async fn get_prospect_vessels(
+        &self,
+        shuffle: bool
+    ) -> Result<(NodeKeysWithVesselStatus, Vec<NodeKeysWithVesselStatus>)> {
 
-        let (
-            capsule,
-            ciphertext
-        ) = self.umbral_key.encrypt_bytes(&serde_json::to_vec(&secrets)?)?;
-
-        let reverie = Reverie::new(
-            "secrets description".to_string(),
-            reverie_type,
-            threshold,
-            total_frags,
-            capsule,
-            ciphertext
-        );
-
-        Ok(reverie)
-    }
-
-    /// Client sends a secret/memory over TLS channel.
-    /// Node encrypts with PRE and broadcasts fragments to the network
-    pub async fn broadcast_reverie_keyfrags(
-        &mut self,
-        reverie: &Reverie,
-    ) -> Result<NodeVesselWithStatus> {
-
-        let peer_nodes = self.get_node_vessels(false).await
+        let peer_nodes = self.get_node_vessels(shuffle).await
             .into_iter()
             .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
-            .collect::<Vec<NodeVesselWithStatus>>();
+            .collect::<Vec<NodeKeysWithVesselStatus>>();
 
         let (
             target_vessel,
@@ -155,20 +174,27 @@ impl<'a> NodeClient<'a> {
         if target_kfrag_providers.contains(&target_vessel) {
             return Err(anyhow!("Target vessel cannot also be a kfrag provider"));
         }
+
+        Ok((target_vessel.clone(), target_kfrag_providers.to_vec()))
+    }
+
+    pub async fn broadcast_reverie_keyfrags(
+        &mut self,
+        reverie: &Reverie,
+        target_vessel_peer_id: PeerId,
+        target_kfrag_providers: Vec<NodeKeysWithVesselStatus>
+    ) -> Result<()> {
+
+        let umbral_ciphertext = reverie.umbral_ciphertext.clone();
+
+        // Split into fragments
+        let kfrags = self.create_reverie_keyfrags(&reverie)?;
+
         if target_kfrag_providers.len() < reverie.total_frags {
             return Err(anyhow!("Not connected to enough peers, need: {}, got: {}", reverie.total_frags + 1, target_kfrag_providers.len() + 1));
         }
         info!("Kfrag providers: {}", target_kfrag_providers.len());
         info!("Total frags: {}", reverie.total_frags);
-
-        let umbral_capsule = reverie.umbral_capsule.clone();
-        let umbral_ciphertext = reverie.umbral_ciphertext.clone();
-
-        // Split into fragments
-        let kfrags = self.make_reverie_keyfrags(
-            &reverie,
-            target_vessel.clone()
-        )?;
 
         // Send Kfrags to peer nodes
         for (i, reverie_keyfrag) in kfrags.into_iter().enumerate() {
@@ -179,7 +205,7 @@ impl<'a> NodeClient<'a> {
                     reverie_keyfrag_msg: ReverieKeyfragMessage {
                         reverie_keyfrag: reverie_keyfrag,
                         source_peer_id: self.node_id.peer_id,
-                        target_peer_id: target_vessel.peer_id,
+                        target_peer_id: target_vessel_peer_id,
                     },
                 }
             ).await?;
@@ -202,11 +228,11 @@ impl<'a> NodeClient<'a> {
                 // These agents live in an isolated TEE instance
                 self.command_sender.send(
                     NodeCommand::SendReverieToSpecificPeer {
-                        ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
+                        ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
                         reverie_msg: ReverieMessage {
                             reverie: reverie.clone(),
                             source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel.peer_id,
+                            target_peer_id: target_vessel_peer_id,
                         },
                     }
                 ).await?;
@@ -218,7 +244,7 @@ impl<'a> NodeClient<'a> {
                         reverie_msg: ReverieMessage {
                             reverie: reverie.clone(),
                             source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel.peer_id,
+                            target_peer_id: target_vessel_peer_id,
                         },
                     }
                 ).await?;
@@ -228,38 +254,28 @@ impl<'a> NodeClient<'a> {
                 // instread of needing a specific peer/node for non-SovereignAgents
                 self.command_sender.send(
                     NodeCommand::SendReverieToSpecificPeer {
-                        ciphertext_holder: target_vessel.peer_id, // Ciphertext Holder
+                        ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
                         reverie_msg: ReverieMessage {
                             reverie: reverie.clone(),
                             source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel.peer_id,
+                            target_peer_id: target_vessel_peer_id,
                         },
                     }
                 ).await?;
             }
         }
 
-        Ok(target_vessel.clone())
+        Ok(())
     }
 
-    pub async fn get_next_vessel(&mut self) -> Result<NodeVesselWithStatus> {
-        match self.get_node_vessels(false).await.iter()
-            .filter(|v| v.vessel_status == VesselStatus::EmptyVessel)
-            .next()
-        {
-            None => Err(anyhow!("No empty vessels found.")),
-            Some(next_vessel) => Ok(next_vessel.clone())
-        }
-    }
-
-    pub async fn get_node_vessels(&self, shuffle: bool) -> Vec<NodeVesselWithStatus> {
+    pub async fn get_node_vessels(&self, shuffle: bool) -> Vec<NodeKeysWithVesselStatus> {
         let (sender, mut receiver) = mpsc::channel(100);
         self.command_sender
             .send(NodeCommand::GetNodeVesselStatusesFromKademlia { sender })
             .await
             .expect("Command receiver not to be dropped.");
 
-        let mut pks: Vec<NodeVesselWithStatus> = vec![];
+        let mut pks: Vec<NodeKeysWithVesselStatus> = vec![];
         while let Some(pk) = receiver.recv().await {
             debug!("Received Peer Umbral PK => {}", pk);
             pks.push(pk);
@@ -303,21 +319,33 @@ impl<'a> NodeClient<'a> {
         receiver.await.map_err(SendError::from)?
     }
 
-    pub async fn request_cfrags(&mut self, reverie_id: ReverieId) -> Vec<Result<Vec<u8>, SendError>> {
+    pub async fn request_cfrags(
+        &mut self,
+        reverie_id: ReverieId,
+        external_signature: Option<SignatureType>
+    ) -> Vec<Result<Vec<u8>, SendError>> {
 
         let providers = self.get_kfrag_providers(reverie_id.clone()).await;
 
         info!("Finding kfrag providers for: {}", reverie_id);
         info!("Kfrag providers: {:?}\n", providers);
 
-        // target vessel creates signature by signing the digest hash of reverie_id
-        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
+        // Get either the provided signature or generate one using umbral_key
+        let signature = match external_signature {
+            Some(sig) => sig,
+            None => {
+                // target vessel creates signature by signing the digest hash of reverie_id
+                let digest = Keccak256::digest(reverie_id.clone().as_bytes());
+                // Sign with our umbral signer key (corresponds to the verifying key)
+                let umbral_signature = self.umbral_key.sign(&digest);
+                SignatureType::Umbral(
+                    serde_json::to_vec(&umbral_signature)
+                        .expect("Failed to serialize umbral signature")
+                )
+            }
+        };
 
-        // Sign with our umbral signer key (corresponds to the verifying key).
-        // The fragment provider verifies this signature with the (target) verifying key.
-        // That way only the intended recipient can request the cfrags from fragment providers
-        let signature = self.umbral_key.sign(&digest);
-
+        // Rest of the function using signature
         let requests = providers.iter()
             .map(|kfrag_provider_peer_id| {
 
@@ -332,7 +360,7 @@ impl<'a> NodeClient<'a> {
                     nc.command_sender
                         .send(NodeCommand::RequestCapsuleFragment {
                             reverie_id: reverie_id2.clone(),
-                            kfrag_provider_peer_id: *kfrag_provider_peer_id,
+                            kfrag_provider_peer_id: kfrag_provider_peer_id.clone(),
                             signature: signature2,
                             sender
                         })
@@ -429,8 +457,9 @@ impl<'a> NodeClient<'a> {
             ciphertext // ciphertext
         ) {
             Ok(plaintext_bob) => {
-                let secrets_str = serde_json::to_string_pretty(&plaintext_bob)?;
-                info!("{}", format!("Decrypted (re-encrypted) agent data:\n{}", secrets_str).yellow());
+                let decrypted_data: serde_json::Value = serde_json::from_slice(&plaintext_bob)?;
+                let secrets_str = serde_json::to_string_pretty(&decrypted_data)?;
+                println!("Decrypted (re-encrypted) secrets:\n{}", format!("{}", secrets_str).bright_black());
                 let secrets_json = serde_json::from_slice(&plaintext_bob)?;
                 Ok(secrets_json)
             },
@@ -457,20 +486,6 @@ impl<'a> NodeClient<'a> {
             .await.expect("Command receiver not to bee dropped");
 
         receiver.await.expect("get reverie receiver not to drop")
-    }
-
-    pub async fn ask_llm(&mut self, question: &str) {
-        if let Some(agent_secrets_json) = &self.agent_secrets_json {
-            if let Some(anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
-                info!("Context: {}", agent_secrets_json.context.blue());
-                let response = test_claude_query(
-                    anthropic_api_key,
-                    question,
-                    &agent_secrets_json.context
-                ).await.unwrap();
-                info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
-            }
-        }
     }
 
     pub async fn simulate_node_failure(&mut self) -> Result<RestartReason> {

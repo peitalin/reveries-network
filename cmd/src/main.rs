@@ -6,7 +6,7 @@ use itertools::Itertools;
 use commands::{Cmd, CliArgument};
 use clap::Parser;
 use colored::Colorize;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow};
 use hex;
 use jsonrpsee::core::params::ArrayParams;
 use jsonrpsee::{
@@ -26,7 +26,13 @@ use tracing::{debug, info, warn, error};
 use rpc::rpc_client::{parse_url, create_rpc_client};
 use p2p_network::{
     node_client::RestartReason,
-    types::NodeVesselWithStatus,
+    types::{
+        NodeKeysWithVesselStatus,
+        ReverieId,
+        ReverieType,
+        SignatureType,
+        ReverieNameWithNonce
+    },
     get_node_name,
     short_peer_id,
 };
@@ -91,12 +97,10 @@ async fn main() -> Result<()> {
                 secret_key_seed as usize
             );
 
-            let NodeVesselWithStatus {
+            let NodeKeysWithVesselStatus {
                 peer_id,
                 umbral_public_key,
-                verifying_pk,
-                agent_vessel_info,
-                vessel_status
+                ..
             } = client.request(
                 "spawn_agent",
                 rpc_params![
@@ -211,6 +215,77 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+        }
+
+        CliArgument::SpawnMemoryReverie {
+            memory_secrets,
+            threshold,
+            total_frags,
+        } => {
+            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+
+            let NodeKeysWithVesselStatus {
+                peer_id,
+                umbral_public_key,
+                ..
+            } = client.request(
+                "spawn_memory_reverie",
+                rpc_params![
+                    memory_secrets,
+                    threshold,
+                    total_frags
+                ]
+            ).await?;
+
+            info!("{}\n{}",
+                format!("Spawned Memory Reverie in vessel: {}\n{}",
+                    get_node_name(&peer_id),
+                    short_peer_id(&peer_id),
+                ).yellow(),
+                format!(
+                    "Umbral PublicKey: {}",
+                    hex::encode(umbral_public_key.to_uncompressed_bytes())
+                ).blue()
+            );
+        }
+
+        CliArgument::ExecuteWithMemoryReverie {
+            reverie_id,
+            reverie_type,
+            signature,
+        } => {
+            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+
+            // Parse reverie_id from string
+            let reverie_id = ReverieId::from(reverie_id);
+
+            // Parse reverie_type from string
+            let reverie_type = match reverie_type.as_str() {
+                "Memory" => ReverieType::Memory,
+                "Agent" => ReverieType::Agent(ReverieNameWithNonce("default".to_string(), 0)),
+                "SovereignAgent" => ReverieType::SovereignAgent(ReverieNameWithNonce("default".to_string(), 0)),
+                _ => return Err(anyhow!("Invalid reverie type: {}", reverie_type))
+            };
+
+            // Parse signature if provided
+            let signature = match signature {
+                Some(sig_hex) => {
+                    let sig_bytes = hex::decode(sig_hex)?;
+                    Some(SignatureType::Umbral(sig_bytes))
+                },
+                None => None
+            };
+
+            client.request::<(), _>(
+                "execute_with_memory_reverie",
+                rpc_params![
+                    reverie_id,
+                    reverie_type,
+                    signature
+                ]
+            ).await?;
+
+            info!("{}", format!("Successfully executed memory reverie").green());
         }
     }
 

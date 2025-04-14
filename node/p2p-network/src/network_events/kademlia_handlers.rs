@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{get_node_name, short_peer_id, SendError};
 use crate::types::{
     VesselPeerId,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     SignedVesselStatus,
     ReverieIdToAgentName,
     ReverieId,
@@ -152,11 +152,10 @@ impl<'a> NetworkEvents<'a> {
                         self.node_id.umbral_key.public_key
                     );
 
-                    let node_vessel_status = NodeVesselWithStatus {
+                    let node_vessel_status = NodeKeysWithVesselStatus {
                         peer_id: peer_id,
                         umbral_public_key: self.node_id.umbral_key.public_key,
-                        verifying_pk: self.node_id.umbral_key.verifying_pk,
-                        agent_vessel_info: None, // None initially
+                        umbral_verifying_public_key: self.node_id.umbral_key.verifying_public_key,
                         vessel_status: self.peer_manager.vessel_status,
                     };
                     // Publish signed vessel status during bootstrap

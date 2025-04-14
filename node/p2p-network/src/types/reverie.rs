@@ -11,6 +11,7 @@ use crate::utils::{
 use crate::types::{
     ReverieNameWithNonce,
     VesselPeerId,
+    VerifyingKey,
     VESSEL_KAD_KEY_PREFIX,
 };
 
@@ -40,6 +41,8 @@ pub struct Reverie {
     pub description: String,
     pub threshold: usize,
     pub total_frags: usize,
+    pub target_public_key: umbral_pre::PublicKey,
+    pub verifying_public_key: VerifyingKey,
     pub umbral_capsule: Vec<u8>,
     pub umbral_ciphertext: Box<[u8]>,
 }
@@ -53,10 +56,10 @@ pub struct ReverieKeyfrag {
     pub total_frags: usize,
     pub umbral_keyfrag: Vec<u8>,
     pub umbral_capsule: Vec<u8>,
-    pub source_pubkey: umbral_pre::PublicKey, // source_pubkey
-    pub target_pubkey: umbral_pre::PublicKey,   // target_pubkey
+    pub source_pubkey: umbral_pre::PublicKey,           // source_pubkey
     pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
-    pub target_verifying_pubkey: umbral_pre::PublicKey,   // target verifying key
+    pub target_pubkey: umbral_pre::PublicKey,           // target_pubkey
+    pub target_verifying_pubkey: VerifyingKey,          // target verifying key
 }
 
 
@@ -67,10 +70,10 @@ pub struct ReverieCapsulefrag {
     pub frag_num: usize,
     pub threshold: usize,
     pub umbral_capsule_frag: Vec<u8>,
-    pub source_pubkey: umbral_pre::PublicKey, // source_pubkey
-    pub target_pubkey: umbral_pre::PublicKey,   // target_pubkey
+    pub source_pubkey: umbral_pre::PublicKey,           // source_pubkey
     pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
-    pub target_verifying_pubkey: umbral_pre::PublicKey,   // target verifying key
+    pub target_pubkey: umbral_pre::PublicKey,           // target_pubkey
+    pub target_verifying_pubkey: VerifyingKey,          // target verifying key
     pub kfrag_provider_peer_id: PeerId,
 }
 
@@ -114,6 +117,8 @@ impl Reverie {
         reverie_type: ReverieType,
         threshold: usize,
         total_frags: usize,
+        target_public_key: umbral_pre::PublicKey,
+        verifying_public_key: VerifyingKey,
         capsule: umbral_pre::Capsule,
         ciphertext: Box<[u8]>
     ) -> Self {
@@ -123,6 +128,8 @@ impl Reverie {
             description: description,
             threshold: threshold,
             total_frags: total_frags,
+            target_public_key: target_public_key,
+            verifying_public_key: verifying_public_key,
             umbral_capsule: serde_json::to_vec(&capsule).expect("Failed to serialize capsule"),
             umbral_ciphertext: ciphertext
         }

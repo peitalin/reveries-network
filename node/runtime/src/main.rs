@@ -7,13 +7,7 @@ mod test_commands;
 
 use test_commands::{Cmd, CliArgument};
 use clap::Parser;
-use llm::{
-    read_agent_secrets,
-    connect_to_anthropic,
-    connect_to_deepseek,
-};
 use reencrypt::run_reencrypt_example;
-use rig::completion::Prompt;
 use evm::{
     deploy_contract, get_1upnetwork_contract_bytecode,
     query_number,
@@ -48,24 +42,6 @@ async fn main() -> color_eyre::Result<()> {
                 tee_attestation_quote,
                 tee_attestation_bytes
             ) = tee_attestation::generate_tee_attestation(true)?;
-        }
-        CliArgument::TestLlm => {
-            let agent_secrets = read_agent_secrets(0);
-            ///// Claude
-            let (_claude, agent) = connect_to_anthropic(
-                &agent_secrets.anthropic_api_key.unwrap(),
-                "you are a helpful assistant"
-            );
-            ///// DeepSeek
-            // let agent = connect_to_deepseek(
-            //     agent_secrets.deepseek_api_key.unwrap(),
-            //     "You are a helpful assistant"
-            // ).await;
-
-            let ask = "does an LLM have a soul? give me a short, one-sentence answer";
-            println!("\nAsking: {}\nWaiting for LLM response...", ask);
-            let answer = agent.prompt(ask).await?;
-            println!("\nAnswer: {}", answer);
         }
         CliArgument::TestEvm => {
             // Test running an EVM

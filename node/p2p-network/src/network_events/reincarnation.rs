@@ -29,7 +29,7 @@ use crate::types::{
     RespawnId,
     VesselPeerId,
     AgentVesselInfo,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     VesselStatus,
     SignedVesselStatus,
     ReverieId,

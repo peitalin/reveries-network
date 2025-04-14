@@ -1,6 +1,7 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use p2p_network::types::{ReverieId, ReverieType, SignatureType};
 
 
 #[derive(Parser, Serialize, Deserialize, Clone, Debug)]
@@ -43,4 +44,34 @@ pub enum CliArgument {
     Websocket,
 
     SubscribeHeartbeat,
+
+    #[clap(name = "spawn-memory-reverie")]
+    SpawnMemoryReverie {
+        /// JSON containing memory secrets
+        #[clap(long)]
+        memory_secrets: serde_json::Value,
+
+        /// Minimum number of fragments needed for reconstruction
+        #[clap(long)]
+        threshold: usize,
+
+        /// Total number of fragments to create
+        #[clap(long)]
+        total_frags: usize,
+    },
+
+    #[clap(name = "execute-with-memory-reverie")]
+    ExecuteWithMemoryReverie {
+        /// The ID of the reverie to execute
+        #[clap(long)]
+        reverie_id: String,
+
+        /// The type of the reverie (Memory, Agent, SovereignAgent)
+        #[clap(long)]
+        reverie_type: String,
+
+        /// Optional signature for verification (in hex format)
+        #[clap(long)]
+        signature: Option<String>,
+    },
 }

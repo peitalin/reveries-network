@@ -35,7 +35,7 @@ use crate::types::{
     RespawnId,
     VesselPeerId,
     AgentVesselInfo,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     VesselStatus,
     SignedVesselStatus,
     ReverieId,
@@ -50,7 +50,6 @@ use runtime::reencrypt::UmbralKey;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
-// use runtime::llm::test_claude_query;
 
 
 #[derive(Clone)]
@@ -110,7 +109,7 @@ struct PendingRequests {
     >,
     get_node_vessels: HashMap<
         VesselPeerId,
-        mpsc::Sender<NodeVesselWithStatus>
+        mpsc::Sender<NodeKeysWithVesselStatus>
     >,
     get_reverie_agent_name: HashMap<
         ReverieIdToAgentName,
@@ -220,7 +219,7 @@ impl<'a> NetworkEvents<'a> {
             .remove_record(&kad::RecordKey::new(&VesselPeerId::from(peer_id).to_string()));
     }
 
-    fn put_signed_vessel_status_kademlia(&mut self, status: NodeVesselWithStatus) -> Result<()> {
+    fn put_signed_vessel_status_kademlia(&mut self, status: NodeKeysWithVesselStatus) -> Result<()> {
         let signed_status = SignedVesselStatus::new(status.clone(), &self.node_id.id_keys)?;
 
         self.swarm.behaviour_mut().kademlia.put_record(

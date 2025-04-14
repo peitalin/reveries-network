@@ -11,13 +11,14 @@ use crate::types::{
     FragmentRequestEnum,
     FragmentResponseEnum,
     AgentVesselInfo,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     VesselStatus,
     ReverieKeyfrag,
     ReverieCapsulefrag,
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
+    VerifyingKey,
 };
 use crate::{short_peer_id, get_node_name, get_node_name2};
 use super::NetworkEvents;
@@ -48,28 +49,22 @@ impl<'a> NetworkEvents<'a> {
                     ) => {
 
                         info!("{}", format!("{} Inbound RequestFragmentRequest {reverie_id}", self.nname()).yellow());
+                        info!("{}", format!("Signature: {signature}").yellow());
 
-                        // Verify signature before allowing access to capsule fragment
-                        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
-
-                        let cfrag_bytes = match self.peer_manager.get_cfrags(&reverie_id) {
-                            None => Err(SendError(format!("No cfrag found for {}", reverie_id))),
-                            Some(cfrag) => {
-                                // NOTE: We need to verify using the verifying_pk (target vessel's public verifying key) stored in the cfrag
-                                info!("{}", format!("Signature from target verifying key: {} needed to unlock cfrags for {}", &cfrag.target_verifying_pubkey, reverie_id).yellow());
-                                match signature.verify(&cfrag.target_verifying_pubkey, &digest) {
-                                    false => {
-                                        info!("{}", format!("Invalid signature for fragment request for {reverie_id}").red());
-                                        Err(SendError("Invalid signature for fragment request for {reverie_id}".to_string()))
-                                    }
-                                    true => {
-                                        info!("{}", format!("Signature verified!").green());
-                                        serde_json::to_vec::<ReverieCapsulefrag>(&cfrag.clone())
-                                            .map_err(|e| SendError(e.to_string()))
-                                    }
-                                }
-                            }
+                        let cfrag = match self.peer_manager.get_cfrags(&reverie_id) {
+                            None => return Err(anyhow!("No cfrag found for {}", reverie_id)),
+                            Some(cfrag) => cfrag
                         };
+
+                        // Verify signature is from intended recipient/target before sending capsule fragment
+                        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
+                        match signature.verify_sig(&cfrag.target_verifying_pubkey, &digest) {
+                            false => return Err(anyhow!("Invalid signature for fragment request for {reverie_id}".to_string())),
+                            true => info!("{}", format!("Signature verified!").green())
+                        }
+
+                        let cfrag_bytes = serde_json::to_vec::<ReverieCapsulefrag>(&cfrag)
+                            .map_err(|e| SendError(e.to_string()));
 
                         self.swarm.behaviour_mut()
                             .request_response
@@ -89,9 +84,8 @@ impl<'a> NetworkEvents<'a> {
                         },
                     ) => {
 
-                        info!("\n\tReceived message: \n\t{:?}", reverie_keyfrag);
-                        info!("\n\t{}\n\tFrom Peer: {} {}",
-                            format!("MessageType: SaveFragmentRequest").green(),
+                        info!("\n\t{}\n\tfrom Peer: {} {}",
+                            format!("Received MessageType: SaveFragmentRequest").green(),
                             get_node_name(&source_peer_id).green(),
                             short_peer_id(&source_peer_id).yellow()
                         );
@@ -108,7 +102,7 @@ impl<'a> NetworkEvents<'a> {
                         let cfrag = umbral_pre::reencrypt(&capsule, verified_kfrag).unverify();
 
                         // 2) Save Agent metadata if ReverieType is Agent
-                        if let ReverieType::Agent(agent_name_nonce) = reverie_keyfrag.reverie_type.clone() {
+                        if let ReverieType::Agent(..) | ReverieType::SovereignAgent(..) = reverie_keyfrag.reverie_type {
 
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie_keyfrag.id.clone(),
@@ -136,8 +130,8 @@ impl<'a> NetworkEvents<'a> {
                                 threshold: reverie_keyfrag.threshold,
                                 umbral_capsule_frag: serde_json::to_vec(&cfrag).expect("serde err"),
                                 source_pubkey: reverie_keyfrag.source_pubkey, // source vessel
-                                target_pubkey: reverie_keyfrag.target_pubkey, // target vessel
                                 source_verifying_pubkey: reverie_keyfrag.source_verifying_pubkey, // source vessel verifying key
+                                target_pubkey: reverie_keyfrag.target_pubkey, // target vessel
                                 target_verifying_pubkey: reverie_keyfrag.target_verifying_pubkey, // target vessel verifying key
                                 kfrag_provider_peer_id: self.node_id.peer_id,
                             }
@@ -200,20 +194,14 @@ impl<'a> NetworkEvents<'a> {
                         },
                     ) => {
 
-                        info!("{}\n\tfrom peer: {} {}",
-                            format!("Received: SaveCiphertextRequest").green(),
+                        info!("\n\t{}\n\tfrom peer: {} {}",
+                            format!("Received MessageType: SaveCiphertextRequest").green(),
                             get_node_name(&source_peer_id).yellow(),
                             short_peer_id(&source_peer_id).yellow()
                         );
 
-                        let is_agent = match reverie.reverie_type {
-                            ReverieType::Agent(..) => true,
-                            ReverieType::SovereignAgent(..) => true,
-                            _ => false,
-                        };
-
                         // 1) Save Agent metadata if need be
-                        if is_agent {
+                        if let ReverieType::Agent(..) | ReverieType::SovereignAgent(..) = reverie.reverie_type {
 
                             let agent_metadata = AgentVesselInfo {
                                 reverie_id: reverie.id.clone(),
@@ -232,11 +220,10 @@ impl<'a> NetworkEvents<'a> {
 
                             // Put signed vessel status on Kademlia
                             self.put_signed_vessel_status_kademlia(
-                                NodeVesselWithStatus {
+                                NodeKeysWithVesselStatus {
                                     peer_id: self.node_id.peer_id,
                                     umbral_public_key: self.node_id.umbral_key.public_key,
-                                    verifying_pk: self.node_id.umbral_key.verifying_pk,
-                                    agent_vessel_info: Some(agent_metadata),
+                                    umbral_verifying_public_key: self.node_id.umbral_key.verifying_public_key,
                                     vessel_status: VesselStatus::ActiveVessel,
                                 }
                             ).expect("Failed to put signed vessel status on Kademlia");

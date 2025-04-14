@@ -16,7 +16,7 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use p2p_network::{
-    types::{NodeVesselWithStatus, ReverieNameWithNonce},
+    types::{NodeKeysWithVesselStatus, ReverieNameWithNonce},
     node_client::RestartReason,
 };
 use runtime::llm::read_agent_secrets;
@@ -101,10 +101,10 @@ async fn spawn_agent_on_node(
     threshold: usize,
     total_frags: usize,
     seed: usize
-) -> Result<NodeVesselWithStatus> {
+) -> Result<NodeKeysWithVesselStatus> {
     let agent_secrets_json = read_agent_secrets(seed);
 
-    let spawn_result: NodeVesselWithStatus = client
+    let spawn_result: NodeKeysWithVesselStatus = client
         .request(
             "spawn_agent",
             jsonrpsee::rpc_params![

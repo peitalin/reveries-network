@@ -15,7 +15,11 @@ use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
     ReverieNameWithNonce,
-    NodeVesselWithStatus
+    NodeKeysWithVesselStatus,
+    SignatureType,
+    ReverieId,
+    ReverieType,
+    VerifyingKey,
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
 use p2p_network::get_node_name;
@@ -102,7 +106,7 @@ pub async fn run_server<'a: 'static>(
                     total_frags,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
-            Ok::<NodeVesselWithStatus, RpcError>(result)
+            Ok::<NodeKeysWithVesselStatus, RpcError>(result)
         }
     })?;
 
@@ -128,6 +132,52 @@ pub async fn run_server<'a: 'static>(
                 .map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<serde_json::Value, RpcError>(result)
+        }
+    })?;
+
+    let nc = network_client.clone();
+    rpc_module.register_async_method("spawn_memory_reverie", move |params, _, _| {
+
+        let (
+            memory_secrets_json,
+            threshold,
+            total_frags,
+            verifying_public_key,
+        ) = params.parse::<(serde_json::Value, usize, usize, String)>().expect("error parsing params");
+
+        let mut nc = nc.clone();
+        async move {
+            let result = nc
+                .spawn_memory_reverie(
+                    memory_secrets_json,
+                    threshold,
+                    total_frags,
+                    VerifyingKey::Ethereum(verifying_public_key)
+                ).await.map_err(|e| RpcError(e.to_string()))?;
+
+            Ok::<NodeKeysWithVesselStatus, RpcError>(result)
+        }
+    })?;
+
+    let nc = network_client.clone();
+    rpc_module.register_async_method("execute_with_memory_reverie", move |params, _, _| {
+
+        let (
+            reverie_id,
+            reverie_type,
+            signature_opt,
+        ) = params.parse::<(ReverieId, ReverieType, Option<SignatureType>)>().expect("error parsing params");
+
+        let mut nc = nc.clone();
+        async move {
+            let result = nc
+                .execute_with_memory_reverie(
+                    reverie_id,
+                    reverie_type,
+                    signature_opt,
+                ).await.map_err(|e| RpcError(e.to_string()))?;
+
+            Ok::<(), RpcError>(())
         }
     })?;
 

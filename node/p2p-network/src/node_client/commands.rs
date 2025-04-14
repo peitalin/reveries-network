@@ -12,11 +12,12 @@ use crate::types::{
     FragmentNumber,
     FragmentResponseEnum,
     ReverieKeyfragMessage,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     ReverieId,
     ReverieMessage,
     ReverieType,
     AgentVesselInfo,
+    SignatureType,
 };
 use super::container_manager::RestartReason;
 
@@ -26,7 +27,7 @@ pub enum NodeCommand {
     /// Gets the VesselStatus (which agent nodes are hosting),
     /// and Umbral PublicKey(s) of peers from Kademlia
     GetNodeVesselStatusesFromKademlia {
-        sender: mpsc::Sender<NodeVesselWithStatus>,
+        sender: mpsc::Sender<NodeKeysWithVesselStatus>,
     },
 
     /// Gets the ReverieId for an agent from Kademlia
@@ -71,7 +72,7 @@ pub enum NodeCommand {
     RequestCapsuleFragment {
         reverie_id: ReverieId,
         kfrag_provider_peer_id: PeerId, // peer to request fragment from
-        signature: umbral_pre::Signature,
+        signature: SignatureType,
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 

@@ -8,7 +8,7 @@ use crate::types::{
     AgentVesselInfo,
     FragmentRequestEnum,
     FragmentResponseEnum,
-    NodeVesselWithStatus,
+    NodeKeysWithVesselStatus,
     VesselStatus,
     VesselPeerId,
     ReverieKeyfragMessage,
