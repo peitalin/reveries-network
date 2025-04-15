@@ -267,15 +267,6 @@ async fn main() -> Result<()> {
                 _ => return Err(anyhow!("Invalid reverie type: {}", reverie_type))
             };
 
-            // Parse signature if provided
-            let signature = match signature {
-                Some(sig_hex) => {
-                    let sig_bytes = hex::decode(sig_hex)?;
-                    Some(SignatureType::Umbral(sig_bytes))
-                },
-                None => None
-            };
-
             client.request::<(), _>(
                 "execute_with_memory_reverie",
                 rpc_params![

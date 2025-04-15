@@ -72,6 +72,6 @@ pub enum CliArgument {
 
         /// Optional signature for verification (in hex format)
         #[clap(long)]
-        signature: Option<String>,
+        signature: SignatureType,
     },
 }
