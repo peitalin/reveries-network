@@ -7,7 +7,6 @@ use std::{
     process::{Command, Stdio},
     sync::Once,
 };
-use tokio::time;
 
 // Initialize logger only once across test runs
 static LOGGER_INIT: Once = Once::new();

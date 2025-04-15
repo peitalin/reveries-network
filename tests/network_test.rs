@@ -1,3 +1,4 @@
+#[path = "test_utils.rs"]
 mod test_utils;
 
 use std::{
@@ -21,15 +22,15 @@ use p2p_network::{
 };
 use runtime::llm::read_agent_secrets;
 use rpc::rpc_client::create_rpc_client;
-use telemetry::init_logger;
 
-use test_utils::{
+use self::test_utils::{
     wait_for_rpc_server,
     CleanupGuard,
+    init_test_logger,
 };
 
 /// Helper function to start a network of nodes and return clients
-async fn start_test_network(
+pub async fn start_test_network(
     num_nodes: usize,
     base_rpc_port: u16,
     base_listen_port: u16
@@ -213,7 +214,7 @@ async fn wait_for_agent_respawn(
 #[serial_test::serial]
 async fn test_agent_spawn_and_fragments() -> Result<()> {
     // Initialize telemetry for better logging
-    test_utils::init_test_logger();
+    init_test_logger();
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
@@ -301,7 +302,7 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
 #[serial_test::serial]
 async fn test_agent_respawn_after_failure() -> Result<()> {
     // Initialize telemetry for better logging
-    test_utils::init_test_logger();
+    init_test_logger();
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
