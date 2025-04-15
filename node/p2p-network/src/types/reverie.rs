@@ -10,28 +10,12 @@ use crate::utils::{
 };
 use crate::types::{
     ReverieNameWithNonce,
-    VesselPeerId,
+    PeerIdToNodeStatusKey,
     VerifyingKey,
-    VESSEL_KAD_KEY_PREFIX,
+    PEER_ID_TO_NODE_STATUS,
 };
 
-
 pub type ReverieId = String;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReverieKeyfragMessage {
-    pub reverie_keyfrag: ReverieKeyfrag,
-    pub source_peer_id: PeerId,
-    pub target_peer_id: PeerId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReverieMessage {
-    pub reverie: Reverie,
-    pub source_peer_id: PeerId,
-    pub target_peer_id: PeerId,
-}
-
 
 /// An encrypted memory module, used by an agent
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -62,6 +46,19 @@ pub struct ReverieKeyfrag {
     pub target_verifying_pubkey: VerifyingKey,          // target verifying key
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReverieMessage {
+    pub reverie: Reverie,
+    pub source_peer_id: PeerId,
+    pub target_peer_id: PeerId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReverieKeyfragMessage {
+    pub reverie_keyfrag: ReverieKeyfrag,
+    pub source_peer_id: PeerId,
+    pub target_peer_id: PeerId,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ReverieCapsulefrag {
@@ -141,117 +138,4 @@ impl Reverie {
     }
 }
 
-
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct ReverieIdToAgentName(pub String);
-
-pub const REVERIE_ID_TO_NAME_KADKEY_PREFIX: &'static str = "reverie_to_name";
-
-
-impl Into<String> for ReverieIdToAgentName {
-    fn into(self) -> String {
-        format!("{}{}", REVERIE_ID_TO_NAME_KADKEY_PREFIX, self.0)
-    }
-}
-
-impl From<ReverieNameWithNonce> for ReverieIdToAgentName {
-    fn from(agent_name_nonce: ReverieNameWithNonce) -> Self {
-        ReverieIdToAgentName(agent_name_nonce.to_string())
-    }
-}
-
-impl ReverieIdToAgentName {
-    pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
-        let s: String = s.into();
-        if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) {
-            let ssplit = s.split(REVERIE_ID_TO_NAME_KADKEY_PREFIX).collect::<Vec<&str>>();
-            Ok(ReverieIdToAgentName(ssplit[1].to_string()))
-        } else {
-            Err(anyhow!("Invalid ReverieIdToAgentName: {}. Must begin with {}", s, REVERIE_ID_TO_NAME_KADKEY_PREFIX))
-        }
-    }
-
-    pub fn to_kad_key(&self) -> kad::RecordKey {
-        kad::RecordKey::new(&self.to_string())
-    }
-
-    pub fn to_string(&self) -> String {
-        self.clone().into()
-    }
-
-    pub fn is_kademlia_key<S: Into<String>>(s: S) -> Result<Self> {
-        let s: String = s.into();
-        if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) {
-            let ssplit = s.split(REVERIE_ID_TO_NAME_KADKEY_PREFIX).collect::<Vec<&str>>();
-            Ok(ReverieIdToAgentName(ssplit[1].to_string()))
-        } else {
-            Err(anyhow!("Invalid ReverieIdToAgentName kademlia key: {}. Must begin with {}", s, REVERIE_ID_TO_NAME_KADKEY_PREFIX))
-        }
-    }
-}
-
-
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct ReverieIdToPeerId(pub ReverieId);
-const REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX: &'static str = "reverie_to_peer_id";
-
-impl ReverieIdToPeerId {
-    pub fn to_string(&self) -> String {
-        self.clone().into()
-    }
-}
-
-impl Into<String> for ReverieIdToPeerId {
-    fn into(self) -> String {
-        format!("{}{}", REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX, self.0)
-    }
-}
-
-impl From<ReverieId> for ReverieIdToPeerId {
-    fn from(reverie_id: ReverieId) -> Self {
-        ReverieIdToPeerId(reverie_id)
-    }
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum KademliaKey {
-    VesselPeerId(VesselPeerId),
-    ReverieIdToAgentName(ReverieIdToAgentName),
-    Reverie(ReverieId),
-    Unknown(String),
-}
-
-impl From<&str> for KademliaKey {
-    fn from(s: &str) -> Self {
-        match s {
-            s if s.starts_with(VESSEL_KAD_KEY_PREFIX) => {
-                KademliaKey::VesselPeerId(VesselPeerId::from_string(s).unwrap())
-            }
-            s if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) => {
-                KademliaKey::ReverieIdToAgentName(ReverieIdToAgentName::from_string(s).unwrap())
-            }
-            s if s.starts_with(REVERIE_ID_PREFIX) => {
-                KademliaKey::Reverie(ReverieId::from(s))
-            }
-            _ => {
-                KademliaKey::Unknown(s.to_string())
-            }
-        }
-    }
-}
-
-impl From<&kad::Record> for KademliaKey {
-    fn from(record: &kad::Record) -> Self {
-        match std::str::from_utf8(record.key.as_ref()) {
-            Ok(kad_key_str) => KademliaKey::from(kad_key_str),
-            Err(e) => {
-                tracing::error!("Error converting kad::Record to KademliaKey: {}", e);
-                KademliaKey::Unknown(format!("{:?}", e))
-            }
-        }
-    }
-}
 

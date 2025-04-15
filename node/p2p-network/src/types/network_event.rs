@@ -30,7 +30,7 @@ pub enum FragmentRequestEnum {
     ///
     /// The verification process:
     /// 1. The target vessel signs the keccak256 hash of the reverie_id using its UmbralKey.signer
-    /// 2. The fragment holder verifies the signature against the target vessel's public key (bob_pk)
+    /// 2. The fragment holder verifies the signature against the target vessel's verifying public key
     /// 3. If verification passes, the fragment is returned; otherwise, the request is rejected
     GetFragmentRequest(
         ReverieId,

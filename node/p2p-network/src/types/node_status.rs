@@ -20,65 +20,59 @@ use super::AgentVesselInfo;
 
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct VesselPeerId(pub String);
+pub struct PeerIdToNodeStatusKey(pub String);
 
-pub const VESSEL_KAD_KEY_PREFIX: &'static str = "vessel_peer_id_";
+pub const PEER_ID_TO_NODE_STATUS: &'static str = "vessel_peer_id_";
 
-impl VesselPeerId {
+impl PeerIdToNodeStatusKey {
     pub(crate) fn short_peer_id(&self) -> String {
         short_peer_id(&self.0)
     }
 
     pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
         let s: String = s.into();
-        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
-            let ssplit = s.split(VESSEL_KAD_KEY_PREFIX).collect::<Vec<&str>>();
-            Ok(VesselPeerId(ssplit[1].to_string()))
+        if s.starts_with(PEER_ID_TO_NODE_STATUS) {
+            let ssplit = s.split(PEER_ID_TO_NODE_STATUS).collect::<Vec<&str>>();
+            Ok(PeerIdToNodeStatusKey(ssplit[1].to_string()))
         } else {
-            Err(eyre::anyhow!("Invalid VesselPeerId: {}. Must begin with {}", s, VESSEL_KAD_KEY_PREFIX))
+            Err(eyre::anyhow!("Invalid PeerIdToNodeStatusKey: {}. Must begin with {}", s, PEER_ID_TO_NODE_STATUS))
         }
     }
 
-    pub fn is_kademlia_key<S: Into<String>>(s: S) -> Result<Self> {
-        let s: String = s.into();
-        if s.starts_with(VESSEL_KAD_KEY_PREFIX) {
-            let ssplit = s.split(VESSEL_KAD_KEY_PREFIX).collect::<Vec<&str>>();
-            Ok(VesselPeerId(ssplit[1].to_string()))
-        } else {
-            Err(eyre::anyhow!("Invalid VesselPeerId kademlia key: {}. Must begin with {}", s, VESSEL_KAD_KEY_PREFIX))
-        }
+    pub fn to_kad_key(&self) -> libp2p::kad::RecordKey {
+        libp2p::kad::RecordKey::new(&self.to_string())
     }
 }
 
-impl Into<String> for VesselPeerId {
+impl Into<String> for PeerIdToNodeStatusKey {
     fn into(self) -> String {
-        format!("{}{}", VESSEL_KAD_KEY_PREFIX, self.0)
+        format!("{}{}", PEER_ID_TO_NODE_STATUS, self.0)
     }
 }
 
-impl Display for VesselPeerId {
+impl Display for PeerIdToNodeStatusKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", VESSEL_KAD_KEY_PREFIX, self.0)
+        write!(f, "{}{}", PEER_ID_TO_NODE_STATUS, self.0)
     }
 }
 
-impl From<PeerId> for VesselPeerId {
+impl From<PeerId> for PeerIdToNodeStatusKey {
     fn from(p: PeerId) -> Self {
-        VesselPeerId(p.to_string())
+        PeerIdToNodeStatusKey(p.to_string())
     }
 }
 
-impl From<&PeerId> for VesselPeerId {
+impl From<&PeerId> for PeerIdToNodeStatusKey {
     fn from(p: &PeerId) -> Self {
-        VesselPeerId(p.to_string())
+        PeerIdToNodeStatusKey(p.to_string())
     }
 }
 
-impl TryPeerId for VesselPeerId {
+impl TryPeerId for PeerIdToNodeStatusKey {
     fn try_into_peer_id(&self) -> Result<PeerId> {
-        // slice off the VESSEL_KAD_KEY_PREFIX first
+        // slice off the PEER_ID_TO_NODE_STATUS first
         let umbral_peer_id_str = self.to_string();
-        let peer_id_str = &umbral_peer_id_str.as_str()[VESSEL_KAD_KEY_PREFIX.len()..];
+        let peer_id_str = &umbral_peer_id_str.as_str()[PEER_ID_TO_NODE_STATUS.len()..];
         PeerId::from_str(peer_id_str)
             .map_err(|e| eyre::anyhow!(e.to_string()))
     }

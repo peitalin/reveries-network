@@ -9,12 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::create_network::NODE_SEED_NUM;
-use crate::types::reverie::ReverieIdToAgentName;
+use crate::types::ReverieIdToNameKey;
+
 pub type FragmentNumber = usize;
 pub type TotalFragments = usize;
 
 lazy_static! {
-    static ref AGENT_NAME_NONCE_REGEX: Regex = Regex::new(
+    static ref REVERIE_NAME_NONCE_REGEX: Regex = Regex::new(
         r"([a-zA-Z0-9-._]*)-([a-zA-Z0-9-._]*)"
     ).unwrap();
 }
@@ -39,8 +40,8 @@ impl ReverieNameWithNonce {
         self.1
     }
 
-    pub fn to_reverie_id(&self) -> ReverieIdToAgentName {
-        ReverieIdToAgentName::from(self.clone())
+    pub fn to_reverie_id(&self) -> ReverieIdToNameKey {
+        ReverieIdToNameKey::from(self.clone())
     }
 }
 
@@ -58,7 +59,7 @@ impl Into<String> for ReverieNameWithNonce {
 
 impl From<String> for ReverieNameWithNonce {
     fn from(s: String) -> Self {
-        match AGENT_NAME_NONCE_REGEX.captures(&s).map(|c| c.extract()) {
+        match REVERIE_NAME_NONCE_REGEX.captures(&s).map(|c| c.extract()) {
             Some((_c, [name, nonce])) => {
                 ReverieNameWithNonce(name.to_string(), nonce.parse::<usize>().unwrap())
             }
