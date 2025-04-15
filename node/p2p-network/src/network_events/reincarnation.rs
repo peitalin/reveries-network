@@ -27,13 +27,11 @@ use crate::types::{
     FragmentNumber,
     NetworkEvent,
     RespawnId,
-    VesselPeerId,
     AgentVesselInfo,
     NodeKeysWithVesselStatus,
     VesselStatus,
     SignedVesselStatus,
     ReverieId,
-    ReverieIdToAgentName,
     ReverieType,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};

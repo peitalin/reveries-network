@@ -20,7 +20,7 @@ use tokio::sync::{mpsc, RwLock};
 use std::sync::Arc;
 
 use crate::SendError;
-use crate::types::{VesselPeerId, NetworkEvent};
+use crate::types::NetworkEvent;
 use crate::behaviour::Behaviour;
 use crate::behaviour::heartbeat_behaviour::{
     HeartbeatBehaviour,

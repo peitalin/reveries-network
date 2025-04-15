@@ -33,15 +33,17 @@ use crate::types::{
     FragmentNumber,
     NetworkEvent,
     RespawnId,
-    VesselPeerId,
+    PeerIdToNodeStatusKey,
     AgentVesselInfo,
     NodeKeysWithVesselStatus,
     VesselStatus,
     SignedVesselStatus,
     ReverieId,
-    ReverieIdToAgentName,
+    ReverieIdToNameKey,
+    ReverieIdToKfragProvidersKey,
     ReverieIdToPeerId,
     ReverieMessage,
+    KademliaKeyTrait,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::create_network::NODE_SEED_NUM;
@@ -108,11 +110,11 @@ struct PendingRequests {
         oneshot::Sender<HashSet<PeerId>>
     >,
     get_node_vessels: HashMap<
-        VesselPeerId,
+        PeerIdToNodeStatusKey,
         mpsc::Sender<NodeKeysWithVesselStatus>
     >,
     get_reverie_agent_name: HashMap<
-        ReverieIdToAgentName,
+        ReverieIdToNameKey,
         oneshot::Sender<Option<ReverieId>>
     >,
     get_reverie_peer_id: HashMap<
@@ -122,6 +124,10 @@ struct PendingRequests {
     get_reverie_from_network: HashMap<
         ReverieId,
         oneshot::Sender<Result<ReverieMessage>>
+    >,
+    get_kfrag_providers: HashMap<
+        ReverieIdToKfragProvidersKey,
+        oneshot::Sender<HashSet<PeerId>>
     >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
@@ -138,6 +144,7 @@ impl PendingRequests {
             get_reverie_agent_name: Default::default(),
             get_reverie_peer_id: Default::default(),
             get_reverie_from_network: Default::default(),
+            get_kfrag_providers: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }
@@ -213,10 +220,10 @@ impl<'a> NetworkEvents<'a> {
         self.swarm.behaviour_mut()
             .gossipsub
             .remove_explicit_peer(&peer_id);
-        // Remove VesselPeerId of the Peer on Kademlia
+        // Remove PeerIdToNodeStatusKey of the Peer on Kademlia
         self.swarm.behaviour_mut()
             .kademlia
-            .remove_record(&kad::RecordKey::new(&VesselPeerId::from(peer_id).to_string()));
+            .remove_record(&PeerIdToNodeStatusKey::from(peer_id).to_kad_key());
     }
 
     fn put_signed_vessel_status_kademlia(&mut self, status: NodeKeysWithVesselStatus) -> Result<()> {
@@ -224,7 +231,7 @@ impl<'a> NetworkEvents<'a> {
 
         self.swarm.behaviour_mut().kademlia.put_record(
             kad::Record {
-                key: kad::RecordKey::new(&VesselPeerId::from(status.peer_id).to_string()),
+                key: PeerIdToNodeStatusKey::from(status.peer_id).to_kad_key(),
                 value: serde_json::to_vec(&signed_status)?,
                 publisher: Some(status.peer_id),
                 expires: None,
@@ -236,10 +243,9 @@ impl<'a> NetworkEvents<'a> {
     }
 
     fn put_reverie_holder_kademlia(&mut self, reverie_id: ReverieId, reverie_holder_peer_id: PeerId) -> Result<()> {
-        let kad_key = ReverieIdToPeerId::from(reverie_id.clone());
         self.swarm.behaviour_mut().kademlia.put_record(
             kad::Record {
-                key: kad::RecordKey::new(&kad_key.to_string()),
+                key: ReverieIdToPeerId::from(reverie_id.clone()).to_kad_key(),
                 value: reverie_holder_peer_id.to_bytes(),
                 publisher: Some(self.node_id.peer_id),
                 expires: None,

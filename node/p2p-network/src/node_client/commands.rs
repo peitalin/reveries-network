@@ -68,6 +68,12 @@ pub enum NodeCommand {
         reverie_msg: ReverieMessage,
     },
 
+    /// Stores Reverie Kfrag Providers on the network
+    SaveReverieKfragProvidersOnNetwork {
+        reverie_id: ReverieId,
+        kfrag_providers: HashSet<PeerId>,
+    },
+
     /// Request Capsule Fragments for threshold decryption
     RequestCapsuleFragment {
         reverie_id: ReverieId,

@@ -5,15 +5,17 @@ use libp2p::{
     PeerId,
 };
 use color_eyre::{Result, eyre::anyhow};
+use std::collections::HashSet;
 use tracing::{info, warn, debug};
 use serde::{Deserialize, Serialize};
 
 use crate::{get_node_name, short_peer_id, SendError};
 use crate::types::{
-    VesselPeerId,
+    PeerIdToNodeStatusKey,
     NodeKeysWithVesselStatus,
     SignedVesselStatus,
-    ReverieIdToAgentName,
+    ReverieIdToNameKey,
+    ReverieIdToKfragProvidersKey,
     ReverieId,
     ReverieMessage,
     KademliaKey,
@@ -93,9 +95,9 @@ impl<'a> NetworkEvents<'a> {
             kad::QueryResult::GetRecord(Ok(
                 kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, ..  })
             )) => {
-                match KademliaKey::from(&record) {
-                    KademliaKey::VesselPeerId(vessel_key) => {
-                        if let Some(sender) = self.pending.get_node_vessels.remove(&vessel_key) {
+                match KademliaKey::from(&record.key) {
+                    KademliaKey::PeerIdToNodeStatusKey(key) => {
+                        if let Some(sender) = self.pending.get_node_vessels.remove(&key) {
                             match serde_json::from_slice::<SignedVesselStatus>(&record.value) {
                                 Ok(signed_status) => {
                                     // Verify signature
@@ -110,8 +112,8 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
-                    KademliaKey::ReverieIdToAgentName(reverie_id_to_agent_name_key) => {
-                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&reverie_id_to_agent_name_key) {
+                    KademliaKey::ReverieIdToNameKey(key) => {
+                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&key) {
                             match serde_json::from_slice::<ReverieId>(&record.value) {
                                 Ok(reverie_id) => {
                                     oneshot_sender.send(Some(reverie_id)).ok();
@@ -122,12 +124,25 @@ impl<'a> NetworkEvents<'a> {
                             }
                         }
                     }
-                    KademliaKey::Reverie(reverie_id) => {
+                    KademliaKey::ReverieIdToReverie(reverie_id) => {
                         if let Some(oneshot_sender) = self.pending.get_reverie_from_network.remove(&reverie_id) {
                             let reverie_msg = serde_json::from_slice::<ReverieMessage>(&record.value)
                                 .map_err(|e| anyhow!(e.to_string()));
 
                             oneshot_sender.send(reverie_msg).ok();
+                        }
+                    }
+                    KademliaKey::ReverieIdToKfragProvidersKey(key) => {
+                        if let Some(oneshot_sender) = self.pending.get_kfrag_providers.remove(&key) {
+                            let kfrag_providers = serde_json::from_slice::<HashSet<PeerId>>(&record.value)
+                                .map_err(|e| anyhow!(e.to_string()))
+                                .unwrap_or_else(|_| HashSet::new());
+
+                            if kfrag_providers.len() == 0 {
+                                warn!("No kfrag providers found for {:?}", key);
+                            }
+                            println!("Kfrag providers record: {:?}", kfrag_providers);
+                            oneshot_sender.send(kfrag_providers).map_err(SendError::from)?;
                         }
                     }
                     KademliaKey::Unknown(s) => {

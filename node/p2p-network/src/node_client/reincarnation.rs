@@ -1,8 +1,9 @@
 use color_eyre::{Result, eyre::anyhow};
+use colored::Colorize;
 use libp2p::PeerId;
 use tracing::{info, debug, error, warn};
+use sha3::{Digest, Keccak256};
 
-use colored::Colorize;
 use crate::network_events::NodeIdentity;
 use crate::types::{
     ReverieNameWithNonce,
@@ -13,6 +14,7 @@ use crate::types::{
     ReverieId,
     ReverieType,
     AgentVesselInfo,
+    SignatureType,
     VerifyingKey,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
@@ -155,7 +157,18 @@ impl<'a> NodeClient<'a> {
 
         let reverie_msg = self.get_reverie(prev_reverie_id.clone(), prev_reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
-        let cfrags_raw = self.request_cfrags(prev_reverie_id.clone(), None).await;
+
+        // target vessel creates signature by signing the digest hash of reverie_id
+        let digest = Keccak256::digest(reverie_msg.reverie.id.clone().as_bytes());
+        // Sign with our umbral signer key (corresponds to the verifying key)
+        let umbral_signature = self.umbral_key.sign(&digest);
+        let cfrags_raw = self.request_cfrags(
+            prev_reverie_id.clone(),
+            SignatureType::Umbral(
+                serde_json::to_vec(&umbral_signature)
+                    .expect("Failed to serialize umbral signature")
+            )
+        ).await;
 
         let (
             verified_cfrags,

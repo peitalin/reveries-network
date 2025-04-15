@@ -16,6 +16,7 @@ async-channel = { version = "2.3.1" }
 color-eyre = { workspace = true }
 colored = { workspace = true }
 clap = { workspace = true }
+ethers = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 libp2p = { workspace = true }
@@ -25,8 +26,8 @@ rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha3 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 umbral-pre = { workspace = true }
-sha3 = "0.10.8"

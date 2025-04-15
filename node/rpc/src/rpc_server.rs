@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use color_eyre::eyre::{Error, anyhow};
 use futures::{Stream, StreamExt, pin_mut};
@@ -19,6 +19,7 @@ use p2p_network::types::{
     SignatureType,
     ReverieId,
     ReverieType,
+    Reverie,
     VerifyingKey,
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
@@ -152,10 +153,10 @@ pub async fn run_server<'a: 'static>(
                     memory_secrets_json,
                     threshold,
                     total_frags,
-                    VerifyingKey::Ethereum(verifying_public_key)
+                    VerifyingKey::Ecdsa(verifying_public_key)
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
-            Ok::<NodeKeysWithVesselStatus, RpcError>(result)
+            Ok::<Reverie, RpcError>(result)
         }
     })?;
 
@@ -165,8 +166,8 @@ pub async fn run_server<'a: 'static>(
         let (
             reverie_id,
             reverie_type,
-            signature_opt,
-        ) = params.parse::<(ReverieId, ReverieType, Option<SignatureType>)>().expect("error parsing params");
+            signature,
+        ) = params.parse::<(ReverieId, ReverieType, SignatureType)>().expect("error parsing params");
 
         let mut nc = nc.clone();
         async move {
@@ -174,7 +175,7 @@ pub async fn run_server<'a: 'static>(
                 .execute_with_memory_reverie(
                     reverie_id,
                     reverie_type,
-                    signature_opt,
+                    signature,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<(), RpcError>(())

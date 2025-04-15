@@ -95,7 +95,7 @@ impl<'a> NodeClient<'a> {
         ) = self.umbral_key.encrypt_bytes(&serde_json::to_vec(&secrets)?)?;
 
         // Check secrets are decryptable and parsable
-        println!("{}{}", "Encrypted AgentSecretsJson:\n",
+        println!("{}{}", "Encrypted Secrets:\n",
             format!("{}", hex::encode(ciphertext.clone())).black()
         );
         let agent_secrets_json: Option<AgentSecretsJson> = serde_json::from_slice(
@@ -125,7 +125,7 @@ impl<'a> NodeClient<'a> {
 
         let sign_target_key = match reverie.verifying_public_key {
             VerifyingKey::Umbral(..) => true, // verify kfrag belongs to a given target pubkey
-            VerifyingKey::Ethereum(..) => false,
+            VerifyingKey::Ecdsa(..) => false,
             VerifyingKey::Ed25519(..) => false,
         };
 
@@ -196,20 +196,29 @@ impl<'a> NodeClient<'a> {
         info!("Kfrag providers: {}", target_kfrag_providers.len());
         info!("Total frags: {}", reverie.total_frags);
 
-        // Send Kfrags to peer nodes
-        for (i, reverie_keyfrag) in kfrags.into_iter().enumerate() {
-            let keyfrag_provider = target_kfrag_providers[i].peer_id;
-            self.command_sender.send(
-                NodeCommand::SendReverieKeyfrag {
-                    keyfrag_provider: keyfrag_provider,
-                    reverie_keyfrag_msg: ReverieKeyfragMessage {
-                        reverie_keyfrag: reverie_keyfrag,
-                        source_peer_id: self.node_id.peer_id,
-                        target_peer_id: target_vessel_peer_id,
-                    },
-                }
-            ).await?;
-        }
+        // Broadcast Kfrags to peer nodes
+        futures::future::try_join_all(
+            kfrags.into_iter().enumerate().map(|(i, reverie_keyfrag)| {
+                let keyfrag_provider = target_kfrag_providers[i].peer_id;
+                self.command_sender.send(
+                    NodeCommand::SendReverieKeyfrag {
+                        keyfrag_provider: keyfrag_provider,
+                        reverie_keyfrag_msg: ReverieKeyfragMessage {
+                            reverie_keyfrag: reverie_keyfrag,
+                            source_peer_id: self.node_id.peer_id,
+                            target_peer_id: target_vessel_peer_id,
+                        },
+                    }
+                )
+            })
+        ).await?;
+
+        self.command_sender.send(
+            NodeCommand::SaveReverieKfragProvidersOnNetwork {
+                reverie_id: reverie.id.clone(),
+                kfrag_providers: target_kfrag_providers.iter().map(|v| v.peer_id).collect(),
+            }
+        ).await?;
 
         // Add Memory trading:
         // make it easy for a user ALICE (not running a node) to
@@ -322,28 +331,12 @@ impl<'a> NodeClient<'a> {
     pub async fn request_cfrags(
         &mut self,
         reverie_id: ReverieId,
-        external_signature: Option<SignatureType>
+        signature: SignatureType
     ) -> Vec<Result<Vec<u8>, SendError>> {
 
-        let providers = self.get_kfrag_providers(reverie_id.clone()).await;
-
         info!("Finding kfrag providers for: {}", reverie_id);
+        let providers = self.get_kfrag_providers(reverie_id.clone()).await;
         info!("Kfrag providers: {:?}\n", providers);
-
-        // Get either the provided signature or generate one using umbral_key
-        let signature = match external_signature {
-            Some(sig) => sig,
-            None => {
-                // target vessel creates signature by signing the digest hash of reverie_id
-                let digest = Keccak256::digest(reverie_id.clone().as_bytes());
-                // Sign with our umbral signer key (corresponds to the verifying key)
-                let umbral_signature = self.umbral_key.sign(&digest);
-                SignatureType::Umbral(
-                    serde_json::to_vec(&umbral_signature)
-                        .expect("Failed to serialize umbral signature")
-                )
-            }
-        };
 
         // Rest of the function using signature
         let requests = providers.iter()

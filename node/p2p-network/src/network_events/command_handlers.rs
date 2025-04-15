@@ -10,15 +10,17 @@ use crate::types::{
     FragmentResponseEnum,
     NodeKeysWithVesselStatus,
     VesselStatus,
-    VesselPeerId,
+    PeerIdToNodeStatusKey,
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
     ReverieKeyfrag,
     ReverieCapsulefrag,
     Reverie,
-    ReverieIdToAgentName,
+    ReverieIdToNameKey,
     ReverieIdToPeerId,
+    ReverieIdToKfragProvidersKey,
+    KademliaKeyTrait,
 };
 use crate::{get_node_name, short_peer_id};
 use crate::SendError;
@@ -50,6 +52,21 @@ impl<'a> NetworkEvents<'a> {
                         )
                     );
             }
+            NodeCommand::SaveReverieKfragProvidersOnNetwork {
+                reverie_id,
+                kfrag_providers,
+            } => {
+                info!("{}\n{:?}", format!("SaveReverieKfragProvidersOnNetwork: {}", reverie_id).green(), kfrag_providers);
+                self.swarm.behaviour_mut().kademlia.put_record(
+                    kad::Record {
+                        key: ReverieIdToKfragProvidersKey::from(reverie_id.clone()).to_kad_key(),
+                        value: serde_json::to_vec(&kfrag_providers).expect("serde_json::to_vec(kfrag_providers)"),
+                        publisher: Some(self.node_id.peer_id),
+                        expires: None,
+                    },
+                    kad::Quorum::Majority
+                ).expect("put_record err");
+            }
             NodeCommand::SaveReverieOnNetwork {
                 reverie_msg: ReverieMessage {
                     reverie,
@@ -57,7 +74,11 @@ impl<'a> NetworkEvents<'a> {
                     target_peer_id,
                 }
             } => {
-                info!("{}", format!("SaveReverieOnNetwork type: {:?}", reverie.reverie_type).green());
+                info!("{}: {} {}",
+                    format!("SaveReverieOnNetwork: {:?} {}", reverie.reverie_type, reverie.id).green(),
+                    get_node_name(&source_peer_id).yellow(),
+                    short_peer_id(&source_peer_id).yellow()
+                );
 
                 // 1) Save Agent metadata if need be
                 if let ReverieType::SovereignAgent(agent_name_nonce)
@@ -86,28 +107,22 @@ impl<'a> NetworkEvents<'a> {
                     ).expect("put_record err");
                 }
 
-                info!("{}: {} {}",
-                    format!("SaveReverieOnNetwork").green(),
-                    get_node_name(&source_peer_id).yellow(),
-                    short_peer_id(&source_peer_id).yellow()
-                );
                 // Dispatch Reverie (ciphertext) to the network
-                self.swarm.behaviour_mut().kademlia
-                    .put_record(
-                        kad::Record {
-                            key: kad::RecordKey::new(&reverie.id),
-                            value: serde_json::to_vec(
-                                &ReverieMessage {
-                                    reverie,
-                                    source_peer_id,
-                                    target_peer_id,
-                                }
-                            ).expect("serde_json::to_vec(reverie)"),
-                            publisher: Some(self.node_id.peer_id),
-                            expires: None,
-                        },
-                        kad::Quorum::Majority
-                    ).expect("put_record err");
+                self.swarm.behaviour_mut().kademlia.put_record(
+                    kad::Record {
+                        key: kad::RecordKey::new(&reverie.id),
+                        value: serde_json::to_vec(
+                            &ReverieMessage {
+                                reverie,
+                                source_peer_id,
+                                target_peer_id,
+                            }
+                        ).expect("serde_json::to_vec(reverie)"),
+                        publisher: Some(self.node_id.peer_id),
+                        expires: None,
+                    },
+                    kad::Quorum::Majority
+                ).expect("put_record err");
             }
             NodeCommand::SendReverieToSpecificPeer {
                 ciphertext_holder, // Ciphertext Holder
@@ -174,7 +189,7 @@ impl<'a> NetworkEvents<'a> {
                         sender.send(reverie).ok();
                     }
                     _ => {
-                        info!("\n{}\n", format!("GetReverie({}) from DHT Network", reverie_id).green());
+                        info!("{}", format!("GetReverie({}) from DHT Network", reverie_id).green());
                         // Get other Reverie types from the network
                         self.swarm.behaviour_mut()
                             .kademlia
@@ -192,12 +207,12 @@ impl<'a> NetworkEvents<'a> {
 
                 for peer_id in peers {
                     // add prefix as kademlia key
-                    let vessel_kademlia_key = VesselPeerId::from(peer_id);
+                    let node_status_kad_key = PeerIdToNodeStatusKey::from(peer_id);
                     self.swarm.behaviour_mut()
                         .kademlia
-                        .get_record(kad::RecordKey::new(&vessel_kademlia_key.to_string()));
+                        .get_record(node_status_kad_key.to_kad_key());
 
-                    self.pending.get_node_vessels.insert(vessel_kademlia_key, sender.clone());
+                    self.pending.get_node_vessels.insert(node_status_kad_key, sender.clone());
                 };
             }
             NodeCommand::GetReverieIdByName {
@@ -205,19 +220,27 @@ impl<'a> NetworkEvents<'a> {
                 sender,
             } => {
                 // add prefix as kademlia key
-                let reverie_by_name_kadkey = ReverieIdToAgentName::from(reverie_name_nonce.clone());
+                let reverie_to_name_kadkey = ReverieIdToNameKey::from(reverie_name_nonce.clone());
 
                 self.swarm.behaviour_mut()
                     .kademlia
-                    .get_record(kad::RecordKey::new(&reverie_by_name_kadkey.to_string()));
+                    .get_record(reverie_to_name_kadkey.to_kad_key());
 
-                self.pending.get_reverie_agent_name.insert(reverie_by_name_kadkey, sender);
+                self.pending.get_reverie_agent_name.insert(reverie_to_name_kadkey, sender);
             }
             NodeCommand::GetKfragProviders { reverie_id, sender } => {
                 match self.peer_manager.kfrag_providers.get(&reverie_id) {
                     None => {
-                        error!("missing kfrag_providers: {:?}", self.peer_manager.kfrag_providers);
-                        sender.send(std::collections::HashSet::new()).ok();
+                        tracing::warn!("missing kfrag_providers locally: {:?}", self.peer_manager.kfrag_providers);
+                        info!("requesting kfrag_providers from DHT network");
+
+                        let reverie_id_to_kfrag_providers_key = ReverieIdToKfragProvidersKey::from(reverie_id.clone());
+
+                        self.swarm.behaviour_mut()
+                            .kademlia
+                            .get_record(reverie_id_to_kfrag_providers_key.to_kad_key());
+
+                        self.pending.get_kfrag_providers.insert(reverie_id_to_kfrag_providers_key, sender);
                     }
                     Some(peers) => {
                         // unsorted

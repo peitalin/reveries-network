@@ -16,7 +16,6 @@ alloy = { version = "0.3", features = ["full"] }
 hex-literal = "0.4.1"
 bcs = "0.1.4"
 
-
 clap = { workspace = true }
 dotenv = { workspace = true }
 color-eyre = { workspace = true }

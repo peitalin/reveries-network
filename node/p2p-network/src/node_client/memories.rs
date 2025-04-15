@@ -13,13 +13,12 @@ use crate::types::{
     Reverie,
     ReverieId,
     ReverieType,
-    AgentVesselInfo,
     SignatureType,
     VerifyingKey,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
-use runtime::llm::{test_claude_query, AgentSecretsJson};
+use runtime::llm::{test_claude_query};
 
 use super::commands::NodeCommand;
 use super::NodeClient;
@@ -36,7 +35,7 @@ impl<'a> NodeClient<'a> {
         threshold: usize,
         total_frags: usize,
         verifying_public_key: VerifyingKey,
-    ) -> Result<NodeKeysWithVesselStatus> {
+    ) -> Result<Reverie> {
 
         if threshold > total_frags {
             return Err(anyhow!("Threshold must be less than or equal to total fragments"));
@@ -61,7 +60,7 @@ impl<'a> NodeClient<'a> {
         self.broadcast_reverie_keyfrags(&reverie, target_vessel.peer_id, target_kfrag_providers).await?;
 
         info!("RequestResponse broadcast of kfrags complete.");
-        Ok(target_vessel)
+        Ok(reverie)
     }
 
     // This needs to happen within the TEE as there is a decryption step, and the original
@@ -71,13 +70,16 @@ impl<'a> NodeClient<'a> {
         reverie_id: ReverieId,
         reverie_type: ReverieType,
         prev_failed_vessel_peer_id: libp2p::PeerId,
-        signature: Option<SignatureType>
+        signature: SignatureType
     ) -> Result<T> {
 
         let reverie_msg = self.get_reverie(reverie_id.clone(), reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
 
-        let cfrags_raw = self.request_cfrags(reverie_id.clone(), signature).await;
+        let cfrags_raw = self.request_cfrags(
+            reverie_id.clone(),
+            signature
+        ).await;
 
         let (
             verified_cfrags,
@@ -99,7 +101,7 @@ impl<'a> NodeClient<'a> {
         &mut self,
         reverie_id: ReverieId,
         reverie_type: ReverieType,
-        signature: Option<SignatureType>
+        signature: SignatureType
     ) -> Result<()> {
 
         let memory_secrets_json: serde_json::Value = self.reconstruct_memory_cfrags(
