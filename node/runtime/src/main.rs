@@ -2,6 +2,7 @@
 mod reencrypt;
 mod llm;
 mod tee_attestation;
+mod tee_mock_attestation;
 mod evm;
 mod test_commands;
 
@@ -9,7 +10,8 @@ use test_commands::{Cmd, CliArgument};
 use clap::Parser;
 use reencrypt::run_reencrypt_example;
 use evm::{
-    deploy_contract, get_1upnetwork_contract_bytecode,
+    deploy_contract,
+    get_solidity_contract_bytecode,
     query_number,
     increment_number,
     set_number,
@@ -53,7 +55,7 @@ async fn main() -> color_eyre::Result<()> {
                 app_state, // DB
                 TransactionRequest {
                     // Contract bytecode (hex string)
-                    bytecode: get_1upnetwork_contract_bytecode(),
+                    bytecode: get_solidity_contract_bytecode(),
                     // Transaction input (hex string)
                     calldata: "".to_string(),
                     // Sender address (hex string)

@@ -43,14 +43,6 @@ pub enum NodeCommand {
         sender: oneshot::Sender<Result<ReverieMessage>>,
     },
 
-    /// Gets Peers that hold the Kfrags for an agent.
-    /// KfragProviders = kfrag holders
-    /// KfragBroadcastPeers = peers subscribed to a Kfrag broadcast channel
-    GetKfragProviders {
-        reverie_id: ReverieId,
-        sender: oneshot::Sender<HashSet<PeerId>>,
-    },
-
     /// Sends Reverie Kfrags to specific peers
     SendReverieKeyfrag {
         keyfrag_provider: PeerId, // Key Fragment Provider
@@ -66,12 +58,6 @@ pub enum NodeCommand {
     /// Stores Reverie on the network
     SaveReverieOnNetwork {
         reverie_msg: ReverieMessage,
-    },
-
-    /// Stores Reverie Kfrag Providers on the network
-    SaveReverieKfragProvidersOnNetwork {
-        reverie_id: ReverieId,
-        kfrag_providers: HashSet<PeerId>,
     },
 
     /// Request Capsule Fragments for threshold decryption

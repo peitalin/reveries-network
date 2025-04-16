@@ -121,13 +121,13 @@ impl std::fmt::Display for SignatureType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex_sig = match self {
             SignatureType::Umbral(bytes) => {
-                format!("Umbral({})", hex::encode(bytes.clone()))
+                format!("Umbral(0x{})", hex::encode(bytes.clone()))
             }
             SignatureType::Ecdsa(bytes) => {
-                format!("Ecdsa({})", hex::encode(bytes.clone()))
+                format!("ECDSA(0x{})", hex::encode(bytes.clone()))
             }
             SignatureType::Ed25519(bytes) => {
-                format!("Ed25519({})", hex::encode(bytes.clone()))
+                format!("Ed25519(0x{})", hex::encode(bytes.clone()))
             }
         };
         write!(f, "{}", hex_sig)
@@ -196,6 +196,7 @@ mod tests {
         let sig_string = format!("Ed25519({})", hex_data);
 
         let sig_type = SignatureType::from(sig_string);
+        println!("signature_type: {}", sig_type);
 
         match sig_type {
             SignatureType::Ed25519(bytes) => {
@@ -210,6 +211,7 @@ mod tests {
         let hex_data = "abcdef1234";
 
         let sig_type = SignatureType::from(hex_data.to_string());
+        println!("signature_type: {}", sig_type);
 
         match sig_type {
             SignatureType::Umbral(bytes) => {
@@ -236,6 +238,7 @@ mod tests {
 
         // Create a SignatureType using the signature
         let signature_type = SignatureType::Ecdsa(signature_bytes);
+        println!("signature_type: {}", signature_type);
 
         // Create a VerifyingKey from the signer's address
         let verifying_key = VerifyingKey::Ecdsa(format!("{:?}", signer_address));

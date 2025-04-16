@@ -57,7 +57,11 @@ impl<'a> NodeClient<'a> {
             verifying_public_key
         )?;
 
-        self.broadcast_reverie_keyfrags(&reverie, target_vessel.peer_id, target_kfrag_providers).await?;
+        self.broadcast_reverie_keyfrags(
+            &reverie,
+            target_vessel.peer_id,
+            target_kfrag_providers
+        ).await?;
 
         info!("RequestResponse broadcast of kfrags complete.");
         Ok(reverie)
@@ -75,9 +79,11 @@ impl<'a> NodeClient<'a> {
 
         let reverie_msg = self.get_reverie(reverie_id.clone(), reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
+        let keyfrag_providers = reverie_msg.keyfrag_providers.clone();
 
         let cfrags_raw = self.request_cfrags(
             reverie_id.clone(),
+            keyfrag_providers,
             signature
         ).await;
 
@@ -118,9 +124,9 @@ impl<'a> NodeClient<'a> {
         if let Some(_anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
             info!("Decrypted LLM API keys, querying LLM (paused)");
             // let response = test_claude_query(
-            //     _anthropic_api_key,
-            //     "What is your name and what do you do?",
-            //     &agent_secrets_json.context
+            //     _anthropic_api_key.to_string(),
+            //     "Recite a poem based on one of your memories",
+            //     &memory_secrets_json["memories"].to_string()
             // ).await.unwrap();
             // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
         }

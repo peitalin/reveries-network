@@ -12,10 +12,20 @@ use crate::types::{
     ReverieNameWithNonce,
     PeerIdToNodeStatusKey,
     VerifyingKey,
+    KademliaKeyTrait,
     PEER_ID_TO_NODE_STATUS,
 };
 
 pub type ReverieId = String;
+
+impl KademliaKeyTrait for ReverieId {
+    fn to_string(&self) -> String {
+        format!("{}", REVERIE_ID_PREFIX)
+    }
+    fn to_kad_key(&self) -> kad::RecordKey {
+        kad::RecordKey::new(&self)
+    }
+}
 
 /// An encrypted memory module, used by an agent
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -26,7 +36,7 @@ pub struct Reverie {
     pub threshold: usize,
     pub total_frags: usize,
     pub target_public_key: umbral_pre::PublicKey,
-    pub verifying_public_key: VerifyingKey,
+    pub verifying_public_key: VerifyingKey, // target key needed to request cfrags
     pub umbral_capsule: Vec<u8>,
     pub umbral_ciphertext: Box<[u8]>,
 }
@@ -51,6 +61,7 @@ pub struct ReverieMessage {
     pub reverie: Reverie,
     pub source_peer_id: PeerId,
     pub target_peer_id: PeerId,
+    pub keyfrag_providers: Vec<PeerId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +96,7 @@ impl ReverieCapsulefrag {
 pub enum ReverieType {
     SovereignAgent(ReverieNameWithNonce),
     Agent(ReverieNameWithNonce),
+    APIKey(String),
     Memory,
     Retrieval,
     Tools,
@@ -101,6 +113,7 @@ impl Into<String> for ReverieType {
         match self {
             ReverieType::SovereignAgent(agent_name_nonce) => agent_name_nonce.into(),
             ReverieType::Agent(agent_name_nonce) => agent_name_nonce.into(),
+            ReverieType::APIKey(api_key) => api_key.clone(),
             ReverieType::Memory => "Memory".to_string(),
             ReverieType::Retrieval => "Retrieval".to_string(),
             ReverieType::Tools => "Tools".to_string(),

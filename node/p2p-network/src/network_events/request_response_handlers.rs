@@ -52,8 +52,8 @@ impl<'a> NetworkEvents<'a> {
                         info!("{}", format!("Signature: {signature}").yellow());
 
                         let cfrag = match self.peer_manager.get_cfrags(&reverie_id) {
-                            None => return Err(anyhow!("No cfrag found for {}", reverie_id)),
-                            Some(cfrag) => cfrag
+                            Some(cfrag) => cfrag,
+                            None => return Err(anyhow!("{} No cfrag found for {}", self.nname(), reverie_id)),
                         };
 
                         // Verify signature is from intended recipient/target before sending capsule fragment
@@ -191,6 +191,7 @@ impl<'a> NetworkEvents<'a> {
                             reverie,
                             source_peer_id,
                             target_peer_id,
+                            keyfrag_providers,
                         },
                     ) => {
 
@@ -236,6 +237,7 @@ impl<'a> NetworkEvents<'a> {
                                 reverie: reverie.clone(),
                                 source_peer_id,
                                 target_peer_id,
+                                keyfrag_providers,
                             },
                         );
 

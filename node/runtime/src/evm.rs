@@ -85,7 +85,7 @@ pub struct SetNumberQuery {
 
 pub fn deploy_contract(mut app_state: AppState, req: TransactionRequest) -> Result<AppState> {
 
-    let bytecode_hex = get_1upnetwork_contract_bytecode();
+    let bytecode_hex = get_solidity_contract_bytecode();
     // Contract bytecode (remove the 0x prefix)
     let bytecode = Bytes::from(hex::decode(&bytecode_hex[2..]).unwrap());
 
@@ -147,7 +147,7 @@ pub fn deploy_contract(mut app_state: AppState, req: TransactionRequest) -> Resu
 
 
 // Deployed Bytecode of Counter.sol Contract
-pub(crate) fn get_1upnetwork_contract_bytecode() -> &'static str {
+pub(crate) fn get_solidity_contract_bytecode() -> &'static str {
     /***
     // SPDX-License-Identifier: UNLICENSED
     pragma solidity ^0.8.13;
@@ -303,7 +303,7 @@ pub fn revm_test2() {
         },
     );
 
-    let bytecode_hex = get_1upnetwork_contract_bytecode();
+    let bytecode_hex = get_solidity_contract_bytecode();
     // Contract bytecode (remove the 0x prefix)
     let bytecode = Bytes::from(hex::decode(&bytecode_hex[2..]).unwrap());
 

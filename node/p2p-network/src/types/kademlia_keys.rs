@@ -26,7 +26,6 @@ pub enum KademliaKey {
     PeerIdToNodeStatusKey(PeerIdToNodeStatusKey),
     ReverieIdToNameKey(ReverieIdToNameKey),
     ReverieIdToReverie(ReverieId),
-    ReverieIdToKfragProvidersKey(ReverieIdToKfragProvidersKey),
     Unknown(String),
 }
 
@@ -44,10 +43,6 @@ impl From<&str> for KademliaKey {
             // reverieId -> agent name queries
             s if s.starts_with(REVERIE_ID_TO_NAME_KADKEY_PREFIX) => {
                 KademliaKey::ReverieIdToNameKey(ReverieIdToNameKey::from_string(s).unwrap())
-            }
-            // reverieId -> kfrag providers queries
-            s if s.starts_with(REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX) => {
-                KademliaKey::ReverieIdToKfragProvidersKey(ReverieIdToKfragProvidersKey::from_string(s).unwrap())
             }
             _ => {
                 KademliaKey::Unknown(s.to_string())
@@ -82,7 +77,7 @@ impl From<&kad::RecordKey> for KademliaKey {
 }
 
 
-pub const REVERIE_ID_TO_NAME_KADKEY_PREFIX: &'static str = "reverie_id_to_name";
+pub const REVERIE_ID_TO_NAME_KADKEY_PREFIX: &'static str = "reverie_id_to_name_";
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ReverieIdToNameKey(pub String);
@@ -113,7 +108,7 @@ impl ReverieIdToNameKey {
 }
 
 
-const REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX: &'static str = "reverie_id_to_peer_id";
+const REVERIE_ID_TO_PEER_ID_KADKEY_PREFIX: &'static str = "reverie_id_to_peer_id_";
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ReverieIdToPeerId(pub ReverieId);
@@ -133,35 +128,3 @@ impl From<ReverieId> for ReverieIdToPeerId {
     }
 }
 
-
-const REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX: &'static str = "reverie_id_to_kfrag_providers_";
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
-pub struct ReverieIdToKfragProvidersKey(pub ReverieId);
-
-impl KademliaKeyTrait for ReverieIdToKfragProvidersKey {
-    fn to_string(&self) -> String {
-        format!("{}{}", REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX, self.0)
-    }
-    fn to_kad_key(&self) -> kad::RecordKey {
-        kad::RecordKey::new(&self.to_string())
-    }
-}
-
-impl From<ReverieId> for ReverieIdToKfragProvidersKey {
-    fn from(reverie_id: ReverieId) -> Self {
-        ReverieIdToKfragProvidersKey(reverie_id)
-    }
-}
-
-impl ReverieIdToKfragProvidersKey {
-    pub fn from_string<S: Into<String>>(s: S) -> Result<Self> {
-        let s: String = s.into();
-        if s.starts_with(REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX) {
-            let ssplit = s.split(REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX).collect::<Vec<&str>>();
-            Ok(ReverieIdToKfragProvidersKey(ssplit[1].to_string()))
-        } else {
-            Err(anyhow!("Invalid ReverieIdToKfragProvidersKey: {}. Must begin with {}", s, REVERIE_ID_TO_KFRAG_PROVIDERS_KADKEY_PREFIX))
-        }
-    }
-}

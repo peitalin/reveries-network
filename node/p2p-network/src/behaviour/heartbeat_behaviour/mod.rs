@@ -229,7 +229,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                 let (
                     _tee_quote ,
                     tee_quote_bytes
-                ) = tee_attestation::generate_tee_attestation(true)
+                ) = tee_attestation::generate_tee_attestation(false)
                     .expect("TEE attestation generation error");
 
                 self.set_tee_attestation(tee_quote_bytes);
@@ -293,4 +293,3 @@ impl NetworkBehaviour for HeartbeatBehaviour {
     }
 
 }
-

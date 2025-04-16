@@ -40,7 +40,6 @@ use crate::types::{
     SignedVesselStatus,
     ReverieId,
     ReverieIdToNameKey,
-    ReverieIdToKfragProvidersKey,
     ReverieIdToPeerId,
     ReverieMessage,
     KademliaKeyTrait,
@@ -125,10 +124,6 @@ struct PendingRequests {
         ReverieId,
         oneshot::Sender<Result<ReverieMessage>>
     >,
-    get_kfrag_providers: HashMap<
-        ReverieIdToKfragProvidersKey,
-        oneshot::Sender<HashSet<PeerId>>
-    >,
     request_fragments: HashMap<
         request_response::OutboundRequestId,
         oneshot::Sender<Result<Vec<u8>, SendError>>
@@ -144,7 +139,6 @@ impl PendingRequests {
             get_reverie_agent_name: Default::default(),
             get_reverie_peer_id: Default::default(),
             get_reverie_from_network: Default::default(),
-            get_kfrag_providers: Default::default(),
             request_fragments: Default::default(),
             respawns: Default::default(),
         }

@@ -15,7 +15,6 @@ use crate::types::{
     NodeKeysWithVesselStatus,
     SignedVesselStatus,
     ReverieIdToNameKey,
-    ReverieIdToKfragProvidersKey,
     ReverieId,
     ReverieMessage,
     KademliaKey,
@@ -132,27 +131,13 @@ impl<'a> NetworkEvents<'a> {
                             oneshot_sender.send(reverie_msg).ok();
                         }
                     }
-                    KademliaKey::ReverieIdToKfragProvidersKey(key) => {
-                        if let Some(oneshot_sender) = self.pending.get_kfrag_providers.remove(&key) {
-                            let kfrag_providers = serde_json::from_slice::<HashSet<PeerId>>(&record.value)
-                                .map_err(|e| anyhow!(e.to_string()))
-                                .unwrap_or_else(|_| HashSet::new());
-
-                            if kfrag_providers.len() == 0 {
-                                warn!("No kfrag providers found for {:?}", key);
-                            }
-                            println!("Kfrag providers record: {:?}", kfrag_providers);
-                            oneshot_sender.send(kfrag_providers).map_err(SendError::from)?;
-                        }
-                    }
                     KademliaKey::Unknown(s) => {
                         warn!("Unknown Kademlia key: {}", s);
                     }
                 }
 
                 // Finish kademlia query
-                self.swarm.behaviour_mut()
-                    .kademlia
+                self.swarm.behaviour_mut().kademlia
                     .query_mut(&query_id)
                     .unwrap()
                     .finish();

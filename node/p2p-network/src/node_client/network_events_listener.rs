@@ -62,10 +62,6 @@ impl<'a> NodeClient<'a> {
                     }
                     event => panic!("Error <network_event_receiver>: {:?}", event),
                 }
-                // hb = self.heartbeat_receiver.recv() => match hb {
-                //     Ok(r) => info!("hb: {:?}", r),
-                //     Err(e) => error!("err: {:?}", e),
-                // },
             }
         }
     }
