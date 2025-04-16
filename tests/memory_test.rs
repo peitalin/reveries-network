@@ -40,8 +40,6 @@ async fn create_signer() -> Result<LocalWallet> {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_memory_reverie() -> Result<()> {
-    // Initialize telemetry for better logging
-    init_test_logger();
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;

@@ -35,6 +35,10 @@ pub async fn start_test_network(
     base_rpc_port: u16,
     base_listen_port: u16
 ) -> Result<Vec<jsonrpsee::core::client::Client>> {
+
+    // initialize the logger once for all tests
+    init_test_logger();
+
     let bootstrap_peer = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
     let bootstrap_url = &format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", base_listen_port, bootstrap_peer);
 
@@ -213,8 +217,8 @@ async fn wait_for_agent_respawn(
 #[tokio::test]
 #[serial_test::serial]
 async fn test_agent_spawn_and_fragments() -> Result<()> {
-    // Initialize telemetry for better logging
-    init_test_logger();
+    // Logger is now initialized in start_test_network function
+    // init_test_logger();
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
@@ -301,8 +305,6 @@ async fn test_agent_spawn_and_fragments() -> Result<()> {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_agent_respawn_after_failure() -> Result<()> {
-    // Initialize telemetry for better logging
-    init_test_logger();
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;

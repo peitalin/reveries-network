@@ -12,6 +12,11 @@ use std::{
 static LOGGER_INIT: Once = Once::new();
 
 pub fn init_test_logger() {
+    // This is a safe version that won't panic if called multiple times
+    if LOGGER_INIT.is_completed() {
+        return;
+    }
+
     LOGGER_INIT.call_once(|| {
         let _ = color_eyre::install();
         telemetry::init_logger(telemetry::LoggerConfig {
