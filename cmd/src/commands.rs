@@ -58,6 +58,10 @@ pub enum CliArgument {
         /// Total number of fragments to create
         #[clap(long)]
         total_frags: usize,
+
+        /// Verifying public key
+        #[clap(long)]
+        verifying_public_key: String,
     },
 
     #[clap(name = "execute-with-memory-reverie")]

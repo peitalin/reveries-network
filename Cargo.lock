@@ -5045,6 +5045,7 @@ name = "network-tests"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
+ "dotenv",
  "ethers",
  "jsonrpsee",
  "libp2p",

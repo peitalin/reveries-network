@@ -221,6 +221,7 @@ async fn main() -> Result<()> {
             memory_secrets,
             threshold,
             total_frags,
+            verifying_public_key,
         } => {
             let client = create_rpc_client(&cmd.rpc_server_address).await?;
 
@@ -233,7 +234,8 @@ async fn main() -> Result<()> {
                 rpc_params![
                     memory_secrets,
                     threshold,
-                    total_frags
+                    total_frags,
+                    verifying_public_key
                 ]
             ).await?;
 

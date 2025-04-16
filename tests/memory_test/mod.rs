@@ -1,7 +1,7 @@
-#[path = "test_utils.rs"]
+#[path = "../test_utils.rs"]
 mod test_utils;
-#[path = "network_test.rs"]
-mod network_test;
+#[path = "../network_utils.rs"]
+mod network_utils;
 
 use std::time::Duration;
 use color_eyre::Result;
@@ -16,18 +16,13 @@ use p2p_network::types::{
     SignatureType,
 };
 use ethers::{
-    core::{types::TransactionRequest, utils::Anvil},
-    middleware::SignerMiddleware,
-    providers::{Http, Middleware, Provider},
+    core::utils::Anvil,
     signers::{LocalWallet, Signer},
 };
 use sha3::{Digest, Keccak256};
 
-use self::test_utils::{
-    CleanupGuard,
-    init_test_logger,
-};
-use self::network_test::start_test_network;
+use self::test_utils::CleanupGuard;
+use self::network_utils::start_test_network;
 
 
 async fn create_signer() -> Result<LocalWallet> {
@@ -39,7 +34,7 @@ async fn create_signer() -> Result<LocalWallet> {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn test_memory_reverie() -> Result<()> {
+pub async fn test_memory_reverie() -> Result<()> {
 
     // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
@@ -57,12 +52,34 @@ async fn test_memory_reverie() -> Result<()> {
     // Start test network and get client connections
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
 
+
+    dotenv::dotenv().ok();
+    let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
+    let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY").ok();
+
     // Create a test memory payload
     let memory_secrets = json!({
-        "name": "First Beach Trip",
-        "memory": "I remember the first time I saw the ocean. The waves were gentle, \
-                  the sand was warm between my toes, and the salty breeze carried \
-                  the sound of seagulls. It was a perfect summer day."
+        "name": "Agent K",
+        "memories": [
+            {
+                "name": "First Beach Trip",
+                "memory": "I remember the first time I saw the ocean. The waves were gentle, \
+                    the sand was warm between my toes, and the salty breeze carried \
+                    the sound of seagulls. It was a perfect summer day."
+            },
+            {
+                "name": "Wooden Horse",
+                "memory": "My fingers are thin, dirty at the knuckles as I pry up the board. \
+                    The gap beneath is dark, a secret pocket of safety in a world where \
+                    nothing belongs to me. From my pocket, I withdraw the carved wooden \
+                    horse—my only possession. It's rough-hewn, imperfect, with a mane that's merely \
+                    suggested by a few knife cuts, but in my eyes, it gallops and rears with impossible grace."
+            }
+        ],
+        "anthropic_api_key": anthropic_api_key,
+        "openai_api_key": openai_api_key,
+        "deepseek_api_key": deepseek_api_key,
     });
 
     // Spawn memory reverie on the first node

@@ -12,6 +12,7 @@ telemetry = { path = "../node/telemetry" }
 
 # Workspace dependencies
 color-eyre = { workspace = true }
+dotenv = { workspace = true }
 ethers = { workspace = true }
 sha3 = { workspace = true }
 jsonrpsee = { workspace = true }
@@ -23,8 +24,8 @@ serial_test = "3.2.0"
 
 [[test]]
 name = "network_test"
-path = "network_test.rs"
+path = "network_test/mod.rs"
 
 [[test]]
 name = "memory_test"
-path = "memory_test.rs"
+path = "memory_test/mod.rs"
