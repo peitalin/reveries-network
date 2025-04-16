@@ -9,12 +9,12 @@ tdx_enabled = ["dep:tdx"]
 
 [dependencies]
 tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
-rig-core = { git = "https://github.com/0xPlaygrounds/rig" }
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 revm = { version = "19.3.0" }
 alloy = { version = "0.3", features = ["full"] }
 hex-literal = "0.4.1"
 bcs = "0.1.4"
+reqwest = { version = "0.11", features = ["json"] }
 
 clap = { workspace = true }
 dotenv = { workspace = true }

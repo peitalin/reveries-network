@@ -1,18 +1,32 @@
-use dotenv;
-
 use libp2p::identity::{ed25519, secp256k1};
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
-use rig::{
-    agent::Agent, completion::Prompt, providers::{
-        // openai,
-        anthropic::{
-            completion::CompletionModel, ClientBuilder, CLAUDE_3_SONNET
-        },
-        deepseek::{self, DeepSeekCompletionModel},
-    }
-};
+use reqwest;
 
+pub const CLAUDE_3_SONNET: &str = "claude-3-sonnet-20240229";
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentKeypair {
+    public_key: String,
+    secret_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentSecretsJson {
+    pub agent_name: String,
+    pub agent_nonce: usize,
+    /// seckp256k1 private key, used to encrypt sensitive agent logins/keys
+    // core_secret_key: [u8; 32],
+    corekey_secp256k1: AgentKeypair,
+    /// Wallet secret key for chains using ED25519 based keys (Solana/NEAR)
+    // core_secret_key_ed25519: Vec<u8>,
+    corekey_ed25519: AgentKeypair,
+    pub anthropic_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub deepseek_api_key: Option<String>,
+    pub social_accounts: serde_json::Value,
+    pub context: String,
+}
 
 pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
 
@@ -65,55 +79,16 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AgentKeypair {
-    public_key: String,
-    secret_key: String,
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AgentSecretsJson {
-
-    pub agent_name: String,
-
-    pub agent_nonce: usize,
-
-    /// seckp256k1 private key, used to encrypt sensitive agent logins/keys
-    // core_secret_key: [u8; 32],
-    corekey_secp256k1: AgentKeypair,
-
-    /// Wallet secret key for chains using ED25519 based keys (Solana/NEAR)
-    // core_secret_key_ed25519: Vec<u8>,
-    corekey_ed25519: AgentKeypair,
-
-    pub anthropic_api_key: Option<String>,
-
-    pub openai_api_key: Option<String>,
-
-    pub deepseek_api_key: Option<String>,
-
-    pub social_accounts: serde_json::Value,
-
-    pub context: String,
-}
-
-pub fn connect_to_anthropic(anthropic_api_key: &str, context: &str) -> (CompletionModel, Agent<CompletionModel>) {
-    // Create client with specific version and beta features
-    let client = ClientBuilder::new(anthropic_api_key)
-        .anthropic_version("2023-06-01")
-        .anthropic_beta("prompt-caching-2024-07-31")
-        .build();
-
-    // Create a completion model
-    let claude = client.completion_model(CLAUDE_3_SONNET);
-
-    // Or create an agent directly
-    let agent = client
-        .agent(CLAUDE_3_SONNET)
-        .context(context)
-        .build();
-
-    return (claude, agent)
+#[derive(Deserialize)]
+struct AnthropicContent {
+    text: String,
+    #[serde(rename = "type")]
+    content_type: String,
 }
 
 pub async fn test_claude_query(
@@ -121,37 +96,45 @@ pub async fn test_claude_query(
     question: &str,
     context: &str
 ) -> Result<String> {
-    let (claude, agent) = connect_to_anthropic(&anthropic_api_key, context);
-    let response = agent.prompt(question).await?;
-    // println!("Anthropic Claude response: {:?}", response);
-    Ok(response)
-}
+    let client = reqwest::Client::new();
 
-pub async fn connect_to_deepseek(
-    deepseek_api_key: String,
-    context: &str
-) -> Agent<DeepSeekCompletionModel> {
-    let deepseek_client = deepseek::Client::new(&deepseek_api_key);
-    let agent = deepseek_client
-        .agent("deepseek-chat")
-        .context(context)
-        .build();
+    // Prepare the request payload
+    let payload = serde_json::json!({
+        "model": CLAUDE_3_SONNET,
+        "system": context,
+        "messages": [
+            {
+                "role": "user",
+                "content": question
+            }
+        ],
+        "max_tokens": 1000
+    });
 
-    agent
-}
+    // Make the API request
+    let response = client.post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", anthropic_api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
 
-pub async fn test_deepseek_query(
-    deepseek_api_key: String,
-    question: &str,
-    context: &str
-) -> Result<String> {
+    // Check if response is successful
+    if !response.status().is_success() {
+        let error_text = response.text().await?;
+        return Err(color_eyre::eyre::eyre!("Anthropic API error: {}", error_text));
+    }
 
-    let deepseek_client = deepseek::Client::new(&deepseek_api_key);
-    let agent = deepseek_client
-        .agent("deepseek-chat")
-        .context(context)
-        .build();
+    // Parse the response
+    let response_data: AnthropicResponse = response.json().await?;
 
-    let answer = agent.prompt(question).await?;
-    Ok(answer)
+    // Extract and return the response text
+    let text = response_data.content.iter()
+        .filter(|content| content.content_type == "text")
+        .map(|content| content.text.clone())
+        .collect::<Vec<String>>()
+        .join("");
+
+    Ok(text)
 }
