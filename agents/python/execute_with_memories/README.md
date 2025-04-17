@@ -1,16 +1,23 @@
 # LLM API Gateway
 
-This is a simple FastAPI server that provides endpoints for querying different LLM APIs, including Anthropic's Claude and DeepSeek.
+A simple FastAPI server that provides a unified interface to query multiple LLM providers (Anthropic Claude and DeepSeek) with optional weather tool capabilities.
 
-## Setup
+## Installation
 
-1. Install the required Python packages:
+1. Clone this repository
+2. Install dependencies:
 
 ```bash
 pip install fastapi uvicorn requests pydantic python-dotenv
 ```
 
-2. Create a `.env` file with your API keys (optional):
+3. Optional: Install MCP SDK for tool capabilities:
+
+```bash
+pip install mcp-python-sdk httpx
+```
+
+4. Create a `.env` file in the same directory as the server:
 
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key
@@ -20,23 +27,15 @@ LLM_API_PORT=8000
 
 ## Running the Server
 
-Start the FastAPI server with:
+Start the server with:
 
 ```bash
-python test.py
+python main.py
 ```
 
-By default, the server runs on port 8000. You can change this by setting the `LLM_API_PORT` environment variable.
+The server runs on port 8000 by default or the port specified in the `LLM_API_PORT` environment variable.
 
 ## API Endpoints
-
-### Health Check
-
-```
-GET /health
-```
-
-Returns `{"status": "ok"}` if the server is running.
 
 ### Query Anthropic Claude
 
@@ -48,8 +47,20 @@ Request body:
 ```json
 {
   "api_key": "your_anthropic_api_key",
-  "prompt": "What's the capital of France?",
+  "prompt": "What's the weather like in Miami?",
   "context": "You are a helpful assistant."
+}
+```
+
+Response:
+```json
+{
+  "text": "The response from Claude...",
+  "tokens": {
+    "input_tokens": 15,
+    "output_tokens": 42,
+    "total_tokens": 57
+  }
 }
 ```
 
@@ -63,11 +74,38 @@ Request body:
 ```json
 {
   "api_key": "your_deepseek_api_key",
-  "prompt": "What's the capital of France?",
+  "prompt": "What's the weather like in Miami?",
   "context": "You are a helpful assistant."
 }
 ```
 
-## Using from Rust
+Response: Same structure as Anthropic endpoint.
 
-The Rust code in `node/p2p-network/src/node_client/memories.rs` connects to these endpoints to query the LLMs. Make sure the FastAPI server is running before executing code that calls these endpoints.
+### Health Check
+
+```
+GET /health
+```
+
+Returns status information:
+```json
+{
+  "status": "ok",
+  "pid": 12345,
+  "mcp_status": "available"
+}
+```
+
+### List Available Tools
+
+```
+GET /tools
+```
+
+Returns list of available MCP tools (if MCP is available).
+
+## Additional Features
+
+- Automatic token counting for API requests
+- Weather forecasting and alerts using MCP tools (when available)
+- Support for both standard responses and tool-augmented responses
