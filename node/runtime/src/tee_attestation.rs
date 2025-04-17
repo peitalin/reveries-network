@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_verify_tee_attestation() -> Result<()> {
-        // Pinned September 10th, 2024, 6:49am GMT
+
         // there's no need for constant sample collateral updates
         const PINNED_TIME: u64 = 1739419232;
 

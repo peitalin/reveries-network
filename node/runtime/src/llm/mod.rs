@@ -1,7 +1,17 @@
-use libp2p::identity::{ed25519, secp256k1};
+mod metrics;
+
 use color_eyre::Result;
+use libp2p::identity::{ed25519, secp256k1};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use reqwest;
+pub use metrics::{
+    ToolUsageMetrics,
+    LlmResult,
+    analyze_tool_usage,
+    call_llm_api
+};
+
 
 pub const CLAUDE_3_SONNET: &str = "claude-3-sonnet-20240229";
 
@@ -137,4 +147,85 @@ pub async fn test_claude_query(
         .join("");
 
     Ok(text)
+}
+
+// Convenience functions for different LLM providers
+pub async fn call_anthropic_record_metrics(
+    api_key: &str,
+    prompt: &str,
+    context: &str,
+    metrics: &mut ToolUsageMetrics
+) -> Result<LlmResult> {
+
+    let result = call_llm_api("anthropic", api_key, prompt, context).await?;
+
+    // Add token usage to metrics
+    info!("Claude token usage - Input: {}, Output: {}, Total: {}",
+            result.tokens.input_tokens,
+            result.tokens.output_tokens,
+            result.tokens.total_tokens);
+
+    metrics.add_tokens(&result.tokens);
+
+    // Analyze response for tool usage
+    let analysis = analyze_tool_usage(&result.text);
+
+    // Record success if tool was used
+    if analysis.used {
+        metrics.record_success("Claude", &analysis.tool_name, &analysis.location);
+
+        // Log the specific tool usage
+        let tool_info = if analysis.location.is_empty() {
+            analysis.tool_name
+        } else {
+            format!("{} for {}", analysis.tool_name, analysis.location)
+        };
+
+        info!("Claude used MCP tool: {}", tool_info);
+        if !analysis.results.is_empty() {
+            info!("Tool results: {}", analysis.results);
+        }
+    }
+
+    Ok(result)
+}
+
+pub async fn call_deepseek_record_metrics(
+    api_key: &str,
+    prompt: &str,
+    context: &str,
+    metrics: &mut ToolUsageMetrics
+) -> Result<LlmResult> {
+
+    let result = call_llm_api("deepseek", api_key, prompt, context).await?;
+
+    // Add token usage to metrics
+    info!("DeepSeek token usage - Input: {}, Output: {}, Total: {}",
+            result.tokens.input_tokens,
+            result.tokens.output_tokens,
+            result.tokens.total_tokens);
+
+    metrics.add_tokens(&result.tokens);
+
+    // Analyze response for tool usage
+    let analysis = analyze_tool_usage(&result.text);
+
+    // Record success if tool was used
+    if analysis.used {
+        metrics.record_success("DeepSeek", &analysis.tool_name, &analysis.location);
+
+        // Log the specific tool usage
+        let tool_info = if analysis.location.is_empty() {
+            analysis.tool_name
+        } else {
+            format!("{} for {}", analysis.tool_name, analysis.location)
+        };
+
+        info!("DeepSeek used MCP tool: {}", tool_info);
+        if !analysis.results.is_empty() {
+            info!("Tool results: {}", analysis.results);
+        }
+    }
+
+    Ok(result)
 }

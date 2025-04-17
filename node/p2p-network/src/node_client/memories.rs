@@ -1,28 +1,22 @@
 use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
-use libp2p::PeerId;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tracing::{info, debug, error, warn};
 
-use crate::network_events::NodeIdentity;
 use crate::types::{
-    ReverieNameWithNonce,
-    NetworkEvent,
-    RespawnId,
-    NodeKeysWithVesselStatus,
     Reverie,
     ReverieId,
     ReverieType,
     SignatureType,
     VerifyingKey,
 };
-use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
-use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
-use runtime::llm::{test_claude_query};
+use runtime::llm::{
+    ToolUsageMetrics,
+    call_anthropic_record_metrics,
+    call_deepseek_record_metrics
+};
 
-use super::commands::NodeCommand;
 use super::NodeClient;
-
 
 
 impl<'a> NodeClient<'a> {
@@ -68,7 +62,7 @@ impl<'a> NodeClient<'a> {
     }
 
     // This needs to happen within the TEE as there is a decryption step, and the original
-    // plaintext is revealed within the TEE, before being re-encrypted under PRE again.
+    // plaintext is revealed within the TEE, before executing with it as context
     async fn reconstruct_memory_cfrags<T: Serialize + DeserializeOwned>(
         &mut self,
         reverie_id: ReverieId,
@@ -117,19 +111,71 @@ impl<'a> NodeClient<'a> {
             signature
         ).await?;
 
-        println!("memory_secrets_json: {:?}", memory_secrets_json);
+        let use_weather_mcp = memory_secrets_json.get("use_weather_mcp")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        // Initialize metrics tracker
+        let mut metrics = ToolUsageMetrics::default();
+
+        // Generate a weather-related prompt if weather MCP is enabled
+        let base_prompt = "Recite a poem based on one of your memories";
+        let weather_prompt = if use_weather_mcp {
+            "
+            Please follow these instructions:
+            1. Select ONE random memory from my memories. Try not to use the same memory twice.
+            2. Check the current weather forecast for the location associated with that memory (using the latitude and longitude coordinates).
+            3. If the location is in one of the states listed in 'states_to_monitor', also check for any weather alerts in that state.
+            4. Create a poem that blends my original memory with the current weather conditions at that location.
+            5. Begin your response by stating which memory you chose and the weather you found.
+            "
+        } else {
+            base_prompt
+        };
 
         // Then execute LLM with Reverie as context:
         // 1. Test LLM API key from decrypted Reverie works
         if let Some(_anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
-            info!("Decrypted LLM API keys, querying LLM (paused)");
-            // let response = test_claude_query(
-            //     _anthropic_api_key.to_string(),
-            //     "Recite a poem based on one of your memories",
-            //     &memory_secrets_json["memories"].to_string()
-            // ).await.unwrap();
-            // info!("\n{} {}\n", "Claude:".bright_black(), response.yellow());
+            info!("Decrypted Anthropic API key, querying Claude...");
+            metrics.record_attempt();
+
+            match call_anthropic_record_metrics(
+                _anthropic_api_key,
+                weather_prompt, // Use the weather-related prompt
+                &memory_secrets_json["memories"].to_string(),
+                &mut metrics
+            ).await {
+                Ok(result) => {
+                    info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
+                },
+                Err(e) => {
+                    warn!("Failed to call Anthropic API: {}", e);
+                }
+            }
         }
+
+        // 2. Test DeepSeek API if key is available
+        if let Some(deepseek_api_key) = memory_secrets_json["deepseek_api_key"].as_str() {
+            info!("Decrypted DeepSeek API key, querying DeepSeek...");
+            metrics.record_attempt();
+
+            match call_deepseek_record_metrics(
+                deepseek_api_key,
+                weather_prompt, // Use the weather-related prompt
+                &memory_secrets_json["memories"].to_string(),
+                &mut metrics
+            ).await {
+                Ok(result) => {
+                    info!("\n{} {}\n", "DeepSeek:".bright_black(), result.text.green());
+                },
+                Err(e) => {
+                    warn!("Failed to call DeepSeek API: {}", e);
+                }
+            }
+        }
+
+        let report = metrics.generate_report();
+        info!("{}", report);
 
         Ok(())
     }

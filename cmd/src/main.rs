@@ -21,7 +21,7 @@ use jsonrpsee::{
 };
 use libp2p::PeerId;
 use serde_json::Value;
-use tracing::{debug, info, warn, error};
+use tracing::{info, warn, error};
 
 use rpc::rpc_client::{parse_url, create_rpc_client};
 use p2p_network::{

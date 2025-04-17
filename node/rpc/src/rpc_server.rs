@@ -1,9 +1,6 @@
 use std::net::SocketAddr;
-use std::collections::HashSet;
-
 use color_eyre::eyre::{Error, anyhow};
 use futures::{Stream, StreamExt, pin_mut};
-
 use hex;
 use jsonrpsee::PendingSubscriptionSink;
 use jsonrpsee::types::{ErrorObjectOwned, ErrorObject, ErrorCode};
@@ -14,7 +11,6 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use p2p_network::types::{
-    ReverieNameWithNonce,
     NodeKeysWithVesselStatus,
     SignatureType,
     ReverieId,
@@ -67,27 +63,6 @@ pub async fn run_server<'a: 'static>(
     ////////////////////////////////////////////////////
     // RPC Endpoints
     ////////////////////////////////////////////////////
-
-    // let nc = network_client.clone();
-	// rpc_module.register_async_method("get_kfrag_providers", move |params, _, _| {
-
-    //     let (agent_name, agent_nonce) = params.parse::<(String, usize)>()
-    //         .expect("error parsing params");
-    //     let agent_name_nonce = ReverieNameWithNonce(agent_name, agent_nonce);
-
-    //     let mut nc = nc.clone();
-    //     async move {
-
-    //         let reverie_id = match nc.get_reverie_id_by_name(&agent_name_nonce).await {
-    //             None => return Err(RpcError(format!("No reverie_id found for agent name nonce: {:?}", agent_name_nonce))),
-    //             Some(reverie_id) => reverie_id,
-    //         };
-
-    //         let peers: HashSet<libp2p::PeerId> = nc.get_kfrag_providers(reverie_id).await;
-
-    //         Ok::<HashSet<libp2p::PeerId>, RpcError>(peers)
-    //     }
-    // })?;
 
     let nc = network_client.clone();
     rpc_module.register_async_method("spawn_agent", move |params, _, _| {
@@ -171,12 +146,12 @@ pub async fn run_server<'a: 'static>(
 
         let mut nc = nc.clone();
         async move {
-            let result = nc
-                .execute_with_memory_reverie(
-                    reverie_id,
-                    reverie_type,
-                    signature,
-                ).await.map_err(|e| RpcError(e.to_string()))?;
+            nc.execute_with_memory_reverie(
+                reverie_id,
+                reverie_type,
+                signature,
+            ).await
+            .map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<(), RpcError>(())
         }
