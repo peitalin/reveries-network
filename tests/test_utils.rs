@@ -60,7 +60,6 @@ pub fn kill_processes_on_ports(ports: &[u16]) {
         );
 
         info!("Finding processes on port {}", port);
-
         // Get PIDs first
         if let Ok(output) = std::process::Command::new("sh")
             .arg("-c")
