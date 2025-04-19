@@ -3,12 +3,14 @@ mod test_utils;
 #[path = "../network_utils.rs"]
 mod network_utils;
 
+use std::process::Command;
 use std::time::Duration;
-use color_eyre::Result;
+use color_eyre::{eyre::eyre, Result};
 use jsonrpsee::core::client::ClientT;
+use scopeguard::defer;
 use tokio::time;
 use serde_json::json;
-use tracing::info;
+use tracing::{info, warn};
 
 use p2p_network::types::{
     Reverie,
@@ -22,7 +24,7 @@ use ethers::{
 use sha3::{Digest, Keccak256};
 
 use self::test_utils::CleanupGuard;
-use self::network_utils::{start_test_network, start_python_server};
+use self::network_utils::start_test_network;
 
 
 async fn create_signer() -> Result<LocalWallet> {
@@ -35,33 +37,70 @@ async fn create_signer() -> Result<LocalWallet> {
 #[tokio::test]
 #[serial_test::serial]
 pub async fn test_memory_reverie() -> Result<()> {
-
-    // Define the ports we'll be using in this test
+    // Define the ports for the Rust nodes
     let base_rpc_port = 8001;
     let base_listen_port = 9001;
     let num_nodes = 5;
-    let python_server_port = 8000;
+    // Note: Python server port 8000 is now managed by Docker
 
-    // Create port lists for the CleanupGuard
+    // Create port lists for the CleanupGuard (Rust nodes only)
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
     let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
-    let mut all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
+    let rust_node_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
-    // Add Python server port to the cleanup list
-    all_test_ports.push(python_server_port);
+    // Create the guard that will clean up Rust node ports
+    let _guard = CleanupGuard::with_ports(rust_node_ports);
 
-    // Create the guard that will clean up ports on instantiation and when it goes out of scope
-    let _guard = CleanupGuard::with_ports(all_test_ports);
+    // Start Docker services (Python LLM server and LLM proxy)
+    println!("Starting Docker services (this may take a while)...");
 
-    // Start Python FastAPI server - this server handles LLM API requests
-    // and is used by the memory_reverie code to query language models
-    info!("Starting Python FastAPI server for LLM integrations...");
-    let _python_server = start_python_server().await?;
-    info!("Python FastAPI server started successfully and ready to process requests");
+    // Use spawn and wait instead of output to avoid blocking
+    let mut docker_compose = Command::new("docker-compose")
+        // .args(["-f", "../llm-services-compose.yml", "up", "-d", "--build"])
+        .args(["-f", "../llm-services-compose.yml", "up", "-d"])
+        .spawn()?;
 
-    // Start test network and get client connections
+    // Wait for a maximum of 2 minutes for Docker Compose to start
+    let status = docker_compose.wait()?;
+
+    if !status.success() {
+        return Err(eyre!(
+            "Failed to start Docker services, exit code: {:?}",
+            status.code()
+        ));
+    }
+    println!("Docker services started successfully.");
+
+    // Schedule Docker services cleanup using scopeguard
+    defer! {
+        println!("Stopping LLM Docker services...");
+        let docker_compose_down = Command::new("docker-compose")
+            .args(["-f", "../llm-services-compose.yml", "down", "-v"])
+            .output();
+
+        match docker_compose_down {
+            Ok(output) if output.status.success() => {
+                println!("LLM Docker services stopped successfully.");
+            }
+            Ok(output) => {
+                warn!(
+                    "Failed to stop Docker services cleanly: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            Err(e) => {
+                warn!("Error executing docker-compose down: {}", e);
+            }
+        }
+    }
+
+    // Allow some time for Docker services to initialize fully
+    time::sleep(Duration::from_secs(4)).await;
+
+    // Start test network (Rust nodes) and get client connections
+    println!("Starting Rust test network...");
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
-
+    println!("Rust test network started successfully.");
 
     dotenv::dotenv().ok();
     let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
@@ -113,26 +152,12 @@ pub async fn test_memory_reverie() -> Result<()> {
                     "lon": -111.7610,
                     "type": "desert"
                 }
-            },
-            {
-                "name": "Lake Effect Snow",
-                "memory": "I woke to a world transformed. The lake effect snow had fallen all night, \
-                    silent and steady, wrapping everything in a pristine blanket of white. The trees \
-                    outside my window bent under the weight of it, and the usual sounds of the city \
-                    were muffled. It was as if someone had turned down the volume on the world.",
-                "location": {
-                    "name": "Buffalo",
-                    "state": "NY",
-                    "lat": 42.8864,
-                    "lon": -78.8784,
-                    "type": "lakeside"
-                }
             }
         ],
         "anthropic_api_key": anthropic_api_key,
         "openai_api_key": openai_api_key,
         "deepseek_api_key": deepseek_api_key,
-        "use_weather_mcp": true,
+        "use_weather_mcp": true, // Ensure this triggers LLM calls
         "preferred_locations": [
             {"name": "New York", "lat": 40.7128, "lon": -74.0060},
             {"name": "San Francisco", "lat": 37.7749, "lon": -122.4194}
@@ -146,11 +171,10 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     let signer = create_signer().await?;
     let verifying_public_key = signer.address();
-    // Example Ethereum address as verifying key
 
-    info!("Spawning memory reverie...");
+    println!("Spawning memory reverie...");
     let reverie_result: Reverie = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(5),
         clients[0].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
@@ -172,7 +196,6 @@ pub async fn test_memory_reverie() -> Result<()> {
     println!("Using reverie ID: {}", reverie_id);
 
     // Convert hash to format expected by ethers
-    // should match the signature verification in
     let digest = Keccak256::digest(reverie_id.clone().as_bytes());
     let h256_digest = ethers::types::H256::from_slice(digest.as_slice());
     let signature = signer.sign_hash(h256_digest)?;
@@ -181,18 +204,33 @@ pub async fn test_memory_reverie() -> Result<()> {
     let signature_type = SignatureType::Ecdsa(signature_bytes);
 
     // Now execute the memory reverie from another node (client[1])
-    println!("Executing memory reverie...");
-    clients[1].request(
-        "execute_with_memory_reverie",
-        jsonrpsee::rpc_params![
-            reverie_id,
-            ReverieType::Memory,
-            signature_type
-        ]
+    // This is the step that should trigger the LLM calls via the Python server & proxy
+    println!("Executing memory reverie (this will trigger LLM calls)...");
+    let exec_result: Result<(), _> = tokio::time::timeout(
+        Duration::from_secs(30), // Increased timeout for LLM execution
+        clients[1].request(
+            "execute_with_memory_reverie",
+            jsonrpsee::rpc_params![
+                reverie_id,
+                ReverieType::Memory,
+                signature_type
+            ]
+        )
     ).await?;
 
-    info!("Memory reverie executed successfully");
+    // Check if execution was successful
+    exec_result?;
+    println!("Memory reverie executed successfully via RPC.");
 
-    // Cleanup happens automatically via CleanupGuard drop
+    // At this point, LLM calls should have been made.
+    // The token usage would have been logged by the llm-proxy container.
+    // You can view these logs using `docker-compose -f llm-services-compose.yml logs -f llm-proxy`
+    // or by checking the ./logs/response.log file.
+    println!("Check the logs of the 'llm-proxy' Docker container or './logs/response.log' for token usage details.");
+
+    // Allow a moment for logs to flush before shutdown
+    time::sleep(Duration::from_secs(2)).await;
+
+    // Cleanup (Docker down) happens automatically via `defer!` scope guard
     Ok(())
 }

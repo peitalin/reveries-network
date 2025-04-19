@@ -12,8 +12,8 @@ use crate::types::{
 };
 use runtime::llm::{
     ToolUsageMetrics,
-    call_anthropic_record_metrics,
-    call_deepseek_record_metrics
+    call_anthropic,
+    call_deepseek
 };
 
 use super::NodeClient;
@@ -139,7 +139,7 @@ impl<'a> NodeClient<'a> {
             info!("Decrypted Anthropic API key, querying Claude...");
             metrics.record_attempt();
 
-            match call_anthropic_record_metrics(
+            match call_anthropic(
                 _anthropic_api_key,
                 weather_prompt, // Use the weather-related prompt
                 &memory_secrets_json["memories"].to_string(),
@@ -159,7 +159,7 @@ impl<'a> NodeClient<'a> {
             info!("Decrypted DeepSeek API key, querying DeepSeek...");
             metrics.record_attempt();
 
-            match call_deepseek_record_metrics(
+            match call_deepseek(
                 deepseek_api_key,
                 weather_prompt, // Use the weather-related prompt
                 &memory_secrets_json["memories"].to_string(),
