@@ -7,7 +7,8 @@ members = [
     "node/rpc",
     "node/runtime",
     "node/telemetry",
-    "tests"
+    "tests",
+    "llm-proxy"
 ]
 
 [workspace.dependencies]
@@ -51,3 +52,5 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3"
 tokio = { version = "1.38", features = ["test-util"] }
 umbral-pre = { version = "0.11.0", features = ["serde", "default-serialization"] }
+scopeguard = "1.2.0"
+serial_test = "3.0.0"
