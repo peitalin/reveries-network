@@ -8,7 +8,7 @@ services:
       - "8080:8080"
     volumes:
       - ./logs:/logs
-      - certs:/certs
+      - ./llm-proxy/certs:/certs
     networks:
       - llm-network
     restart: unless-stopped
@@ -27,11 +27,11 @@ services:
       # Don't proxy requests to localhost or the proxy itself
       - NO_PROXY=localhost,127.0.0.1,llm-proxy
       # Point requests library to the proxy's CA certificate
-      - REQUESTS_CA_BUNDLE=/certs/ca.cer
+      - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
       # Set SSL environment variables for Python
-      - SSL_CERT_FILE=/certs/ca.cer
+      - SSL_CERT_FILE=/certs/hudsucker.cer
     volumes:
-      - certs:/certs:ro
+      - ./llm-proxy/certs:/certs:ro
     networks:
       - llm-network
     depends_on:
@@ -40,13 +40,13 @@ services:
     command: >
       sh -c "
         echo 'Waiting for proxy CA certificate...'
-        while [ ! -f /certs/ca.cer ]; do
+        while [ ! -f /certs/hudsucker.cer ]; do
           echo 'CA certificate not found, waiting...'
           sleep 1
         done
         echo 'Found CA certificate!'
         echo 'Certificate details:'
-        openssl x509 -in /certs/ca.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
+        openssl x509 -in /certs/hudsucker.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
         echo 'Starting Python server...'
         python main.py
       "

@@ -1,15 +1,14 @@
 use hudsucker::{
-    certificate_authority::RcgenAuthority,
     hyper::{Request, Response},
-    rcgen::{CertifiedKey, CertificateParams, KeyPair},
     rustls::crypto::aws_lc_rs,
     tokio_tungstenite::tungstenite::Message,
-    *,
+    Proxy, HttpHandler, HttpContext, RequestOrResponse, Body, WebSocketHandler, WebSocketContext,
+    certificate_authority::RcgenAuthority,
 };
+use hudsucker::*;
+use rcgen::{Certificate, KeyPair, CertificateParams};
 use std::{
-    fs,
     net::SocketAddr,
-    path::Path,
 };
 use tracing::*;
 
@@ -62,41 +61,34 @@ impl WebSocketHandler for LogHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
     info!("Starting LLM proxy...");
 
-    // Create certs directory
-    let certs_dir = Path::new("certs");
-    fs::create_dir_all(certs_dir)?;
+    // Load CA cert and key directly into strings using include_str!
+    // Paths are relative to the src/main.rs file
+    let ca_cert_pem = include_str!("../certs/hudsucker.cer");
+    let ca_key_pem = include_str!("../certs/hudsucker.key");
 
-    // Generate CA certificate for various LLM API domains
-    info!("Generating CA certificate...");
+    info!("Loading CA certificate and key from embedded strings...");
 
-    let certified_key = rcgen::generate_simple_self_signed(
-        vec![
-            "*.anthropic.com".to_string(),
-            "*.openai.com".to_string(),
-            "*.googleapis.com".to_string(),
-            "api.anthropic.com".to_string(),
-            "api.openai.com".to_string(),
-            "generativelanguage.googleapis.com".to_string(),
-            "localhost".to_string()
-        ]
-    )?;
+    // Load the key pair from the PEM string using rcgen
+    let key_pair = KeyPair::from_pem(ca_key_pem)
+        .expect("Failed to parse private key from ca/hudsucker.key");
+    // info!(">>> Key PEM: {:?}", key_pair); // Removed diagnostic print
 
-    // Save the certificate to certs directory
-    let cert_path = certs_dir.join("ca.cer");
-    fs::write(&cert_path, &certified_key.cert.pem())?;
+    // Load the certificate parameters from the PEM string and self-sign
+    let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert_pem)
+        .expect("Failed to parse CA certificate from ca/hudsucker.cer")
+        .self_signed(&key_pair)
+        .expect("Failed to self-sign CA certificate");
 
-    info!("CA certificate saved to {}", cert_path.display());
-
-    // Create CA authority for MITM
+    // Create CA authority using the loaded rcgen key and certificate
     let ca = RcgenAuthority::new(
-        certified_key.key_pair,
-        certified_key.cert,
-        1_000,
+        key_pair,
+        ca_cert,
+        1_000, // Cache size for generated certificates
         aws_lc_rs::default_provider()
     );
 
@@ -108,13 +100,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_http_handler(LogHandler)
         .with_websocket_handler(LogHandler)
         .with_graceful_shutdown(shutdown_signal())
-        .build()?;
+        .build()
+        .expect("Failed to build proxy");
 
-    info!("LLM proxy listening on 0.0.0.0:8080");
-    info!("Certificate available at: {}", cert_path.display());
-    info!("Be sure to set REQUESTS_CA_BUNDLE to point to this certificate");
+    info!("LLM MITM proxy listening on 0.0.0.0:8080 using embedded CA from ./ca/");
+    info!("Clients need to trust the CA cert found in ./ca/hudsucker.cer");
 
-    proxy.start().await?;
+    proxy.start().await?; // Keep ? here as proxy.start() returns specific Error
 
     Ok(())
 }
