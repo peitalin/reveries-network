@@ -8,15 +8,18 @@ use hudsucker::{
 use http_body_util::BodyExt;
 use http_body_util::Full;
 use hudsucker::*;
-use rcgen::{Certificate, KeyPair, CertificateParams};
+use rcgen::{KeyPair, CertificateParams};
 use std::net::SocketAddr;
 use tracing::*;
-use std::io::Read;
 use serde_json::Value;
-use hyper::header::CONTENT_ENCODING;
+use hyper::header::{HeaderValue, CONTENT_ENCODING, CONTENT_TYPE};
+use hyper::HeaderMap;
+use tokio::sync::mpsc::Receiver;
+use chrono::Utc;
 
-// Add the utils module
 mod utils;
+mod tee_body_sse;
+mod tee_body;
 
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
@@ -76,62 +79,45 @@ impl HttpHandler for LogHandler {
         // Log the response status
         info!("Intercepted response with status: {}", parts.status);
 
-        // Log content-type or other interesting headers
-        if let Some(content_type) = parts.headers.get("content-type") {
-            info!("Content-Type: {:?}", content_type);
-        }
+        // Check Content-Type to determine logging strategy
+        let content_type = parts.headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
+        let is_sse = content_type.map_or(false, |ct| ct.starts_with("text/event-stream"));
 
-        // Aggregate the body stream using HttpBodyExt::collect()
-        let body_bytes = match body.collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(e) => {
-                error!("Failed to collect response body: {}", e);
-                // Reconstruct response with empty body on error
-                return Response::from_parts(parts, Body::empty());
-            }
-        };
+        // Clone headers needed for the logging task
+        let headers_for_log = parts.headers.clone();
 
-        println!("\n=========== Response ===========");
-        // Check content encoding and decompress if necessary
-        let content_encoding = parts.headers.get(CONTENT_ENCODING)
-            .and_then(|h| h.to_str().ok());
+        let response_body;
 
-        // Call the utility function to decompress the body
-        match utils::decompress_body(content_encoding, &body_bytes) {
-            Ok(decompressed_bytes) => {
-                // Attempt to log the decompressed body as JSON or fallback to string
-                match serde_json::from_slice::<Value>(&decompressed_bytes) {
-                    Ok(json_value) => {
-                        // Pretty print the JSON
-                        match serde_json::to_string_pretty(&json_value) {
-                            Ok(pretty_json) => println!("Response Body (JSON):
-{}
-", pretty_json),
-                            Err(_) => println!("Response Body (Raw JSON): {:?}", json_value), // Fallback
-                        }
-                    },
-                    Err(_) => {
-                        // If JSON parsing fails, try logging as UTF-8 string
-                        match std::str::from_utf8(&decompressed_bytes) {
-                            Ok(body_str) => println!("Response Body (String):
-{}
-", body_str),
-                            Err(_) => println!("Response Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len()),
-                        }
-                    }
+        if is_sse {
+            info!("SSE stream detected, using SSE logging task.");
+            // Create the SSE teed body and receiver
+            let (teed_body, mut receiver) = tee_body_sse::tee_body_sse(body);
+            response_body = teed_body; // Assign the teed body to be returned
+
+            // Spawn a background task specifically for logging SSE events
+            tokio::spawn(async move {
+                println!("--- Background Log: SSE Events ---");
+                while let Some(event_str) = receiver.recv().await {
+                    // Simply print the received event string
+                    print!("SSE Event:\n{}", event_str); // Print directly as it includes newlines
                 }
-            },
-            Err(e) => {
-                // Log decompression error
-                error!("Failed to decompress response body: {}", e);
-                println!("Response Body: <Decompression Failed - Original {} bytes>", body_bytes.len());
-            }
+                println!("--- SSE Event Stream Ended ---");
+                info!("[{}] Background SSE log task finished.", Utc::now().to_rfc3339());
+            });
+
+        } else {
+            info!("Non-SSE response detected, using full body logging task.");
+            // Create the regular teed body and receiver
+            let (teed_body, receiver) = tee_body::tee_body(body);
+            response_body = teed_body; // Assign the teed body to be returned
+
+            // Spawn a background task to handle logging by calling the dedicated function
+            tokio::spawn(log_response_body_task(receiver, headers_for_log));
         }
 
-        println!("================================");
-
-        // IMPORTANT: Reconstruct the response with the ORIGINAL body bytes (potentially compressed)
-        Response::from_parts(parts, Body::from(Full::new(body_bytes)))
+        // Return the response immediately with the teed body
+        info!("[{}] Returning teed response to client...", Utc::now().to_rfc3339());
+        Response::from_parts(parts, response_body) // Return the chosen body type
     }
 }
 
@@ -140,6 +126,67 @@ impl WebSocketHandler for LogHandler {
         info!("WebSocket message: {:?}", msg);
         Some(msg)
     }
+}
+
+/// Background task to aggregate, decompress, and log the response body.
+async fn log_response_body_task(
+    mut receiver: Receiver<Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>,
+    headers: HeaderMap<HeaderValue>,
+) {
+    let mut log_buffer = Vec::new();
+    let mut stream_error = None;
+
+    // Aggregate chunks from the receiver
+    while let Some(result) = receiver.recv().await {
+        match result {
+            Ok(chunk) => log_buffer.extend_from_slice(&chunk),
+            Err(e) => {
+                error!("Error received from TeeBody channel: {}", e);
+                stream_error = Some(e); // Store the error
+                break; // Stop processing on error
+            }
+        }
+    }
+
+    if stream_error.is_none() {
+        info!("Logging task finished receiving stream ({} bytes)", log_buffer.len());
+    } else {
+        warn!("Logging task stopped due to stream error. Logged {} bytes before error.", log_buffer.len());
+    }
+
+    // Proceed with logging only if the buffer is not empty
+    if !log_buffer.is_empty() {
+        println!("--- Background Log: Response ---");
+        let content_encoding = headers.get(CONTENT_ENCODING).and_then(|h| h.to_str().ok());
+
+        // Decompress the aggregated body
+        match utils::decompress_body(content_encoding, &Bytes::from(log_buffer)) { // Convert Vec<u8> to Bytes
+            Ok(decompressed_bytes) => {
+                // Attempt to log as JSON or fallback
+                match serde_json::from_slice::<Value>(&decompressed_bytes) {
+                    Ok(json_value) => {
+                        match serde_json::to_string_pretty(&json_value) {
+                            Ok(pretty_json) => println!("Body (JSON): {} ", pretty_json),
+                            Err(_) => println!("Body (Raw JSON): {:?}", json_value),
+                        }
+                    },
+                    Err(_) => {
+                        match std::str::from_utf8(&decompressed_bytes) {
+                            Ok(body_str) => println!("Body (String): {} ", body_str),
+                            Err(_) => println!("Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len()),
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Log: Failed to decompress body: {}", e);
+                println!("Body: <Decompression Failed>");
+            }
+        }
+         println!("------------------------------");
+    }
+    // Log when the task finishes
+    info!("[{}] Background log task finished.", Utc::now().to_rfc3339());
 }
 
 #[tokio::main]
