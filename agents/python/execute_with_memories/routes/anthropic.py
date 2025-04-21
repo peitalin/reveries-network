@@ -3,9 +3,9 @@ from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator
 import logging
 
-# Import models and services from sibling modules
-from ..models import QueryRequest, QueryResponse
-from ..services import call_anthropic
+# Use absolute imports from the execution root (execute_with_memories)
+from models import QueryRequest, QueryResponse
+from services import call_anthropic
 
 router = APIRouter()
 logger = logging.getLogger("llm-api-gateway") # Use the same logger name

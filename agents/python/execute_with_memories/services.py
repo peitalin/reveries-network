@@ -5,7 +5,6 @@ import asyncio
 from typing import AsyncGenerator
 from fastapi import HTTPException
 
-# Get the logger instance (assuming configuration happens in main.py)
 logger = logging.getLogger("llm-api-gateway")
 
 async def call_anthropic(api_key: str, prompt: str, context: str, stream: bool = False):
@@ -50,15 +49,11 @@ async def call_anthropic(api_key: str, prompt: str, context: str, stream: bool =
                         except UnicodeDecodeError:
                             log_message = f"Received chunk (non-utf8): {chunk!r}"
                             chunk_logger.info(log_message)
-                        # yield chunk # Yield original chunk
-                        # Yield the log message formatted for SSE - OR keep yielding raw bytes?
-                        # Let's stick to yielding raw bytes for StreamingResponse
                         yield chunk
         except httpx.HTTPStatusError as e:
             error_detail = f"Anthropic API Error: {await e.response.aread()}".encode('utf-8')
             logger.error(f"Anthropic API HTTP error (streaming): {e.response.status_code} - {error_detail.decode()}")
-            # Yield an error message? Difficult with StreamingResponse handling raw bytes.
-            # Best to let the exception propagate to the endpoint handler.
+            # let the exception propagate to the endpoint handler.
             raise # Re-raise the exception
         except Exception as e:
             error_detail = f"Internal stream error: {e}".encode('utf-8')

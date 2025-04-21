@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException
 import logging
 
-# Import models and services from sibling modules
-from ..models import QueryRequest, QueryResponse
-from ..services import call_deepseek
+# Use absolute imports
+from models import QueryRequest, QueryResponse
+from services import call_deepseek
 
 router = APIRouter()
 logger = logging.getLogger("llm-api-gateway")
