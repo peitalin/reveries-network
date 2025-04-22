@@ -23,6 +23,11 @@
 *.tfstate
 *.tfstate.backup
 
+# llm-proxy certs
+llm-proxy/certs/*
+llm-proxy/certs/hudsucker.cer
+llm-proxy/certs/hudsucker.key
+
 # Crash log files
 crash.log
 crash.*.log

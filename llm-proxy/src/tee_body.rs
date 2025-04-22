@@ -48,14 +48,8 @@ where
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(e))) => {
-                // Convert the error *representation* for the channel
-                // We need a way to represent the error without consuming `e`
-                // Assuming B::Error implements Display or Debug might work, or Clone.
-                // Let's just send a generic error message for now if we can't clone/copy `e`.
-                // Or, ideally, B::Error implements Clone. Let's assume it might not.
                 // A simple approach: just return the error, don't try to send it via channel.
-                // Let the receiver task handle potential abrupt stream end.
-                // Simpler: Don't send error via channel, just return it.
+                // Don't send error via channel, just return it.
                 Poll::Ready(Some(Err(e)))
             }
             Poll::Ready(None) => {
