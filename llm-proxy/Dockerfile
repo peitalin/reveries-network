@@ -22,11 +22,10 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /usr/src/llm-proxy/target/release/llm-proxy /usr/local/bin/
 
 
-COPY ./llm-proxy/certs/hudsucker.cer /certs/hudsucker.cer
-COPY ./llm-proxy/certs/hudsucker.key /certs/hudsucker.key
+# COPY ./llm-proxy/certs/hudsucker.cer /certs/hudsucker.cer
+# COPY ./llm-proxy/certs/hudsucker.key /certs/hudsucker.key
 
-# Create directories for logs (if needed at runtime, though not strictly required by proxy)
-RUN mkdir -p /logs && chmod 777 /logs
+# Create directories (if needed at runtime, though not strictly required by proxy)
 RUN mkdir -p /certs && chmod 777 /certs
 
 # Expose proxy port

@@ -28,13 +28,13 @@ RUN rustc --version && cargo --version
 WORKDIR /app
 
 # Copy src into the container
-# COPY . .
-COPY ./cait ./cait
+COPY ./agents  ./agents
 COPY ./cmd  ./cmd
+COPY ./llm-proxy  ./llm-proxy
 COPY ./node ./node
 COPY ./telemetry ./telemetry
+COPY ./tests ./tests
 
-# COPY ./.env ./.env
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./Cargo.lock ./Cargo.lock
 

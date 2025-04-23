@@ -4970,9 +4970,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "color-eyre",
+ "ecdsa",
  "flate2",
  "futures",
  "http 0.2.12",
@@ -4981,13 +4983,20 @@ dependencies = [
  "hudsucker",
  "hyper 0.14.32",
  "once_cell",
+ "p256",
  "pin-project-lite",
+ "rand_core 0.6.4",
  "rcgen 0.13.2",
  "regex",
+ "reqwest 0.12.15",
  "rustls 0.20.9",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
+ "sha2 0.10.8",
+ "sha256",
+ "signature",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-rustls 0.23.4",
  "tracing",
@@ -6528,7 +6537,10 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
+ "rustls 0.23.22",
  "rustls-pemfile 2.2.0",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -6536,12 +6548,14 @@ dependencies = [
  "system-configuration 0.6.1",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls 0.26.1",
  "tower 0.5.2",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 0.26.8",
  "windows-registry",
 ]
 
@@ -7395,6 +7409,19 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "sha256"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f880fc8562bdeb709793f00eb42a2ad0e672c4f883bbe59122b926eca935c8f6"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "hex",
+ "sha2 0.10.8",
+ "tokio",
 ]
 
 [[package]]
