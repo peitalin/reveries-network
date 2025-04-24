@@ -35,22 +35,15 @@ pin-project-lite = "0.2"
 # Add thiserror for custom errors
 thiserror = "1.0"
 
-# Add crates for ECDSA P-256
-ecdsa = { version = "0.16", features = ["pem", "signing", "verifying"] }
-p256 = { version = "0.13", features = ["ecdsa"] }
-sha256 = "1.5"
-rand_core = { version = "0.6", features = ["std"] } # For key generation
-
-# Add signature crate
-signature = { version = "2", features = ["std"] }
-# Add sha2 crate
-sha2 = "0.10"
-
 # Add reqwest for sending reports
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rand_core = { workspace = true }
 
-# Add base64 for encoding signature/payload
-base64 = "0.22"
+p256 = { workspace = true, features = ["ecdsa"] }
+ecdsa = { workspace = true, features = ["pem", "verifying"] }
+signature = { workspace = true, features = ["std"] }
+base64 = { workspace = true }
+elliptic-curve = { workspace = true, features = ["pkcs8"] } # For pkcs8 trait
 
 # Use hudsucker for MITM proxy
 hudsucker = { version = "0.23", features = ["full"] }

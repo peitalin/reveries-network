@@ -4,25 +4,26 @@ use http_body::{Body, Frame, SizeHint};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc; // For the channel
-use std::error::Error as StdError;
 use http_body_util::BodyExt; // Import BodyExt trait for .boxed()
 use pin_project_lite::pin_project;
+
+pub type ChannelError = Box<dyn std::error::Error + Send + Sync>;
 
 // A Body wrapper that clones data frames and sends them through an MPSC channel.
 pin_project! {
     pub struct TeeBody<B: Body> {
         #[pin]
         inner: B,
-        sender: mpsc::Sender<Result<Bytes, Box<dyn StdError + Send + Sync>>>,
+        sender: mpsc::Sender<Result<Bytes, ChannelError>>,
     }
 }
 
 impl<B> TeeBody<B>
 where
     B: Body<Data = Bytes> + Unpin,
-    B::Error: Into<Box<dyn StdError + Send + Sync>>,
+    B::Error: Into<ChannelError>,
 {
-    pub fn new(inner: B, sender: mpsc::Sender<Result<Bytes, Box<dyn StdError + Send + Sync>>>) -> Self {
+    pub fn new(inner: B, sender: mpsc::Sender<Result<Bytes, ChannelError>>) -> Self {
         Self { inner, sender }
     }
 }
@@ -30,7 +31,7 @@ where
 impl<B> Body for TeeBody<B>
 where
     B: Body<Data = Bytes> + Unpin,
-    B::Error: Into<Box<dyn StdError + Send + Sync>>,
+    B::Error: Into<ChannelError>,
 {
     type Data = Bytes;
     type Error = B::Error; // Propagate the inner body's error type
@@ -69,7 +70,7 @@ where
 }
 
 /// Creates a TeeBody wrapper and an MPSC receiver to capture body chunks.
-pub fn tee_body(body: HudsuckerBody) -> (HudsuckerBody, mpsc::Receiver<Result<Bytes, Box<dyn StdError + Send + Sync>>>) {
+pub fn tee_body(body: HudsuckerBody) -> (HudsuckerBody, mpsc::Receiver<Result<Bytes, ChannelError>>) {
     // Create a channel with a buffer size (e.g., 100). Adjust as needed.
     // If the logger task falls behind, `try_send` in TeeBody will start dropping chunks.
     let (sender, receiver) = mpsc::channel(100);
