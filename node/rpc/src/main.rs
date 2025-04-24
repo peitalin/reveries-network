@@ -6,8 +6,8 @@ use color_eyre::Result;
 use clap::Parser;
 use libp2p::Multiaddr;
 
-use p2p_network::create_network;
 use commands::Opt;
+use p2p_network::create_network;
 use rpc_server::run_server;
 
 

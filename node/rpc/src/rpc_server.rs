@@ -9,6 +9,7 @@ use jsonrpsee::server::{RpcModule, Server, SubscriptionMessage, TrySendError};
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
+use std::sync::Arc;
 
 use p2p_network::types::{
     NodeKeysWithVesselStatus,
@@ -22,6 +23,8 @@ use p2p_network::node_client::{NodeClient, RestartReason};
 use p2p_network::get_node_name;
 use runtime::llm::AgentSecretsJson;
 use runtime::QuoteBody;
+use llm_proxy::usage::SignedUsageReport;
+
 
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -48,7 +51,8 @@ impl Into<ErrorObjectOwned> for RpcError {
 
 pub async fn run_server<'a: 'static>(
     rpc_port: usize,
-    network_client: NodeClient<'a>
+    network_client: NodeClient<'a>,
+    // proxy_verifying_key: Arc<VerifyingKey>
 ) -> color_eyre::Result<SocketAddr> {
 
 	let server = Server::builder()
@@ -157,6 +161,23 @@ pub async fn run_server<'a: 'static>(
         }
     })?;
 
+
+    let nc = network_client.clone();
+    rpc_module.register_async_method("report_usage", move |params, _, _| {
+
+        let signed_usage_report = params.parse::<SignedUsageReport>().expect("error parsing params");
+
+        let mut nc = nc.clone();
+        async move {
+            nc.report_usage(
+                signed_usage_report,
+            ).await
+            .map_err(|e| RpcError(e.to_string()))?;
+
+            Ok::<(), RpcError>(())
+        }
+    })?;
+
     ////////////////////////////////////////////////////
     // Subscriptions
     ////////////////////////////////////////////////////
@@ -165,9 +186,6 @@ pub async fn run_server<'a: 'static>(
         "subscribe_letter_stream",
         "params_letter_stream",
         "unsubscribe_letter_stream",
-        // "subscribe_node_state", // subscribe_method_name
-        // "notify_node_state",    // notif_method_name
-        // "unsubscribe_node_state", // unsubscribe_method_name
         |params, pending_sink, _, _| async move {
 
 			let n = params.one::<usize>().expect("params err");
@@ -187,9 +205,9 @@ pub async fn run_server<'a: 'static>(
 
     let nc = network_client.clone();
     rpc_module.register_subscription(
-        "subscribe_hb", // subscribe_method_name
-        "notify_hb",    // notif_method_name
-        "unsubscribe_hb", // unsubscribe_method_name
+        "subscribe_hb",
+        "notify_hb",
+        "unsubscribe_hb",
         move |params, pending_sink, _, _| {
 
 			let _n = params.one::<usize>().expect("params err");
@@ -218,7 +236,6 @@ pub async fn run_server<'a: 'static>(
                             },
                             "node_state": node_state_result,
                             "time": get_time(),
-                            // get duration between heartbeats etc
                         });
                         yield Some(json_payload)
                     }
@@ -233,8 +250,6 @@ pub async fn run_server<'a: 'static>(
 
     ////////////////////////////////////////////////////
 	let handle = server.start(rpc_module);
-	// In this example we don't care about doing shutdown so let's run it forever.
-	// You may use the `ServerHandle` to shut it down
 	tokio::spawn(handle.stopped()).await?;
 	Ok(addr)
 }
@@ -260,7 +275,6 @@ pub async fn pipe_from_stream_and_drop<T: Serialize>(
 					Err(TrySendError::Closed(e)) => {
                         break Err(anyhow!("Subscription closed {:?}", e))
                     },
-					// channel is full, let's be naive and just drop the message.
 					Err(TrySendError::Full(_)) => {},
 				}
 			}
@@ -283,7 +297,6 @@ pub fn parse_tee_attestation_bytes(ta_bytes: Vec<u8>) -> serde_json::Value {
     let now = get_time();
 
     let quote_body = match quote.quote_body {
-        // no deserializer traits on these types, defined in dcap-rs crate
         QuoteBody::SGXQuoteBody(e) => {
             format!("{:?}", &e)
         }

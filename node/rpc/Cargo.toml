@@ -8,6 +8,7 @@ edition = "2021"
 p2p-network = { path = "../p2p-network" }
 telemetry = { path = "../telemetry" }
 runtime = { path = "../runtime" }
+llm-proxy = { path = "../../llm-proxy" }
 tokio-stream = { version = "0.1.17" }
 async-stream = { version = "0.3.6" }
 
