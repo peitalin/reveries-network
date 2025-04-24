@@ -11,7 +11,7 @@ use crate::types::{
     VerifyingKey,
 };
 use runtime::llm::{
-    ToolUsageMetrics,
+    MCPToolUsageMetrics,
     call_anthropic,
     call_deepseek
 };
@@ -116,7 +116,7 @@ impl<'a> NodeClient<'a> {
             .unwrap_or(false);
 
         // Initialize metrics tracker
-        let mut metrics = ToolUsageMetrics::default();
+        let mut metrics = MCPToolUsageMetrics::default();
 
         // Generate a weather-related prompt if weather MCP is enabled
         let base_prompt = "Recite a poem based on one of your memories";

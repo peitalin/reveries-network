@@ -87,4 +87,9 @@ pub enum NodeCommand {
         prev_peer_id: PeerId,
         prev_agent_name_nonce: ReverieNameWithNonce,
     },
+
+    ReportUsage {
+        usage_report: llm_proxy::usage::SignedUsageReport,
+        sender: oneshot::Sender<Result<String>>,
+    },
 }

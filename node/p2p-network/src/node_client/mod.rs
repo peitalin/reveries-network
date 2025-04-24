@@ -3,12 +3,15 @@ mod network_events_listener;
 mod memories;
 mod reincarnation;
 pub(crate) mod container_manager;
+mod usage_verification;
 
 pub use commands::NodeCommand;
 pub use container_manager::{ContainerManager, RestartReason};
+use futures::future::ok;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::fs;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use futures::FutureExt;
@@ -20,6 +23,9 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use sha3::{Digest, Keccak256};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use p256::ecdsa::VerifyingKey as P256VerifyingKey;
+use ecdsa::signature::Verifier;
+use elliptic_curve::pkcs8::DecodePublicKey;
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
@@ -41,9 +47,16 @@ use crate::types::{
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
+use crate::node_client::usage_verification::{
+    verify_usage_report,
+    load_proxy_key,
+    PROXY_PUBLIC_KEY_PATH,
+    ALT_PROXY_KEY_PATHS,
+};
+
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::AgentSecretsJson;
-
+use llm_proxy::usage::SignedUsageReport;
 
 
 #[derive(Clone)]
@@ -56,6 +69,8 @@ pub struct NodeClient<'a> {
     pub heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     // keep private in TEE
     umbral_key: UmbralKey,
+    // Proxy's public key for verifying usage reports
+    proxy_public_key: Option<P256VerifyingKey>,
 }
 
 impl<'a> NodeClient<'a> {
@@ -66,6 +81,37 @@ impl<'a> NodeClient<'a> {
         container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
         heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     ) -> Self {
+        // Try to load the proxy's public key
+        let proxy_public_key = match load_proxy_key(PROXY_PUBLIC_KEY_PATH) {
+            Ok(key) => {
+                info!("Loaded proxy public key for usage report verification from primary path");
+                Some(key)
+            },
+            Err(primary_err) => {
+                warn!("Failed to load proxy key from primary path: {}", primary_err);
+
+                // Try alternative paths
+                let mut found_key = None;
+                for alt_path in ALT_PROXY_KEY_PATHS.iter() {
+                    match load_proxy_key(alt_path) {
+                        Ok(key) => {
+                            info!("Loaded proxy public key from alternative path: {}", alt_path);
+                            found_key = Some(key);
+                            break;
+                        },
+                        Err(e) => {
+                            debug!("Failed to load from alternative path {}: {}", alt_path, e);
+                        }
+                    }
+                }
+
+                found_key.or_else(|| {
+                    warn!("Could not load proxy public key from any path");
+                    None
+                })
+            }
+        };
+
         Self {
             node_id: node_id,
             command_sender: command_sender,
@@ -75,6 +121,8 @@ impl<'a> NodeClient<'a> {
             heartbeat_receiver: heartbeat_receiver,
             // keep private in TEE
             umbral_key: umbral_key,
+            // Proxy's public key
+            proxy_public_key,
         }
     }
 
@@ -287,22 +335,6 @@ impl<'a> NodeClient<'a> {
         pks
     }
 
-    // pub async fn get_kfrag_providers(
-    //     &mut self,
-    //     reverie_id: ReverieId,
-    // ) -> HashSet<PeerId> {
-    //     let (sender, receiver) = oneshot::channel();
-    //     self.command_sender
-    //         .send(NodeCommand::GetKfragProviders {
-    //             reverie_id: reverie_id,
-    //             sender: sender
-    //         })
-    //         .await
-    //         .expect("Command receiver not to be dropped.");
-
-    //     receiver.await.expect("get kfrags providers not to drop")
-    // }
-
     pub async fn get_reverie(&self, reverie_id: ReverieId, reverie_type: ReverieType) -> Result<ReverieMessage> {
         let (sender, receiver) = oneshot::channel();
 
@@ -496,6 +528,36 @@ impl<'a> NodeClient<'a> {
 
     pub fn get_hb_channel(&self) -> async_channel::Receiver<TeePayloadOutEvent> {
         self.heartbeat_receiver.clone()
+    }
+
+    pub async fn report_usage(&self, signed_usage_report: SignedUsageReport) -> Result<String> {
+        println!("Reporting usage: {:?}", signed_usage_report);
+
+        // Check if we have a public key to verify with
+        if let Some(ref public_key) = self.proxy_public_key {
+            // Call the verification function
+            match verify_usage_report(&signed_usage_report, public_key) {
+                Ok(payload) => {
+                    info!("Successfully verified usage report: input_tokens={}, output_tokens={}",
+                          payload.usage.input_tokens, payload.usage.output_tokens);
+                },
+                Err(e) => {
+                    warn!("Failed to verify usage report: {}", e);
+                    // You might want to handle verification failure differently
+                    // For now, we'll still accept it but log the warning
+                }
+            }
+        } else {
+            warn!("No proxy public key available - accepting usage report without verification");
+        }
+
+        let (sender, receiver) = oneshot::channel();
+        self.command_sender.send(NodeCommand::ReportUsage {
+            usage_report: signed_usage_report,
+            sender: sender,
+        }).await?;
+
+        receiver.await?.map_err(|e| anyhow!(e.to_string()))
     }
 }
 

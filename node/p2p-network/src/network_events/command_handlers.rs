@@ -288,6 +288,13 @@ impl<'a> NetworkEvents<'a> {
                 let node_state = self.query_node_state().await;
                 sender.send(node_state).ok();
             }
+            NodeCommand::ReportUsage {
+                usage_report,
+                sender,
+            } => {
+                println!("Reporting usage: {:?}", usage_report);
+                sender.send(Ok("tx_id".to_string())).ok();
+            }
         }
     }
 }

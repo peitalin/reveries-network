@@ -8,7 +8,12 @@ pub mod types;
 pub mod utils;
 
 use color_eyre::{Result, eyre::anyhow, eyre};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    error::Error as StdError,
+    fmt,
+    fmt::Display,
+};
 use serde::{Deserialize, Serialize};
 use libp2p::{
     multiaddr,
@@ -21,10 +26,10 @@ use tokio::sync::oneshot::error::RecvError;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SendError(pub String);
 
-impl std::error::Error for SendError {}
+impl StdError for SendError {}
 
-impl std::fmt::Display for SendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Display for SendError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SendError: {}", self.0)
     }
 }
