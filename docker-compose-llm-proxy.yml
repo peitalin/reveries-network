@@ -8,7 +8,7 @@ services:
     image: llm-proxy-local # Optional: name the image
     restart: unless-stopped
     environment:
-      - REPORT_USAGE_URL=http://host.docker.internal:8002/report_usage
+      - REPORT_USAGE_URL=http://host.docker.internal:8002
     volumes:
       # Mount host CA certs for runtime reading/writing
       - ./llm-proxy/certs:/certs_src
