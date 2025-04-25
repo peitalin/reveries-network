@@ -137,6 +137,7 @@ mod tests {
             output_tokens: 250,
             cache_creation_input_tokens: Some(50),
             cache_read_input_tokens: None,
+            tool_use: None,
         };
 
         // Create payload

@@ -19,7 +19,7 @@ use crate::types::{
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
-use runtime::llm::{test_claude_query, AgentSecretsJson};
+use runtime::llm::AgentSecretsJson;
 
 use super::commands::NodeCommand;
 use super::NodeClient;
@@ -116,7 +116,7 @@ impl<'a> NodeClient<'a> {
         // 1. Test LLM API key from decrypted Reverie works
         if let Some(_anthropic_api_key) = agent_secrets_json.anthropic_api_key.clone() {
             info!("Decrypted LLM API keys, querying LLM (paused)");
-            // let response = test_claude_query(
+            // let response = runtime::llm::test_claude_query(
             //     _anthropic_api_key,
             //     "What is your name and what do you do?",
             //     &agent_secrets_json.context

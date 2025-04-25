@@ -1,14 +1,11 @@
-mod metrics;
+mod mcp_tool_usage;
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow};
 use libp2p::identity::{ed25519, secp256k1};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use reqwest;
-pub use metrics::{
-    ToolUsageMetrics,
-    LlmResult,
-    call_llm_api
+pub use mcp_tool_usage::{
+    MCPToolUsageMetrics,
 };
 
 
@@ -88,106 +85,113 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
     }
 }
 
-#[derive(Deserialize)]
-struct AnthropicResponse {
-    content: Vec<AnthropicContent>,
+// #[derive(Deserialize)]
+// struct AnthropicResponse {
+//     content: Vec<AnthropicContent>,
+// }
+
+// #[derive(Deserialize)]
+// struct AnthropicContent {
+//     text: String,
+//     #[serde(rename = "type")]
+//     content_type: String,
+// }
+
+// pub async fn test_claude_query(
+//     anthropic_api_key: String,
+//     question: &str,
+//     context: &str
+// ) -> Result<String> {
+//     let client = reqwest::Client::new();
+
+//     // Prepare the request payload
+//     let payload = serde_json::json!({
+//         "model": CLAUDE_3_SONNET,
+//         "system": context,
+//         "messages": [
+//             {
+//                 "role": "user",
+//                 "content": question
+//             }
+//         ],
+//         "max_tokens": 1000
+//     });
+
+//     let response = client.post("https://api.anthropic.com/v1/messages")
+//         .header("x-api-key", anthropic_api_key)
+//         .header("anthropic-version", "2023-06-01")
+//         .header("content-type", "application/json")
+//         .json(&payload)
+//         .send()
+//         .await?;
+
+//     if !response.status().is_success() {
+//         let error_text = response.text().await?;
+//         return Err(color_eyre::eyre::eyre!("Anthropic API error: {}", error_text));
+//     }
+
+//     let response_data: AnthropicResponse = response.json().await?;
+
+//     let text = response_data.content.iter()
+//         .filter(|content| content.content_type == "text")
+//         .map(|content| content.text.clone())
+//         .collect::<Vec<String>>()
+//         .join("");
+
+//     Ok(text)
+// }
+
+/// Result that tracks success and token usage
+#[derive(Debug, Clone, Deserialize)]
+pub struct LlmResult {
+    pub text: String,
 }
 
-#[derive(Deserialize)]
-struct AnthropicContent {
-    text: String,
-    #[serde(rename = "type")]
-    content_type: String,
-}
-
-pub async fn test_claude_query(
-    anthropic_api_key: String,
-    question: &str,
+pub async fn call_llm_api(
+    api_type: &str,
+    api_key: &str,
+    prompt: &str,
     context: &str
-) -> Result<String> {
+) -> Result<LlmResult> {
     let client = reqwest::Client::new();
 
-    // Prepare the request payload
+    let api_url = format!("http://localhost:8000/{}", api_type);
+
     let payload = serde_json::json!({
-        "model": CLAUDE_3_SONNET,
-        "system": context,
-        "messages": [
-            {
-                "role": "user",
-                "content": question
-            }
-        ],
-        "max_tokens": 1000
+        "api_key": api_key,
+        "prompt": prompt,
+        "context": context
     });
 
-    // Make the API request
-    let response = client.post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", anthropic_api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
+    let response = client.post(&api_url)
         .json(&payload)
         .send()
         .await?;
 
-    // Check if response is successful
     if !response.status().is_success() {
         let error_text = response.text().await?;
-        return Err(color_eyre::eyre::eyre!("Anthropic API error: {}", error_text));
+        return Err(anyhow!("LLM API request failed: {}", error_text));
     }
 
-    // Parse the response
-    let response_data: AnthropicResponse = response.json().await?;
+    let response_data: LlmResult = response.json().await?;
 
-    // Extract and return the response text
-    let text = response_data.content.iter()
-        .filter(|content| content.content_type == "text")
-        .map(|content| content.text.clone())
-        .collect::<Vec<String>>()
-        .join("");
-
-    Ok(text)
+    Ok(response_data)
 }
 
-
-
-
-// Convenience functions for different LLM providers
 pub async fn call_anthropic(
     api_key: &str,
     prompt: &str,
     context: &str,
-    metrics: &mut ToolUsageMetrics
+    metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
-
-    let result = call_llm_api("anthropic", api_key, prompt, context).await?;
-
-    // Add token usage to metrics
-    info!("Claude token usage - Input: {}, Output: {}, Total: {}",
-            result.tokens.input_tokens,
-            result.tokens.output_tokens,
-            result.tokens.total_tokens);
-
-    metrics.add_tokens(&result.tokens);
-
-    Ok(result)
+    call_llm_api("anthropic", api_key, prompt, context).await
 }
 
 pub async fn call_deepseek(
     api_key: &str,
     prompt: &str,
     context: &str,
-    metrics: &mut ToolUsageMetrics
+    metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
-
-    let result = call_llm_api("deepseek", api_key, prompt, context).await?;
-
-    // Add token usage to metrics
-    info!("DeepSeek token usage - Input: {}, Output: {}, Total: {}",
-            result.tokens.input_tokens,
-            result.tokens.output_tokens,
-            result.tokens.total_tokens);
-
-    metrics.add_tokens(&result.tokens);
-
-    Ok(result)
+    call_llm_api("deepseek", api_key, prompt, context).await
 }
