@@ -34,6 +34,8 @@ async fn create_signer() -> Result<LocalWallet> {
 }
 
 
+static DOCKER_COMPOSE_FILE: &'static str = "../docker-compose-llm-proxy.yml";
+
 #[tokio::test]
 #[serial_test::serial]
 pub async fn test_memory_reverie() -> Result<()> {
@@ -56,8 +58,7 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     // Use spawn and wait instead of output to avoid blocking
     let mut docker_compose = Command::new("docker-compose")
-        // .args(["-f", "../llm-services-compose.yml", "up", "-d", "--build"])
-        .args(["-f", "../llm-services-compose.yml", "up", "-d"])
+        .args(["-f", DOCKER_COMPOSE_FILE, "up", "-d"])
         .spawn()?;
 
     // Wait for a maximum of 2 minutes for Docker Compose to start
@@ -75,7 +76,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     defer! {
         println!("Stopping LLM Docker services...");
         let docker_compose_down = Command::new("docker-compose")
-            .args(["-f", "../llm-services-compose.yml", "down", "-v"])
+            .args(["-f", DOCKER_COMPOSE_FILE, "down", "-v"])
             .output();
 
         match docker_compose_down {
