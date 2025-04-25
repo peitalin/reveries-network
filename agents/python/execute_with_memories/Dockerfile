@@ -9,6 +9,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the Python application
 COPY . .
 
+# Add execute permissions to the MCP script
+RUN chmod +x /app/weather_mcp.py
+
 # Expose the port the Python server listens on
 EXPOSE 8000
 
