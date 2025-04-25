@@ -47,3 +47,5 @@ elliptic-curve = { workspace = true, features = ["pkcs8"] } # For pkcs8 trait
 
 # Use hudsucker for MITM proxy
 hudsucker = { version = "0.23", features = ["full"] }
+
+lazy_static = "1.4"

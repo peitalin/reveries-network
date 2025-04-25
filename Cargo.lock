@@ -4989,6 +4989,7 @@ dependencies = [
  "http-body-util",
  "hudsucker",
  "hyper 0.14.32",
+ "lazy_static",
  "once_cell",
  "p256",
  "pin-project-lite",

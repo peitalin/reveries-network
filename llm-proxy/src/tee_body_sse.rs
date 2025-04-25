@@ -15,7 +15,6 @@ use crate::parser::{SSEParser, SSEChunk};
 // A Body wrapper specifically for SSE streams.
 // It parses SSE events and sends *complete events* through the channel.
 pin_project! {
-    #[derive(Debug)]
     pub struct TeeBodySSE<B: Body> {
         #[pin]
         inner: B,
@@ -29,11 +28,11 @@ where
     B: Body<Data = Bytes> + Unpin,
     B::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
-    fn new(inner: B, sender: mpsc::Sender<SSEChunk>) -> Self {
+    fn new(inner: B, sender: mpsc::Sender<SSEChunk>, request_url: Option<&str>) -> Self {
         Self {
             inner,
             sender,
-            parser: SSEParser::new(),
+            parser: SSEParser::new(request_url),
         }
     }
 }
@@ -81,9 +80,9 @@ where
 }
 
 /// Creates a TeeBodySSE wrapper and an MPSC receiver to capture parsed SSEChunks.
-pub fn tee_body_sse(body: HudsuckerBody) -> (HudsuckerBody, mpsc::Receiver<SSEChunk>) {
+pub fn tee_body_sse(body: HudsuckerBody, request_url: Option<&str>) -> (HudsuckerBody, mpsc::Receiver<SSEChunk>) {
     let (sender, receiver) = mpsc::channel(100);
-    let teed_body = TeeBodySSE::new(body, sender);
+    let teed_body = TeeBodySSE::new(body, sender, request_url);
     let mapped_body = teed_body.map_err(|e| {
         let io_err = io::Error::new(io::ErrorKind::Other, e.to_string());
         hudsucker::Error::Io(io_err)

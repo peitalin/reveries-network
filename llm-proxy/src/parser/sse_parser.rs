@@ -1,21 +1,20 @@
 use bytes::Bytes;
-use flate2::read::{GzDecoder, DeflateDecoder};
-use std::io::{self, Read};
 use serde_json::Value;
-use std::fmt;
-use std::error::Error;
-pub use crate::usage::UsageData;
+use crate::parser::get_parser_for_url;
 
 
-/// Parses Server-Sent Events (SSE) from byte chunks.
 #[derive(Debug)]
 pub struct SSEParser {
     buffer: Vec<u8>,
+    request_url: Option<String>,
 }
 
 impl SSEParser {
-    pub fn new() -> Self {
-        SSEParser { buffer: Vec::new() }
+    pub fn new(request_url: Option<&str>) -> Self {
+        SSEParser {
+            buffer: Vec::new(),
+            request_url: request_url.map(|s| s.to_string()),
+        }
     }
 
     /// Processes an incoming chunk of bytes and returns a list of parsed SSE updates.
@@ -28,11 +27,34 @@ impl SSEParser {
             let event_data = self.buffer.drain(..index + 2).collect::<Vec<u8>>();
             match String::from_utf8(event_data) {
                 Ok(event_str) => {
-                    all_updates.extend(parse_sse_event_string(&event_str));
+                    all_updates.extend(self.parse_sse_event_string(&event_str));
                 },
                 Err(e) => {
                     tracing::warn!("Skipping non-UTF8 data segment: {}", e);
                 }
+            }
+        }
+        all_updates
+    }
+
+    /// Parse SSE event string with provider awareness
+    fn parse_sse_event_string(&self, event_str: &str) -> Vec<SSEChunk> {
+        let mut all_updates = Vec::new();
+        for line in event_str.lines() {
+            if line.starts_with("data:") {
+                let data_part = line["data:".len()..].trim();
+                if data_part.is_empty() { continue; }
+
+                // Use provider-specific parser if URL is available
+                if let Some(url) = &self.request_url {
+                    if let Ok(parser) = get_parser_for_url(url) {
+                        all_updates.extend(parser.parse_sse_data(data_part));
+                        continue;
+                    }
+                }
+
+                // Default to Anthropic format if no URL or parser available
+                all_updates.extend(parse_sse_data_line(data_part));
             }
         }
         all_updates
@@ -46,24 +68,17 @@ pub enum SSEChunk {
     OutputTokens { output_tokens: u64 }, // Holds the final count from a delta event
     Stop, // Represents message_stop event
     Text(String), // Holds the text from a content_block_delta event
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+        tool_type: String
+    }, // Tool use events (same structure as ToolUse struct)
     Other(String), // Store the type string for unhandled/other events
 }
 
-/// Parses raw SSE event strings (potentially multi-line, ending in \n\n) into SSEChunks.
-fn parse_sse_event_string(event_str: &str) -> Vec<SSEChunk> {
-    let mut all_updates = Vec::new();
-    for line in event_str.lines() {
-        if line.starts_with("data:") {
-            let data_part = line["data:".len()..].trim();
-            if data_part.is_empty() { continue; }
-            all_updates.extend(parse_sse_data_line(data_part));
-        }
-    }
-    all_updates
-}
-
 /// Parses a single SSE data line JSON string and extracts relevant updates.
-fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
+pub fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
     let mut updates = Vec::new();
 
     // Parse into generic Value first
@@ -110,6 +125,29 @@ fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
                 updates.push(SSEChunk::Other(event_type.to_string()));
             }
         },
+        "content_block_start" => {
+            // Check if this is a tool_use content block
+            if let Some(index) = json_event.get("index").and_then(|i| i.as_u64()) {
+                if json_event.get("content_block").and_then(|c| c.get("type")).and_then(|t| t.as_str()) == Some("tool_use") {
+                    let content_block = json_event.get("content_block").unwrap();
+                    // Extract tool use details
+                    let id = content_block.get("id").and_then(|id| id.as_str()).unwrap_or("unknown");
+                    let name = content_block.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                    let input = content_block.get("input").unwrap_or(&Value::Null);
+
+                    tracing::info!("Found tool use event: id={}, name={}", id, name);
+
+                    updates.push(SSEChunk::ToolUse {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        input: input.clone(),
+                        tool_type: "tool_use".to_string()
+                    });
+                }
+            } else {
+                updates.push(SSEChunk::Other(event_type.to_string()));
+            }
+        },
         "message_delta" => {
             // Extract usage from top-level usage.output_tokens
             let opt_output = json_event.get("usage")
@@ -126,7 +164,7 @@ fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
             updates.push(SSEChunk::Stop);
         },
         // Known types we just pass as Other
-        "ping" | "content_block_start" | "content_block_stop" | "error" => {
+        "ping" | "content_block_stop" | "error" => {
             updates.push(SSEChunk::Other(event_type.to_string()));
         },
         unknown_type => {
@@ -136,93 +174,4 @@ fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
     }
 
     updates
-}
-
-
-/// Decompresses response body bytes based on Content-Encoding header.
-///
-/// Args:
-///     content_encoding: Optional string slice representing the Content-Encoding header value.
-///     body_bytes: Bytes object containing the raw response body.
-///
-/// Returns:
-///     Result containing a Vec<u8> of the decompressed bytes, or an io::Error if decompression fails.
-pub fn decompress_body(
-    content_encoding: Option<&str>,
-    body_bytes: &Bytes
-) -> Result<Vec<u8>, ParseError> {
-    let mut decompressed_bytes = Vec::new();
-
-    match content_encoding {
-        Some("gzip") => {
-            let mut decoder = GzDecoder::new(&body_bytes[..]);
-            decoder.read_to_end(&mut decompressed_bytes).map_err(ParseError::Decompression)?;
-        },
-        Some("deflate") => {
-            let mut decoder = DeflateDecoder::new(&body_bytes[..]);
-            decoder.read_to_end(&mut decompressed_bytes).map_err(ParseError::Decompression)?;
-        },
-        _ => {
-            // No compression or unknown, copy original bytes
-            decompressed_bytes.extend_from_slice(body_bytes);
-        }
-    }
-    Ok(decompressed_bytes)
-}
-
-/// Parses decompressed bytes as JSON and extracts usage data.
-///
-/// Args:
-///     bytes: A slice of bytes containing the decompressed response body.
-///
-/// Returns:
-///     Result containing a tuple of (Value, Option<UsageData>), where Value is the parsed JSON,
-///     and Option<UsageData> is the extracted usage data if available.
-pub fn parse_json_and_extract_usage(bytes: &[u8]) -> Result<(Value, Option<UsageData>), ParseError> {
-
-    let json_value: Value = serde_json::from_slice(bytes)
-        .map_err(ParseError::JsonParsing)?;
-
-    let usage_data = json_value
-        .get("usage")
-        .and_then(|u| u.as_object())
-        .map(|usage_map| {
-            let input = usage_map.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let output = usage_map.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            UsageData {
-                input_tokens: input,
-                output_tokens: output,
-                cache_creation_input_tokens: None,
-                cache_read_input_tokens: None,
-            }
-        })
-        // Filter out empty usage data
-        .filter(|u| u.input_tokens > 0 || u.output_tokens > 0);
-
-    Ok((json_value, usage_data))
-}
-
-
-#[derive(Debug)]
-pub enum ParseError {
-    Decompression(io::Error),
-    JsonParsing(serde_json::Error),
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::Decompression(e) => write!(f, "Decompression failed: {}", e),
-            ParseError::JsonParsing(e) => write!(f, "JSON parsing failed: {}", e),
-        }
-    }
-}
-
-impl Error for ParseError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            ParseError::Decompression(e) => Some(e),
-            ParseError::JsonParsing(e) => Some(e),
-        }
-    }
 }

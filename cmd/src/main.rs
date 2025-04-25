@@ -23,7 +23,7 @@ use libp2p::PeerId;
 use serde_json::Value;
 use tracing::{info, warn, error};
 
-use rpc::rpc_client::{parse_url, create_rpc_client};
+use rpc::rpc_client::{parse_ws_url, create_rpc_client};
 use p2p_network::{
     node_client::RestartReason,
     types::{
@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
 
         CliArgument::Websocket => {
 
-            let url = parse_url(&cmd.rpc_server_address)?;
+            let url = parse_ws_url(&cmd.rpc_server_address)?;
             let ws_client = WsClientBuilder::default().build(&url).await?;
 
             // Subscription with multiple parameters
@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
 
         CliArgument::SubscribeHeartbeat => {
 
-            let url = parse_url(&cmd.rpc_server_address)?;
+            let url = parse_ws_url(&cmd.rpc_server_address)?;
             let ws_client = WsClientBuilder::default().build(&url).await?;
             info!("SubscribeHeartbeat to: {}", url);
 
