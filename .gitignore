@@ -29,6 +29,9 @@ llm-proxy/certs/hudsucker.cer
 llm-proxy/certs/hudsucker.key
 llm-proxy/shared_identity/proxy_public.pem
 
+# usage data
+temp-data
+
 # Crash log files
 crash.log
 crash.*.log
