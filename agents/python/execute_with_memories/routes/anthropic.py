@@ -63,6 +63,7 @@ async def query_anthropic_route(
                         )
 
                     logger.info(f"Tool '{tool_name}' executed successfully. Making follow-up request.")
+                    logger.info(f"Tool result: {tool_result}")
 
                     # 2. Make the follow-up request with the tool result
                     follow_up_response = await make_follow_up_request(

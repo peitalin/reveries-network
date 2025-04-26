@@ -87,11 +87,11 @@ async def get_forecast(latitude: float, longitude: float) -> str:
     forecasts = []
     for period in periods[:5]:  # Only show next 5 periods
         forecast = f"""
-{period['name']}:
-Temperature: {period['temperature']}°{period['temperatureUnit']}
-Wind: {period['windSpeed']} {period['windDirection']}
-Forecast: {period['detailedForecast']}
-"""
+            {period['name']}:
+            Temperature: {period['temperature']}°{period['temperatureUnit']}
+            Wind: {period['windSpeed']} {period['windDirection']}
+            Forecast: {period['detailedForecast']}
+        """.strip()
         forecasts.append(forecast)
 
     return "\n---\n".join(forecasts)

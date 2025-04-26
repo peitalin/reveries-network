@@ -90,12 +90,12 @@ class MCPClient:
         try:
             result = await self.session.call_tool(tool_name, tool_args)
             logger.info(f"MCP tool '{tool_name}' executed successfully.")
-            # Assuming the result content is the string we need
-            if isinstance(result.content, str):
-                 return result.content
-            else:
-                 # Convert non-string results (like JSON) to string representation
-                 return str(result.content)
+
+            # Convert the result content directly to string
+            tool_result_str = str(result.content)
+            logger.debug(f"MCP tool result converted to string: {tool_result_str[:100]}...")
+            return tool_result_str
+
         except Exception as e:
             logger.exception(f"MCP tool call '{tool_name}' failed: {e}")
             raise # Re-raise the exception to be handled by the caller
