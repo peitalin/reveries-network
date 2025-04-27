@@ -1,5 +1,5 @@
 # Use the desired Rust base image
-FROM rust:1.82 AS builder
+FROM rust:1.86 AS builder
 
 # Install openssl needed for the script
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && \
