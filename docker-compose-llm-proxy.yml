@@ -10,14 +10,11 @@ services:
     environment:
       - RUST_LOG=info,llm_proxy=debug
       - REPORT_USAGE_URL=http://host.docker.internal:8002
-      - LLM_PROXY_DB_PATH=/temp-data/request_context.db
     volumes:
       # Mount host CA certs for runtime reading/writing
       - ./llm-proxy/certs:/certs_src
       # Mount host directory for sharing public key OUT
       - ./llm-proxy/shared_identity:/shared_identity # Needs RW for proxy
-      # Mount persistent storage for proxy's private key AND DB using bind mount
-      - ./temp-data:/temp-data
       # Mount directory for receiving config/keys FROM p2p-node (optional)
       - ./llm-proxy/node_config:/node_config:ro
     networks:

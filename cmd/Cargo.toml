@@ -1,10 +1,9 @@
 [package]
 name = "cmd"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-
 p2p-network = { path = "../node/p2p-network" }
 rpc = { path = "../node/rpc" }
 runtime = { path = "../node/runtime" }
