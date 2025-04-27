@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::error::Error;
 use url::Url;
 use std::fmt;
+use tracing::{info, warn};
 pub use crate::usage::UsageData;
 
 mod anthropic;
@@ -71,20 +72,23 @@ pub fn parse_json_and_extract_usage(
     bytes: &[u8],
     request_url: Option<&str>
 ) -> Result<(Value, Option<UsageData>), ParseError> {
+
     let json_value: Value = serde_json::from_slice(bytes)
         .map_err(ParseError::JsonParsing)?;
 
     let usage_data = if let Some(url) = request_url {
         match get_parser_for_url(url) {
-            Ok(parser) => parser.extract_usage(&json_value),
+            Ok(parser) => {
+                let usage_opt = parser.extract_usage(&json_value);
+                usage_opt
+            },
             Err(_) => {
-                // Fallback to generic extraction if we can't determine the provider
-                tracing::warn!("Using generic usage extraction for URL: {}", url);
+                warn!("No URL match. Falling back to generic usage extraction for URL: {}", url);
                 extract_generic_usage(&json_value)
             }
         }
     } else {
-        // Fallback to generic extraction if no URL is provided
+        warn!("No request URL provided, falling back to generic usage extraction.");
         extract_generic_usage(&json_value)
     };
 
@@ -92,24 +96,27 @@ pub fn parse_json_and_extract_usage(
 }
 
 pub fn get_parser_for_url(url: &str) -> Result<Box<dyn UsageParser>, ParseError> {
-
+    info!("Attempting to get parser for URL: {}", url);
+    // Try to parse URL
     let parsed_url = Url::parse(url).map_err(ParseError::UrlParsing)?;
 
     // Get hostname
     let host = parsed_url.host_str().ok_or(ParseError::UnsupportedProvider)?;
     let path = parsed_url.path();
+    info!("Parsed host: '{}', path: '{}'", host, path);
 
     // Select parser based on hostname and path
     if host.contains("anthropic.com") || path.contains("/anthropic/") {
+        info!("Selected AnthropicParser for URL: {}", url);
         Ok(Box::new(AnthropicParser))
     } else if host.contains("deepseek.com") || path.contains("/deepseek/") {
+        info!("Selected DeepseekParser for URL: {}", url);
         Ok(Box::new(DeepseekParser))
     } else if host.contains("openai.com") || path.contains("/openai/") {
-        // We don't have an OpenAI parser yet, but including the condition for future expansion
-        tracing::warn!("OpenAI parser not yet implemented, using generic extraction");
+        warn!("OpenAI parser not yet implemented, using Anthropic as fallback for URL: {}", url);
         Ok(Box::new(AnthropicParser)) // Fallback to Anthropic parser for now
     } else {
-        tracing::warn!("Unknown API provider for URL: {}", url);
+        warn!("Unknown API provider for URL: {}. Returning UnsupportedProvider.", url);
         Err(ParseError::UnsupportedProvider)
     }
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
-use std::env;
 use bytes::Bytes;
 use chrono::Utc;
+use color_eyre::eyre::{anyhow, Result};
 use hudsucker::hyper::header::{CONTENT_ENCODING, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 use crate::parser;
 use crate::tee_body::ChannelError;
 
-// Define a global static reqwest client with connection pooling
+// Global static reqwest client with connection pooling
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .pool_max_idle_per_host(5) // Keep up to 5 idle connections per host
@@ -35,7 +35,6 @@ pub struct UsageData {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
-    // Tool usage tracking in a single field
     pub tool_use: Option<ToolUse>,
 }
 
@@ -53,10 +52,10 @@ impl UsageData {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolUse {
-    pub id: String,              // The tool_use ID from the response
-    pub name: String,            // The name of the tool that was used
+    pub id: String,               // The tool_use ID from the response
+    pub name: String,             // The name of the tool that was used
     pub input: serde_json::Value, // The input provided to the tool (as a JSON object)
-    pub tool_type: String,       // The type of the tool (usually "tool_use")
+    pub tool_type: String,        // The type of the tool (usually "tool_use")
 }
 
 #[derive(Debug, Deserialize, Serialize)] // Only needs Serialize to send
@@ -69,36 +68,32 @@ pub struct SignedUsageReport {
 pub struct UsageReportPayload {
     pub usage: UsageData,
     pub timestamp: i64, // Unix timestamp
-    // Add nonce later if needed for replay protection
+    pub linked_tool_use_id: Option<String>,
+    pub request_id: String,
 }
 
 #[derive(Serialize, Debug)]
 struct JsonRpcRequest<'a, T> {
     jsonrpc: &'a str,
     method: &'a str,
-    params: T, // Generic parameter type
-    id: u64, // Using a simple numeric ID for now
+    params: T,
+    id: u64,
 }
 
 /// Sends the signed usage report to the p2p-node.
-async fn submit_usage_report(report: SignedUsageReport) {
+async fn submit_usage_report(report: SignedUsageReport, target_url: String) {
 
-    let target_url = env::var("REPORT_USAGE_URL")
-        .unwrap_or_else(|_| "http://localhost:8002/report_usage".to_string());
-
-    // Construct the JSON-RPC request
     let rpc_request = JsonRpcRequest {
         jsonrpc: "2.0",
-        method: "report_usage", // Or could be configurable
-        params: report, // The SignedUsageReport is the parameter
-        id: 1, // Simple ID, could use a counter or timestamp
+        method: "report_usage",
+        params: report,
+        id: 1,
     };
 
     info!("Submitting JSON-RPC usage report to: {}", target_url);
 
-    // Use the global HTTP client instead of creating a new one
-    match HTTP_CLIENT.post(target_url)
-        .json(&rpc_request) // Send the JSON-RPC request object as JSON
+    match HTTP_CLIENT.post(&target_url)
+        .json(&rpc_request)
         .send()
         .await
     {
@@ -123,72 +118,83 @@ fn process_and_log_regular_body(
     log_buffer: Vec<u8>,
     headers: &HeaderMap<HeaderValue>,
     signing_key: &Arc<SigningKey>,
-    request_url: Option<&str>,
-) {
-    println!("--- Background Log: Response ---");
+    request_url: Option<String>,
+    linked_tool_use_id: Option<String>,
+    report_target_url: String,
+    request_id: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
     let content_encoding = headers.get(CONTENT_ENCODING).and_then(|h| h.to_str().ok());
+    let decompressed_bytes = parser::decompress_body(
+        content_encoding,
+        &Bytes::from(log_buffer)
+    )?;
 
-    match parser::decompress_body(content_encoding, &Bytes::from(log_buffer)) {
-        Ok(decompressed_bytes) => {
-            match parser::parse_json_and_extract_usage(&decompressed_bytes, request_url) {
-                Ok((json_value, usage_option)) => {
-                    // Log JSON
-                    match serde_json::to_string_pretty(&json_value) {
-                        Ok(pretty_json) => println!("Body (JSON): {} ", pretty_json),
-                        Err(_) => println!("Body (Raw JSON): {:?}", json_value),
-                    }
-                    // Sign and submit usage if extracted
-                    if let Some(usage_data) = usage_option {
-                        // Log tool usage if present
-                        if let Some(ref tool_use) = usage_data.tool_use {
-                            info!(
-                                "Tool use detected in response: {} (id: {})",
-                                tool_use.name,
-                                tool_use.id
-                            );
-                        }
-
-                        let payload = UsageReportPayload {
-                            usage: usage_data.clone(), // Clone usage data
-                            timestamp: Utc::now().timestamp(),
-                        };
-                        match serde_json::to_vec(&payload) { // Serialize to bytes
-                            Ok(payload_bytes) => {
-                                let signature: Signature = signing_key.sign(&payload_bytes);
-                                let signed_report = SignedUsageReport {
-                                    payload: base64_standard.encode(&payload_bytes),
-                                    signature: base64_standard.encode(signature.to_bytes()),
-                                };
-                                // Spawn task to send the report
-                                tokio::spawn(submit_usage_report(signed_report));
-                            },
-                            Err(e) => error!("Failed to serialize usage payload for signing: {}", e),
-                        }
-                    }
-                },
-                Err(e) => { // ProcessError
-                    warn!("Failed to parse response body as JSON: {}. Falling back to string.", e);
-                    match std::str::from_utf8(&decompressed_bytes) {
-                        Ok(body_str) => println!("Body (String): {} ", body_str),
-                        Err(_) => println!("Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len()),
-                    }
-                }
+    let usage_report_payload = match parser::parse_json_and_extract_usage(
+        &decompressed_bytes,
+        request_url.as_deref()
+    ) {
+        Err(e) => {
+            warn!("Failed to parse response body as JSON: {}. Falling back to string.", e);
+            if let Ok(body_str) = std::str::from_utf8(&decompressed_bytes) {
+                println!("Body (String): {} ", body_str);
+            } else {
+                println!("Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len());
             }
+            Err(Box::new(e))
+        }
+        Ok((json_value, usage_option)) => {
+            // Log the body
+            match serde_json::to_string_pretty(&json_value) {
+                Ok(pretty_json) => println!("Body (JSON): {} ", pretty_json),
+                Err(_) => println!("Body (Raw JSON): {:?}", json_value),
+            };
+            let usage_data = match usage_option {
+                None => return Err(anyhow!("No usage data found in response.").into()),
+                Some(usage_data) => {
+                    if let Some(ref tool_use) = usage_data.tool_use {
+                        info!("Parser Check: Tool use detected in response: {} (id: {})", tool_use.name, tool_use.id);
+                    }
+                    usage_data
+                },
+            };
+            Ok(UsageReportPayload {
+                usage: usage_data.clone(),
+                timestamp: Utc::now().timestamp(),
+                linked_tool_use_id: linked_tool_use_id.clone(),
+                request_id: request_id.clone(),
+            })
+        }
+    }?;
+
+    // Sign and submit
+    match serde_json::to_vec(&usage_report_payload) {
+        Ok(payload_bytes) => {
+            let signature: Signature = signing_key.sign(&payload_bytes);
+            let signed_report = SignedUsageReport {
+                payload: base64_standard.encode(&payload_bytes),
+                signature: base64_standard.encode(signature.to_bytes()),
+            };
+            // Pass the URL to the submission task
+            tokio::spawn(submit_usage_report(signed_report, report_target_url.clone()));
+            Ok(())
         },
         Err(e) => {
-            error!("Log: Failed to decompress body: {}", e);
-            println!("Body: <Decompression Failed>");
+            error!("Failed to serialize usage payload for signing: {}", e);
+            Err(e.into())
         }
     }
-    println!("------------------------------");
 }
 
 /// Background task for non-SSE responses.
 pub async fn log_regular_response_task(
     mut receiver: Receiver<Result<Bytes, ChannelError>>,
     headers: HeaderMap<HeaderValue>,
-    signing_key: Arc<SigningKey>, // Accept Arc<SigningKey>
-    request_url: Option<String>, // Add request URL parameter
+    signing_key: Arc<SigningKey>,
+    request_url: Option<String>,
+    linked_tool_use_id: Option<String>,
+    report_target_url: String,
+    request_id: String,
 ) {
     let mut log_buffer = Vec::new();
     let mut stream_error = false;
@@ -207,14 +213,22 @@ pub async fn log_regular_response_task(
     if !stream_error {
         info!("Logging task finished receiving stream ({} bytes)", log_buffer.len());
         if !log_buffer.is_empty() {
-            // Convert Option<String> to Option<&str> for the URL
-            let url_ref = request_url.as_deref();
-            process_and_log_regular_body(log_buffer, &headers, &signing_key, url_ref);
+            if let Err(e) = process_and_log_regular_body(
+                log_buffer,
+                &headers,
+                &signing_key,
+                request_url,
+                linked_tool_use_id,
+                report_target_url,
+                request_id.clone()
+            ) {
+                 error!("Error processing regular body for request {}: {}", request_id, e);
+            }
         }
     } else {
         warn!("Logging task stopped due to stream error. Logged {} bytes before error.", log_buffer.len());
     }
-    info!("[{}] Background log task finished.", Utc::now().to_rfc3339());
+    info!("[{}] Background log task finished for request {}.", Utc::now().to_rfc3339(), request_id);
 }
 
 /// Background task for SSE responses.
@@ -222,7 +236,10 @@ pub async fn log_sse_response_task(
     mut receiver: Receiver<parser::SSEChunk>,
     _headers: HeaderMap<HeaderValue>,
     signing_key: Arc<SigningKey>,
-    request_url: Option<String>, // Add request URL parameter
+    request_url: Option<String>,
+    linked_tool_use_id: Option<String>,
+    report_target_url: String,
+    request_id: String,
 ) {
     let mut current_usage = UsageData::new();
     let mut final_usage_to_submit = UsageData::default();
@@ -253,13 +270,15 @@ pub async fn log_sse_response_task(
             },
             parser::SSEChunk::Stop => {
                 if current_usage.input_tokens > 0 || current_usage.output_tokens > 0 {
-                    final_usage_to_submit = current_usage.clone(); // Capture usage to sign
-                    // --- Sign and Submit ---
+                    // Capture usage to sign
+                    final_usage_to_submit = current_usage.clone();
+                    // Sign and Submit
                     let payload = UsageReportPayload {
-                        usage: final_usage_to_submit.clone(), // Clone usage data
+                        usage: final_usage_to_submit.clone(),
                         timestamp: Utc::now().timestamp(),
+                        linked_tool_use_id: linked_tool_use_id.clone(),
+                        request_id: request_id.clone(),
                     };
-
                     // Log tool usage information if present
                     if let Some(ref tool_use) = final_usage_to_submit.tool_use {
                         info!(
@@ -269,19 +288,17 @@ pub async fn log_sse_response_task(
                         );
                     }
 
-                    match serde_json::to_vec(&payload) { // Serialize to bytes
+                    match serde_json::to_vec(&payload) {
                         Ok(payload_bytes) => {
                             let signature: Signature = signing_key.sign(&payload_bytes);
                             let signed_report = SignedUsageReport {
                                 payload: base64_standard.encode(&payload_bytes),
                                 signature: base64_standard.encode(signature.to_bytes()),
                             };
-                            // Spawn task to send the report
-                            tokio::spawn(submit_usage_report(signed_report));
+                            tokio::spawn(submit_usage_report(signed_report, report_target_url.clone()));
                         },
                         Err(e) => error!("Failed to serialize SSE usage payload for signing: {}", e),
                     }
-                    // -------------------
                     current_usage = UsageData::new(); // Reset
                 }
             },
@@ -294,6 +311,6 @@ pub async fn log_sse_response_task(
         }
     }
     println!("--- SSE Event Stream Ended ---");
-    info!("[{}] Background SSE log task finished.", Utc::now().to_rfc3339());
-    info!("Final SSE Token Usage Submitted: {:?}", final_usage_to_submit);
+    info!("[{}] Background SSE log task finished for request {}.", Utc::now().to_rfc3339(), request_id);
+    info!("Final SSE Token Usage Submitted for request {}: {:?}", request_id, final_usage_to_submit);
 }
