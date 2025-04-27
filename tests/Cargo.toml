@@ -18,9 +18,9 @@ sha3 = { workspace = true }
 jsonrpsee = { workspace = true }
 libp2p = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true }
 tracing = { workspace = true }
-reqwest = { version = "0.12.15", features = ["json"] }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

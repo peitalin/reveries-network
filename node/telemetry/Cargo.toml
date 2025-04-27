@@ -7,15 +7,16 @@ edition = "2021"
 
 prometheus = "0.13"
 prometheus_exporter = "0.8.5"
-lazy_static = "1.4.0"
 tracing-appender = "0.2.3"
-chrono = "0.4.39"
 
+# Inherited from workspace
+lazy_static = { workspace = true }
+chrono = { workspace = true }
 dotenv = { workspace = true }
 colored = { workspace = true }
 color-eyre = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-tokio = { workspace = true, features = ["full"] }
+tracing-subscriber = { workspace = true } # Features defined in workspace
+tokio = { workspace = true } # Features defined in workspace
