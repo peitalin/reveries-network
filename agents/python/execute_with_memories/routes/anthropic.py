@@ -3,15 +3,13 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from typing import AsyncGenerator, Dict, Any, Optional
 import logging
 
-# Use absolute imports from the execution root (execute_with_memories)
 from models import QueryRequest, QueryResponse
 from services import call_anthropic
 from tool_executor import process_tool_use_response, make_follow_up_request
-# Import MCPClient and the getter from the new location
 from mcp_client import MCPClient, get_mcp_client
 
 router = APIRouter()
-logger = logging.getLogger("llm-api-gateway") # Use the same logger name
+logger = logging.getLogger("python-llm-server") # Use the same logger name
 
 @router.post("/anthropic") # Define path relative to router prefix (none here)
 async def query_anthropic_route(

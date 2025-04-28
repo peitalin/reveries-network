@@ -47,7 +47,7 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     // Create port lists for the CleanupGuard (Rust nodes only)
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
-    let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
+    let listen_ports: Vec<u16> = (0..num_nodes).map(|j| base_listen_port + j as u16).collect();
     let rust_node_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
     // Create the guard that will clean up Rust node ports
@@ -204,7 +204,7 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     let signature_type = SignatureType::Ecdsa(signature_bytes);
 
-    // Now execute the memory reverie from another node (client[1])
+    // Now execute the memory reverie from another node (node2: client[1])
     // This is the step that should trigger the LLM calls via the Python server & proxy
     println!("Executing memory reverie (this will trigger LLM calls)...");
     let exec_result: Result<(), _> = tokio::time::timeout(
