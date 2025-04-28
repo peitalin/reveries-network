@@ -4,9 +4,7 @@ use color_eyre::{Result, eyre::anyhow};
 use libp2p::identity::{ed25519, secp256k1};
 use serde::{Deserialize, Serialize};
 use reqwest;
-pub use mcp_tool_usage::{
-    MCPToolUsageMetrics,
-};
+pub use mcp_tool_usage::MCPToolUsageMetrics;
 
 
 pub const CLAUDE_3_SONNET: &str = "claude-3-sonnet-20240229";
@@ -84,62 +82,6 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
         context: format!("Your name is {}, your profession is a pizza chef", agent_name),
     }
 }
-
-// #[derive(Deserialize)]
-// struct AnthropicResponse {
-//     content: Vec<AnthropicContent>,
-// }
-
-// #[derive(Deserialize)]
-// struct AnthropicContent {
-//     text: String,
-//     #[serde(rename = "type")]
-//     content_type: String,
-// }
-
-// pub async fn test_claude_query(
-//     anthropic_api_key: String,
-//     question: &str,
-//     context: &str
-// ) -> Result<String> {
-//     let client = reqwest::Client::new();
-
-//     // Prepare the request payload
-//     let payload = serde_json::json!({
-//         "model": CLAUDE_3_SONNET,
-//         "system": context,
-//         "messages": [
-//             {
-//                 "role": "user",
-//                 "content": question
-//             }
-//         ],
-//         "max_tokens": 1000
-//     });
-
-//     let response = client.post("https://api.anthropic.com/v1/messages")
-//         .header("x-api-key", anthropic_api_key)
-//         .header("anthropic-version", "2023-06-01")
-//         .header("content-type", "application/json")
-//         .json(&payload)
-//         .send()
-//         .await?;
-
-//     if !response.status().is_success() {
-//         let error_text = response.text().await?;
-//         return Err(color_eyre::eyre::eyre!("Anthropic API error: {}", error_text));
-//     }
-
-//     let response_data: AnthropicResponse = response.json().await?;
-
-//     let text = response_data.content.iter()
-//         .filter(|content| content.content_type == "text")
-//         .map(|content| content.text.clone())
-//         .collect::<Vec<String>>()
-//         .join("");
-
-//     Ok(text)
-// }
 
 /// Result that tracks success and token usage
 #[derive(Debug, Clone, Deserialize)]

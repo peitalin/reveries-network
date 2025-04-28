@@ -115,10 +115,8 @@ impl<'a> NodeClient<'a> {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        // Initialize metrics tracker
         let mut metrics = MCPToolUsageMetrics::default();
 
-        // Generate a weather-related prompt if weather MCP is enabled
         let base_prompt = "Recite a poem based on one of your memories";
         let weather_prompt = if use_weather_mcp {
             "

@@ -1,7 +1,4 @@
-use std::{
-    env::current_dir,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 use colored::Colorize;
 use tracing::Level;
 use tracing_appender::{

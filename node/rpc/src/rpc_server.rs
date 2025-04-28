@@ -140,26 +140,29 @@ pub async fn run_server<'a: 'static>(
     })?;
 
     let nc = network_client.clone();
-    rpc_module.register_async_method("execute_with_memory_reverie", move |params, _, _| {
+    rpc_module.register_async_method(
+        "execute_with_memory_reverie",
+        move |params, _, _| {
 
-        let (
-            reverie_id,
-            reverie_type,
-            signature,
-        ) = params.parse::<(ReverieId, ReverieType, SignatureType)>().expect("error parsing params");
-
-        let mut nc = nc.clone();
-        async move {
-            nc.execute_with_memory_reverie(
+            let (
                 reverie_id,
                 reverie_type,
                 signature,
-            ).await
-            .map_err(|e| RpcError(e.to_string()))?;
+            ) = params.parse::<(ReverieId, ReverieType, SignatureType)>().expect("error parsing params");
 
-            Ok::<(), RpcError>(())
+            let mut nc = nc.clone();
+            async move {
+                nc.execute_with_memory_reverie(
+                    reverie_id,
+                    reverie_type,
+                    signature,
+                ).await
+                .map_err(|e| RpcError(e.to_string()))?;
+
+                Ok::<(), RpcError>(())
+            }
         }
-    })?;
+    )?;
 
 
     let nc = network_client.clone();

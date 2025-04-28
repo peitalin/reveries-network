@@ -2,10 +2,11 @@
 
 pub mod behaviour;
 pub mod create_network;
-mod network_events;
+pub mod network_events;
 pub mod node_client;
 pub mod types;
 pub mod utils;
+pub mod usage_db;
 
 use color_eyre::{Result, eyre::anyhow, eyre};
 use std::{

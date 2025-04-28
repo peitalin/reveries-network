@@ -14,6 +14,4 @@ pub async fn main() -> color_eyre::Result<()> {
         REQUESTS_TOTAL.inc();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
-
-    Ok(())
 }

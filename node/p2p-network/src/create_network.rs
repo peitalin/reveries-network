@@ -28,6 +28,10 @@ use crate::behaviour::heartbeat_behaviour::{
 };
 use crate::network_events::{NetworkEvents, NodeIdentity};
 use crate::node_client::{NodeClient, ContainerManager};
+use crate::usage_db::init_usage_db;
+use crate::node_client::usage_verification::{load_proxy_key, PROXY_PUBLIC_KEY_PATH};
+use p256::ecdsa::VerifyingKey as P256VerifyingKey;
+use tracing::{warn, error};
 
 thread_local! {
     pub static NODE_SEED_NUM: std::cell::RefCell<usize> = std::cell::RefCell::new(1);
@@ -169,12 +173,18 @@ pub async fn new<'a>(
         umbral_key.clone(),
     );
 
+    // Initialize Usage Report DB Pool
+    let usage_db_pool = init_usage_db()?;
+    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(PROXY_PUBLIC_KEY_PATH).ok();
+
     let node_client = NodeClient::new(
         node_identity.clone(),
         command_sender,
         umbral_key,
         container_manager.clone(),
         heartbeat_receiver,
+        proxy_public_key, // Pass loaded key
+        usage_db_pool,    // Pass DB pool
     );
 
     Ok((

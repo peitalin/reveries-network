@@ -1,28 +1,25 @@
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error};
 use color_eyre::eyre::{Result, anyhow};
-use std::error::Error as StdError;
-use std::fmt;
-use std::fs;
+use colored::Colorize;
+use std::{
+    error::Error as StdError,
+    fmt,
+    fs,
+};
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn, error, debug};
 
+use base64::{Engine, engine::general_purpose::STANDARD as base64_standard};
+use elliptic_curve::pkcs8::DecodePublicKey;
 use p256::ecdsa::{VerifyingKey, Signature};
 use signature::Verifier;
-use base64::{Engine, engine::general_purpose::STANDARD as base64_standard};
 use llm_proxy::usage::{
     UsageData,
     SignedUsageReport,
     UsageReportPayload,
 };
-use elliptic_curve::pkcs8::DecodePublicKey;
 
 /// Path to the proxy's public key file
 pub const PROXY_PUBLIC_KEY_PATH: &str = "./llm-proxy/shared_identity/proxy_public.pem";
-
-/// Alternative paths to try if the main path fails
-pub const ALT_PROXY_KEY_PATHS: [&str; 2] = [
-    "/app/llm-proxy/shared_identity/proxy_public.pem", // Docker absolute path
-    "/Users/pta/Dev/rust/1Up-network/llm-proxy/shared_identity/proxy_public.pem", // Local dev path
-];
 
 #[derive(Debug)]
 pub enum VerificationError {
@@ -57,7 +54,6 @@ impl StdError for VerificationError {
     }
 }
 
-
 pub fn verify_usage_report(
     report: &SignedUsageReport,
     key: &VerifyingKey,
@@ -88,30 +84,31 @@ pub fn verify_usage_report(
         return Err(VerificationError::VerificationFailed);
     }
 
-    info!("Signature VERIFIED for usage report: Input={}, Output={}",
-          payload_data.usage.input_tokens, payload_data.usage.output_tokens);
+    info!("{}", format!("Signature VERIFIED for usage report: Input={}, Output={}",
+          payload_data.usage.input_tokens,
+          payload_data.usage.output_tokens
+    ).green());
 
     // Return the deserialized payload data if verification succeeds
     Ok(payload_data)
 }
 
-// Add a function to load the proxy's public key
 pub fn load_proxy_key(path: &str) -> Result<VerifyingKey> {
-    info!("Loading proxy public key from: {}", path);
-
+    info!("Attempting to load proxy public key from: {}", path);
     let pem_data = match fs::read_to_string(path) {
         Ok(data) => {
-            info!("Successfully read public key file ({} bytes)", data.len());
+            // info!("Successfully read public key file ({} bytes)", data.len());
             data
         },
         Err(e) => {
-            error!("Failed to read proxy public key file {}: {}", path, e);
-            return Err(anyhow!("Failed to read proxy public key file {}: {}", path, e));
+            // Keep log level lower for individual path failures
+            debug!("Failed to read potential proxy public key file '{}': {}", path, e);
+            return Err(anyhow!("Failed to read file '{}': {}", path, e));
         }
     };
 
     VerifyingKey::from_public_key_pem(&pem_data)
-        .map_err(|e| anyhow!("Failed to parse proxy public key: {}", e))
+        .map_err(|e| anyhow!("Failed to parse proxy public key from '{}': {}", path, e))
 }
 
 #[cfg(test)]
@@ -144,6 +141,8 @@ mod tests {
         let payload = UsageReportPayload {
             usage,
             timestamp: 1745468461, // Fixed timestamp for consistent tests
+            linked_tool_use_id: None,
+            request_id: String::from("request_121234"),
         };
 
         // Serialize and sign
