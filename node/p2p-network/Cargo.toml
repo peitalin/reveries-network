@@ -10,7 +10,6 @@ telemetry = { path = "../telemetry" }
 llm-proxy = { path = "../../llm-proxy" }
 
 async-channel = { version = "2.3.1" }
-
 # SQLite DB for Usage Reports
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 r2d2 = "0.8.10"
@@ -21,6 +20,7 @@ bincode = { workspace = true }
 color-eyre = { workspace = true }
 colored = { workspace = true }
 clap = { workspace = true }
+chrono = { workspace = true, features = ["serde"] } # Needed for timestamp
 dotenv = { workspace = true }
 ethers = { workspace = true }
 futures = { workspace = true }
@@ -29,14 +29,14 @@ lazy_static = { workspace = true }
 libp2p = { workspace = true }
 libp2p-kad = { workspace = true }
 libp2p-identify = { workspace = true }
+libp2p-identity = { workspace = true }
 nanoid = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha3 = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 umbral-pre = { workspace = true }
@@ -46,4 +46,14 @@ signature = { workspace = true }
 base64 = { workspace = true }
 elliptic-curve = { workspace = true }
 rand_core = { workspace = true }
+# Add for reading/verifying node signature
+ed25519-dalek = { workspace = true }
+pkcs8 = { workspace = true }
+sha2 = { workspace = true }
+once_cell = { workspace = true }
+# TLS dependencies
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+tokio-rustls = { workspace = true }
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls-tls"] }
 

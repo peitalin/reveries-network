@@ -23,10 +23,10 @@ impl<'a> NetworkEvents<'a> {
                 self.handle_request_response(rr_event).await?;
             },
 
-            //// GossipSub events for PRE broadcasts
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossip_event)) => {
-                self.handle_gossipsub_event(gossip_event).await?;
-            }
+            // //// GossipSub events for PRE broadcasts
+            // SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossip_event)) => {
+            //     self.handle_gossipsub_event(gossip_event).await?;
+            // }
 
             //// Heartbeat Protocol events
             SwarmEvent::Behaviour(BehaviourEvent::Heartbeat(tee_event)) => {

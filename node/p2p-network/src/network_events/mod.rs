@@ -210,10 +210,6 @@ impl<'a> NetworkEvents<'a> {
         // Remove from PeerManager locally
         self.peer_manager.remove_kfrag_provider(peer_id);
         self.peer_manager.remove_peer_info(peer_id);
-        // Remove peer from GossipSub
-        self.swarm.behaviour_mut()
-            .gossipsub
-            .remove_explicit_peer(&peer_id);
         // Remove PeerIdToNodeStatusKey of the Peer on Kademlia
         self.swarm.behaviour_mut()
             .kademlia

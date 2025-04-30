@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 use color_eyre::Result;
+use color_eyre::eyre::anyhow;
 use libp2p::{
     dns,
     gossipsub,
@@ -18,6 +19,14 @@ use libp2p::{
 };
 use tokio::sync::{mpsc, RwLock};
 use std::sync::Arc;
+use std::fs;
+use std::path::Path;
+use ed25519_dalek::{VerifyingKey as EdVerifyingKey, PUBLIC_KEY_LENGTH};
+use pkcs8::{EncodePublicKey, LineEnding};
+use tracing::{info, warn, error};
+use libp2p_identity::Keypair as IdentityKeypair;
+use libp2p_identity::PublicKey;
+use std::env;
 
 use crate::SendError;
 use crate::types::NetworkEvent;
@@ -31,7 +40,7 @@ use crate::node_client::{NodeClient, ContainerManager};
 use crate::usage_db::init_usage_db;
 use crate::node_client::usage_verification::{load_proxy_key, PROXY_PUBLIC_KEY_PATH};
 use p256::ecdsa::VerifyingKey as P256VerifyingKey;
-use tracing::{warn, error};
+use ed25519_dalek::VerifyingKey as EdDalekVerifyingKey;
 
 thread_local! {
     pub static NODE_SEED_NUM: std::cell::RefCell<usize> = std::cell::RefCell::new(1);
@@ -57,6 +66,22 @@ pub async fn new<'a>(
         umbral_key
     ) = generate_peer_keys(secret_key_seed);
 
+    let test_env = env::var("TEST_ENV").unwrap_or_default().to_lowercase() == "true";
+    let export_path  = if test_env {
+        let node_test_pubkey_path = String::from("./llm-proxy/pubkeys/p2p-node/p2p_node_test.pub.pem");
+        info!("TEST_ENV env var set, using test node public key path: {}", node_test_pubkey_path);
+        node_test_pubkey_path
+    } else {
+        let node_pubkey_path = String::from("./llm-proxy/pubkeys/p2p-node/p2p_node.pub.pem");
+        node_pubkey_path
+    };
+
+    if let Err(e) = export_libp2p_public_key(&id_keys, &export_path) {
+        error!("Failed to export p2p-node public key to {}: {}. Signature verification by proxy will fail.", export_path, e);
+    } else {
+        info!("Successfully exported p2p-node public key to {}", export_path);
+    }
+
     // TODO: used for determining which fragment the peer subscribes
     // Replace with NODE_SEED_NUM
     let seed = secret_key_seed.unwrap_or(0);
@@ -80,25 +105,6 @@ pub async fn new<'a>(
         .with_dns()?
         .with_behaviour(|key| {
 
-            // To content-address message, we can take the hash of message and use it as an ID.
-            let _message_id_fn = |message: &gossipsub::Message| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                gossipsub::MessageId::from(s.finish().to_string())
-            };
-
-            let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(1))
-                .validation_mode(gossipsub::ValidationMode::Strict)
-                .duplicate_cache_time(Duration::from_secs(5))
-                .build()
-                .map_err(|e| SendError(e.to_string()))?;
-
-            let gossipsub = gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(key.clone()),
-                gossipsub_config
-            )?;
-
             // Configure Kademlia for peer discovery
             let mut kademlia = kad::Behaviour::new(
                 peer_id,
@@ -120,10 +126,12 @@ pub async fn new<'a>(
             }
 
             // Create identify behavior
-            let identify = libp2p_identify::Behaviour::new(libp2p_identify::Config::new(
+            let identify = libp2p_identify::Behaviour::new(
+                libp2p_identify::Config::new(
                 "/my-node/1.0.0".to_string(),
                 key.public(),
-            ));
+                )
+            );
 
             Ok(Behaviour {
                 kademlia,
@@ -143,7 +151,7 @@ pub async fn new<'a>(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                gossipsub: gossipsub,
+                // gossipsub: gossipsub,
                 identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
@@ -175,7 +183,7 @@ pub async fn new<'a>(
 
     // Initialize Usage Report DB Pool
     let usage_db_pool = init_usage_db()?;
-    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(PROXY_PUBLIC_KEY_PATH).ok();
+    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(PROXY_PUBLIC_KEY_PATH, false).await.ok();
 
     let node_client = NodeClient::new(
         node_identity.clone(),
@@ -233,4 +241,42 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     let peer_id = id_keys.public().to_peer_id();
     let node_name = crate::get_node_name(&peer_id);
     (peer_id, id_keys, node_name, umbral_key)
+}
+
+// Function to export the libp2p public key to PEM format
+// Make this function public for use in tests
+pub fn export_libp2p_public_key(keypair: &IdentityKeypair, export_path: &str) -> Result<()> {
+    let public_key: PublicKey = keypair.public();
+
+    match public_key.try_into_ed25519() {
+        Ok(libp2p_ed_pubkey) => {
+            info!("Keypair is Ed25519, exporting public key.");
+
+            // Get raw bytes from libp2p public key
+            let pubkey_bytes = libp2p_ed_pubkey.to_bytes();
+
+            // Construct ed25519_dalek VerifyingKey from bytes
+            let ed_pubkey_dalek = EdDalekVerifyingKey::from_bytes(&pubkey_bytes)
+                .map_err(|e| anyhow!("Failed to create ed25519_dalek key from bytes: {}", e))?;
+
+            // Ensure the target directory exists
+            if let Some(parent_dir) = Path::new(export_path).parent() {
+                fs::create_dir_all(parent_dir)
+                    .map_err(|e| anyhow!("Failed to create directory {}: {}", parent_dir.display(), e))?;
+            }
+
+            // Encode the ed25519_dalek public key to PEM using pkcs8
+            let pem_string = ed_pubkey_dalek.to_public_key_pem(LineEnding::LF)
+                .map_err(|e| anyhow!("Failed to encode Ed25519 public key to PEM: {}", e))?;
+
+            // Write the PEM string to the file
+            fs::write(export_path, pem_string)
+                .map_err(|e| anyhow!("Failed to write public key PEM to {}: {}", export_path, e))?;
+
+            Ok(())
+        }
+        Err(_) => {
+            Err(anyhow!("Cannot export non-Ed25519 public key to PEM currently."))
+        }
+    }
 }

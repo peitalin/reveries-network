@@ -28,6 +28,6 @@ pub struct Behaviour {
     /// The Behaviour to identify peers.
     pub identify: libp2p_identify::Behaviour,
 
-    /// Deprecated in favor of request-response protocol
-    pub gossipsub: gossipsub::Behaviour
+    // /// Deprecated in favor of request-response protocol
+    // pub gossipsub: gossipsub::Behaviour
 }

@@ -4,9 +4,11 @@ mod memories;
 mod reincarnation;
 pub(crate) mod container_manager;
 pub mod usage_verification;
+mod proxy_api_client;
 
 pub use commands::NodeCommand;
 pub use container_manager::{ContainerManager, RestartReason};
+pub use proxy_api_client::{add_proxy_api_key, remove_proxy_api_key};
 use futures::future::ok;
 
 use std::collections::{HashMap, HashSet};
@@ -510,16 +512,17 @@ impl<'a> NodeClient<'a> {
               &signed_usage_report.signature[..signed_usage_report.signature.len().min(10)]);
 
         // Load the public key if it's not already loaded
-        let public_key = if let None = self.proxy_public_key {
-            let public_key = load_proxy_key(PROXY_PUBLIC_KEY_PATH)?;
-            self.proxy_public_key = Some(public_key);
-            public_key
+        let public_key = if self.proxy_public_key.is_none() {
+            // Await the async load function
+            let loaded_key = load_proxy_key(PROXY_PUBLIC_KEY_PATH, true).await?;
+            self.proxy_public_key = Some(loaded_key);
+            loaded_key
         } else {
             self.proxy_public_key.unwrap()
         };
 
         match verify_usage_report(&signed_usage_report, &public_key) {
-            Ok(payload) => {
+                Ok(payload) => {
                 // Verification successful, now store the payload
                 if let Err(db_err) = store_usage_payload(&self.usage_db_pool, &payload) {
                     // Log error but don't fail the whole operation,

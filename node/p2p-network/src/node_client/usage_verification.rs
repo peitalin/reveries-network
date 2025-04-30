@@ -4,6 +4,8 @@ use std::{
     error::Error as StdError,
     fmt,
     fs,
+    path::Path,
+    time::Duration,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug};
@@ -17,9 +19,10 @@ use llm_proxy::usage::{
     SignedUsageReport,
     UsageReportPayload,
 };
+use tokio::time::sleep as tokio_sleep;
 
 /// Path to the proxy's public key file
-pub const PROXY_PUBLIC_KEY_PATH: &str = "./llm-proxy/shared_identity/proxy_public.pem";
+pub const PROXY_PUBLIC_KEY_PATH: &str = "./llm-proxy/pubkeys/llm-proxy/llm-proxy.pub.pem";
 
 #[derive(Debug)]
 pub enum VerificationError {
@@ -93,22 +96,25 @@ pub fn verify_usage_report(
     Ok(payload_data)
 }
 
-pub fn load_proxy_key(path: &str) -> Result<VerifyingKey> {
-    info!("Attempting to load proxy public key from: {}", path);
-    let pem_data = match fs::read_to_string(path) {
-        Ok(data) => {
-            // info!("Successfully read public key file ({} bytes)", data.len());
-            data
-        },
-        Err(e) => {
-            // Keep log level lower for individual path failures
-            debug!("Failed to read potential proxy public key file '{}': {}", path, e);
-            return Err(anyhow!("Failed to read file '{}': {}", path, e));
-        }
-    };
+pub async fn load_proxy_key(path: &str, poll: bool) -> Result<VerifyingKey> {
 
-    VerifyingKey::from_public_key_pem(&pem_data)
-        .map_err(|e| anyhow!("Failed to parse proxy public key from '{}': {}", path, e))
+    let key_path = Path::new(path);
+    let max_wait = Duration::from_secs(10);
+    let poll_interval = Duration::from_secs(1);
+    let start_time = std::time::Instant::now();
+
+    info!("Waiting for proxy public key file at {}...", path);
+    while !key_path.exists() && poll {
+        if start_time.elapsed() > max_wait {
+            return Err(anyhow!("Timed out waiting for proxy public key file: {}", path));
+        }
+        info!("Proxy key file {} not found, waiting {}s...", path, poll_interval.as_secs());
+        tokio_sleep(poll_interval).await;
+    }
+    info!("Found proxy public key file: {}", path);
+
+    VerifyingKey::from_public_key_pem(&tokio::fs::read_to_string(path).await?)
+        .map_err(|e| anyhow!("Failed to load proxy key: {}", e))
 }
 
 #[cfg(test)]
