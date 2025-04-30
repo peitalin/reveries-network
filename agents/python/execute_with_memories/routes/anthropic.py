@@ -9,7 +9,7 @@ from tool_executor import process_tool_use_response, make_follow_up_request
 from mcp_client import MCPClient, get_mcp_client
 
 router = APIRouter()
-logger = logging.getLogger("python-llm-server") # Use the same logger name
+logger = logging.getLogger("python-llm-server")
 
 @router.post("/anthropic") # Define path relative to router prefix (none here)
 async def query_anthropic_route(

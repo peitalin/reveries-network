@@ -207,7 +207,8 @@ fn create_request_id() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
-    // Install the crypto provider FIRST
+
+    // Install the crypto provider first
     CryptoProvider::install_default(aws_lc_rs::default_provider()).ok();
 
     tracing_subscriber::fmt()

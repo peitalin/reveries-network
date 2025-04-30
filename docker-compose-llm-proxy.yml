@@ -11,6 +11,7 @@ services:
       - RUST_LOG=info,llm_proxy=debug
       - REPORT_USAGE_URL=http://host.docker.internal:8002
       - LLM_PROXY_INTERNAL_PORT=7070 # Set the internal API port
+      - CA_CERT_PATH=/certs_src/hudsucker.cer
     volumes:
       # Mount host CA certs for runtime reading/writing of hudsucker certs
       - ./llm-proxy/certs:/certs_src

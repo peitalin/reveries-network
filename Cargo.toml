@@ -7,7 +7,7 @@ members = [
     "node/rpc",
     "node/runtime",
     "node/telemetry",
-    "tests",
+    "tests-e2e",
     "llm-proxy"
 ]
 
@@ -23,7 +23,7 @@ color-eyre = "0.6.3"
 colored = { version = "3.0.0" }
 dotenv = "0.15.0"
 # DEPRECATED, imports conflicting rustls versions
-# ethers = { version = "2.0.14" }
+ethers = { version = "2.0.14" }
 futures = "0.3.30"
 hex = "0.4.3"
 jsonrpsee = { version = "0.24.7", features = ["full"] }

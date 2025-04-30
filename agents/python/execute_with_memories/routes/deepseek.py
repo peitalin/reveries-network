@@ -6,7 +6,7 @@ from models import QueryRequest, QueryResponse
 from services import call_deepseek
 
 router = APIRouter()
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 @router.post("/deepseek", response_model=QueryResponse)
 async def query_deepseek_route(request: QueryRequest):

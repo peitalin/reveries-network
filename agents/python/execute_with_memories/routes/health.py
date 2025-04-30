@@ -3,7 +3,7 @@ import logging
 import os
 
 router = APIRouter()
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 @router.get("/health")
 async def health_check_route():

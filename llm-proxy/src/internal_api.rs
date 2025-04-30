@@ -270,14 +270,12 @@ pub async fn run_internal_api_server(key_store: ApiKeyStore, env_vars: Arc<EnvVa
     .map_err(|e| anyhow!("Failed to load server TLS config from PEM files: {}", e))?;
     info!("Standard TLS configuration loaded.");
 
-    // --- Load p2p-node public key paths from Env Vars ---
     let node_pubkey_path = env::var("NODE_PUBKEY_PATH")
         .map_err(|_| anyhow!("Missing environment variable: NODE_PUBKEY_PATH"))?;
 
     let node_test_pubkey_path = env::var("NODE_TEST_PUBKEY_PATH")
         .map_err(|_| anyhow!("Missing environment variable: NODE_TEST_PUBKEY_PATH"))?;
 
-    // --- Load p2p-node public key with test override ---
     let use_test_key = env::var("TEST_API").unwrap_or_default().to_lowercase() == "true";
     let node_pubkey  = if use_test_key {
         info!("TEST_API env var set, using test node public key path: {}", node_test_pubkey_path);
@@ -285,7 +283,6 @@ pub async fn run_internal_api_server(key_store: ApiKeyStore, env_vars: Arc<EnvVa
     } else {
         load_node_public_key(&node_pubkey_path).await?
     };
-    // --- End Load Key ---
 
     let shared_state = ApiState {
         key_store: key_store.clone(),
