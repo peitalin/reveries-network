@@ -25,9 +25,8 @@
 
 # llm-proxy certs
 llm-proxy/certs/*
-llm-proxy/certs/hudsucker.cer
-llm-proxy/certs/hudsucker.key
-llm-proxy/shared_identity/proxy_public.pem
+llm-proxy/pubkeys/llm-proxy/*
+llm-proxy/pubkeys/p2p-node/*
 
 # usage data
 temp-data
