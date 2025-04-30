@@ -1,6 +1,6 @@
 # Network Tests
 
-This directory contains integration tests for the 1Up Network.
+This directory contains integration tests
 
 ## Prerequisites
 
@@ -38,6 +38,9 @@ To run a specific test:
 
 ```bash
 cargo test test_memory_reverie
+```
+```bash
+cargo test --test proxy_api_test
 ```
 
 To run a test with more detailed output:

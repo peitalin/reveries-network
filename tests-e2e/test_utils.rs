@@ -1,11 +1,13 @@
 use std::time::Duration;
 use std::net::SocketAddr;
-use color_eyre::{Result, eyre::anyhow};
+use color_eyre::{Result, eyre::anyhow, eyre};
 use tracing::{info, warn};
 use rpc::rpc_client::create_rpc_client;
+use jsonrpsee::core::client::Client;
 use std::{
     process::{Command, Stdio},
     sync::Once,
+    env,
 };
 
 // Initialize logger only once across test runs
@@ -18,6 +20,8 @@ pub fn init_test_logger() {
     }
 
     LOGGER_INIT.call_once(|| {
+        // Set the environment variable for tests
+        env::set_var("TEST_ENV", "true");
         let _ = color_eyre::install();
         telemetry::init_logger(telemetry::LoggerConfig {
             show_log_level: true,
@@ -27,13 +31,13 @@ pub fn init_test_logger() {
     });
 }
 
-pub async fn wait_for_rpc_server(port: u16) -> Result<()> {
+pub async fn wait_for_rpc_server(port: u16) -> Result<Client> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut retries = 10;
+    let mut retries = 30;
 
     while retries > 0 {
         match create_rpc_client(&addr).await {
-            Ok(_) => return Ok(()),
+            Ok(client) => return Ok(client),
             Err(e) => {
                 warn!("Waiting for RPC server on port {}: {}", port, e);
                 tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -41,9 +45,8 @@ pub async fn wait_for_rpc_server(port: u16) -> Result<()> {
             }
         }
     }
-    Err(anyhow!(format!("RPC server failed to start on port: {}", port)))
+    Err(anyhow!("RPC server failed to start on port: {} after retries", port))
 }
-
 
 pub fn kill_processes_on_ports(ports: &[u16]) {
     info!("Cleaning up processes on specified ports: {:?}", ports);
@@ -95,11 +98,11 @@ pub fn kill_processes_on_ports(ports: &[u16]) {
 }
 
 // Define CleanupGuard once at the module level
-pub struct CleanupGuard {
+pub struct P2PNodeCleanupGuard {
     ports: Vec<u16>,
 }
 
-impl CleanupGuard {
+impl P2PNodeCleanupGuard {
     // Constructor with custom ports
     pub fn with_ports(ports: Vec<u16>) -> Self {
         info!("Running initial cleanup with custom ports: {:?}...", ports);
@@ -110,9 +113,55 @@ impl CleanupGuard {
     }
 }
 
-impl Drop for CleanupGuard {
+impl Drop for P2PNodeCleanupGuard {
     fn drop(&mut self) {
         info!("Running guaranteed cleanup on ports: {:?}...", self.ports);
         kill_processes_on_ports(&self.ports);
+    }
+}
+
+/// Starts Docker services using the specified compose file.
+pub fn setup_docker_environment(docker_compose_file: &str) -> Result<()> {
+    info!("Starting Docker environment using {}...", docker_compose_file);
+    // Use spawn and wait instead of output to avoid blocking, similar to memory_test
+    let mut docker_compose = Command::new("docker-compose")
+        .args(["-f", docker_compose_file, "up", "-d"])
+        .stdout(Stdio::inherit()) // Show docker output during setup
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| anyhow!("Failed to spawn docker-compose up command: {}", e))?;
+
+    // Wait for the command to complete
+    let status = docker_compose
+        .wait()
+        .map_err(|e| anyhow!("Failed to wait for docker-compose up command: {}", e))?;
+
+    if !status.success() {
+        return Err(anyhow!("docker-compose up command failed, status: {:?}", status.code()));
+    }
+
+    // Allow some time for services to initialize (can be adjusted)
+    // Consider adding health checks here in the future if needed.
+    info!("Docker services started. Waiting a few seconds for initialization...");
+    std::thread::sleep(Duration::from_secs(6));
+
+    info!("✅ Docker environment setup complete using {}.", docker_compose_file);
+    Ok(())
+}
+
+pub fn shutdown_docker_environment(docker_compose_file: &str) {
+    match Command::new("docker-compose")
+        .args(["-f", docker_compose_file, "down", "-v"])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        // .spawn() // don't wait for docker-compose down to complete
+        .output() // wait for docker-compose down to complete
+    {
+        Ok(_) => {
+            println!("✅ 'docker-compose down -v' completed successfully.");
+        }
+        Err(e) => {
+            println!("❌ 'docker-compose down -v' failed: {}", e);
+        }
     }
 }

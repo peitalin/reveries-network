@@ -23,7 +23,7 @@ use ethers::{
 };
 use sha3::{Digest, Keccak256};
 
-use self::test_utils::CleanupGuard;
+use self::test_utils::{P2PNodeCleanupGuard, setup_docker_environment, shutdown_docker_environment};
 use self::network_utils::start_test_network;
 
 
@@ -33,8 +33,7 @@ async fn create_signer() -> Result<LocalWallet> {
     Ok(wallet)
 }
 
-
-static DOCKER_COMPOSE_FILE: &'static str = "../docker-compose-llm-proxy.yml";
+const DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
 
 #[tokio::test]
 #[serial_test::serial]
@@ -50,60 +49,20 @@ pub async fn test_memory_reverie() -> Result<()> {
     let listen_ports: Vec<u16> = (0..num_nodes).map(|j| base_listen_port + j as u16).collect();
     let rust_node_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
+    dotenv::dotenv().ok();
     // Create the guard that will clean up Rust node ports
-    let _guard = CleanupGuard::with_ports(rust_node_ports);
-
-    // Start Docker services (Python LLM server and LLM proxy)
-    println!("Starting Docker services (this may take a while)...");
-
-    // Use spawn and wait instead of output to avoid blocking
-    let mut docker_compose = Command::new("docker-compose")
-        .args(["-f", DOCKER_COMPOSE_FILE, "up", "-d"])
-        .spawn()?;
-
-    // Wait for a maximum of 2 minutes for Docker Compose to start
-    let status = docker_compose.wait()?;
-
-    if !status.success() {
-        return Err(eyre!(
-            "Failed to start Docker services, exit code: {:?}",
-            status.code()
-        ));
-    }
-    println!("Docker services started successfully.");
-
-    // Schedule Docker services cleanup using scopeguard
-    defer! {
-        println!("Stopping LLM Docker services...");
-        let docker_compose_down = Command::new("docker-compose")
-            .args(["-f", DOCKER_COMPOSE_FILE, "down", "-v"])
-            .output();
-
-        match docker_compose_down {
-            Ok(output) if output.status.success() => {
-                println!("LLM Docker services stopped successfully.");
-            }
-            Ok(output) => {
-                warn!(
-                    "Failed to stop Docker services cleanly: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                warn!("Error executing docker-compose down: {}", e);
-            }
-        }
-    }
-
-    // Allow some time for Docker services to initialize fully
-    time::sleep(Duration::from_secs(4)).await;
+    let _guard = P2PNodeCleanupGuard::with_ports(rust_node_ports);
+    // Start Docker services using the helper
+    setup_docker_environment(DOCKER_COMPOSE_TEST_FILE)?;
+    // Ensure teardown runs on scope exit
+    defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); } // Keep using the correct shutdown
+    // Note: The wait/sleep is now part of setup_docker_environment
 
     // Start test network (Rust nodes) and get client connections
     println!("Starting Rust test network...");
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
     println!("Rust test network started successfully.");
 
-    dotenv::dotenv().ok();
     let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
     let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
     let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY").ok();
@@ -231,7 +190,5 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     // Allow a moment for logs to flush before shutdown
     time::sleep(Duration::from_secs(2)).await;
-
-    // Cleanup (Docker down) happens automatically via `defer!` scope guard
     Ok(())
 }

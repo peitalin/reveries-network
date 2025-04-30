@@ -9,6 +9,7 @@ p2p-network = { path = "../node/p2p-network" }
 runtime = { path = "../node/runtime" }
 rpc = { path = "../node/rpc" }
 telemetry = { path = "../node/telemetry" }
+llm-proxy = { path = "../llm-proxy" }
 
 # Workspace dependencies
 color-eyre = { workspace = true }
@@ -17,10 +18,16 @@ ethers = { workspace = true }
 sha3 = { workspace = true }
 jsonrpsee = { workspace = true }
 libp2p = { workspace = true }
+libp2p-identity = { workspace = true }
+signature = { workspace = true }
+ed25519-dalek = { workspace = true }
+pkcs8 = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
+nanoid = { workspace = true }
+once_cell = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
@@ -33,3 +40,7 @@ path = "network_test/mod.rs"
 [[test]]
 name = "memory_test"
 path = "memory_test/mod.rs"
+
+[[test]]
+name = "proxy_api_test"
+path = "proxy_api_test/mod.rs"

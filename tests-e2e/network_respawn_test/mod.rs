@@ -18,7 +18,7 @@ use p2p_network::{
     node_client::RestartReason,
 };
 
-use self::test_utils::CleanupGuard;
+use self::test_utils::P2PNodeCleanupGuard;
 use self::network_utils::{
     start_test_network,
     spawn_agent_on_node,
@@ -97,6 +97,7 @@ async fn wait_for_agent_respawn(
                         return Ok(ReverieNameWithNonce::from(agent_str));
                     }
                 }
+                println!("json: {}", serde_json::to_string_pretty(&state)?);
                 println!("[Test] Agent not yet respawned, waiting...");
             },
             Err(e) => {
@@ -127,7 +128,7 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
     let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
     // Create the guard that will clean up ports on instantiation and when it goes out of scope
-    let _guard = CleanupGuard::with_ports(all_test_ports);
+    let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
 
     // Start test network and get client connections
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
@@ -206,8 +207,6 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     let base_rpc_port = 8001;
     let base_listen_port = 9001;
     let num_nodes = 6;
-    // let rpc_ports = vec![8001, 8002, 8003, 8004, 8005, 8006];
-    // let listen_ports = vec![9001, 9002, 9003, 9004, 9005, 9006];
 
     // Create port lists for the CleanupGuard
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
@@ -215,7 +214,7 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
 
     // Create the guard that will clean up when it goes out of scope
-    let _guard = CleanupGuard::with_ports(all_test_ports);
+    let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
 
     // Start test network and get client connections
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;

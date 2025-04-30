@@ -10,19 +10,21 @@ services:
     environment:
       - RUST_LOG=info,llm_proxy=debug
       - REPORT_USAGE_URL=http://host.docker.internal:8002
+      - LLM_PROXY_INTERNAL_PORT=7070 # Set the internal API port
     volumes:
-      # Mount host CA certs for runtime reading/writing
+      # Mount host CA certs for runtime reading/writing of hudsucker certs
       - ./llm-proxy/certs:/certs_src
-      # Mount host directory for sharing public key OUT
-      - ./llm-proxy/shared_identity:/shared_identity # Needs RW for proxy
-      # Mount directory for receiving config/keys FROM p2p-node (optional)
-      - ./llm-proxy/node_config:/node_config:ro
+      # Mount llm-proxy directory for receiving p2p-node public key
+      - ./llm-proxy/pubkeys/llm-proxy:/pubkeys/llm-proxy # Needs RW
+      # Mount p2p-node directory for llm-proxy to read
+      - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
     networks:
       # Network dynamic python servers will join
       - llm-network
     # Expose port only if direct external access needed (maybe not)
     ports:
       - "8080:8080"
+      - "7070:7070"
 
   # The Python LLM server that makes API calls
   python-llm-server:
