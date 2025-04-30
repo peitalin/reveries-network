@@ -2,10 +2,12 @@
 use std::env;
 use tracing::info;
 
+const DEFAULT_INTERNAL_API_PORT: u16 = 7070;
+
 #[derive(Debug, Clone)]
 pub struct EnvVars {
     pub report_usage_url: String,
-    pub db_path: Option<String>, // Option to easily represent memory vs file
+    pub internal_api_port: u16, // Add port field
 }
 
 impl EnvVars {
@@ -18,17 +20,18 @@ impl EnvVars {
                 "http://localhost:8002/report_usage".to_string()
             });
 
-        // Load LLM_PROXY_DB_PATH
-        let db_path = env::var("LLM_PROXY_DB_PATH").ok();
-        if let Some(ref path) = db_path {
-            info!("LLM_PROXY_DB_PATH is set, using file-based DB: {}", path);
-        } else {
-            info!("LLM_PROXY_DB_PATH not set, using in-memory DB.");
-        }
+        // Load LLM_PROXY_INTERNAL_PORT
+        let internal_api_port = env::var("LLM_PROXY_INTERNAL_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or_else(|| {
+                info!("LLM_PROXY_INTERNAL_PORT not set or invalid, using default: {}", DEFAULT_INTERNAL_API_PORT);
+                DEFAULT_INTERNAL_API_PORT
+            });
 
         EnvVars {
             report_usage_url,
-            db_path,
+            internal_api_port, // Initialize field
         }
     }
 }

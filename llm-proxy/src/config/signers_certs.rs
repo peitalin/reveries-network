@@ -7,13 +7,19 @@ use std::{
 use ecdsa::elliptic_curve::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use p256::ecdsa::SigningKey;
 use rand_core::OsRng;
-use rcgen::{KeyPair, CertificateParams, BasicConstraints, Certificate, IsCa};
+use rcgen::{KeyPair, CertificateParams, BasicConstraints, Certificate, IsCa, PKCS_ECDSA_P256_SHA256, SanType, Ia5String};
 use tracing::*;
+use color_eyre::eyre::{Result, anyhow};
 
-const CA_CERT_PATH: &str = "/certs_src/hudsucker.cer";
-const CA_KEY_PATH: &str = "/certs_src/hudsucker.key";
-const PRIVATE_KEY_PATH: &str = "/data/proxy_private.key";
-const PUBLIC_KEY_PATH: &str = "/shared_identity/proxy_public.pem";
+// For Python LLM server to trust proxy
+pub const CA_CERT_PATH: &str = "/certs_src/hudsucker.cer";
+pub const CA_KEY_PATH: &str = "/certs_src/hudsucker.key";
+// For SignedUsageReports to p2p-node
+pub const PRIVATE_KEY_PATH: &str = "/data/proxy_private.key";
+pub const PUBLIC_KEY_PATH: &str = "/pubkeys/llm-proxy/llm-proxy.pub.pem";
+// Constants for Internal API Server TLS
+pub const API_SERVER_CERT_PATH: &str = "/certs_src/internal_api.crt";
+pub const API_SERVER_KEY_PATH: &str = "/certs_src/internal_api.key";
 
 
 pub fn load_or_generate_signing_key() -> Result<SigningKey, Box<dyn StdError + Send + Sync>> {
@@ -66,7 +72,6 @@ pub fn load_or_generate_ca() -> Result<(KeyPair, Certificate), Box<dyn StdError 
         if let Some(parent) = cert_path.parent() { fs::create_dir_all(parent)?; }
         if let Some(parent) = key_path.parent() { fs::create_dir_all(parent)?; }
 
-
         let mut params = CertificateParams::new(vec!["LLM Proxy Generated CA".to_string()])?;
         params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0)); // Set as CA
         params.key_usages = vec![
@@ -93,6 +98,57 @@ pub fn load_or_generate_ca() -> Result<(KeyPair, Certificate), Box<dyn StdError 
         info!("Saved new CA key and certificate.");
         Ok((key_pair, ca_cert))
     }
+}
+
+pub fn ensure_api_server_pem_files(
+    ca_cert: &Certificate,
+    ca_key_pair: &KeyPair,
+) -> Result<()> {
+    let cert_path = Path::new(API_SERVER_CERT_PATH);
+    let key_path = Path::new(API_SERVER_KEY_PATH);
+
+    if cert_path.exists() && key_path.exists() {
+        info!("API server certificate and key files already exist at: {}, {}", API_SERVER_CERT_PATH, API_SERVER_KEY_PATH);
+        // TODO: Optionally add validation that the existing cert matches expected SANs/issuer?
+        return Ok(());
+    }
+
+    info!("Generating new API server PEM certificate and key files, signed by CA...");
+
+    // Ensure parent directory exists
+    if let Some(parent) = cert_path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = key_path.parent() { fs::create_dir_all(parent)?; }
+
+    let mut params = CertificateParams::new(vec!["localhost".to_string()])
+        .map_err(|e| anyhow!(e))?;
+    params.subject_alt_names = vec![
+        SanType::DnsName(Ia5String::try_from("localhost".to_string()).map_err(|e| anyhow!(e))?),
+        SanType::DnsName(Ia5String::try_from("llm-proxy".to_string()).map_err(|e| anyhow!(e))?),
+        SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
+    ];
+    params.is_ca = IsCa::NoCa;
+    params.key_usages = vec![rcgen::KeyUsagePurpose::KeyEncipherment, rcgen::KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+
+    let server_key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)
+        .map_err(|e| anyhow!(e))?;
+
+    let server_cert = params.signed_by(&server_key_pair, ca_cert, ca_key_pair)
+         .map_err(|e| anyhow!("Failed to sign API server certificate: {}", e))?;
+
+    // Serialize directly to PEM strings
+    let server_cert_pem = server_cert.pem();
+    let server_key_pem = server_key_pair.serialize_pem();
+
+    // Write PEM strings to files
+    fs::write(cert_path, server_cert_pem)
+        .map_err(|e| anyhow!("Failed to write API server cert PEM: {}", e))?;
+    fs::write(key_path, server_key_pem)
+        .map_err(|e| anyhow!("Failed to write API server key PEM: {}", e))?;
+
+    info!("Saved new API server PEM cert and key to: {}, {}", API_SERVER_CERT_PATH, API_SERVER_KEY_PATH);
+
+    Ok(())
 }
 
 #[derive(Debug)]

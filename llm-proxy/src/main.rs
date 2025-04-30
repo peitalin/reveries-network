@@ -3,22 +3,24 @@ mod tee_body_sse;
 mod tee_body;
 mod usage;
 mod config;
+mod internal_api;
 
 use std::{
     net::SocketAddr,
     error::Error as StdError,
-    sync::Arc,
-    time::Duration
+    sync::{Arc, RwLock},
+    collections::HashMap,
 };
 use chrono::Utc;
 use hudsucker::{
     hyper::{self, Request, Response},
     rustls::crypto::aws_lc_rs,
+    rustls::crypto::CryptoProvider,
     tokio_tungstenite::tungstenite::Message,
     Proxy, HttpHandler, HttpContext, RequestOrResponse, Body, WebSocketHandler, WebSocketContext,
     certificate_authority::RcgenAuthority,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use http_body_util::{Full, BodyExt};
 use hyper::header::CONTENT_TYPE;
 use tracing::{debug, error, info, trace, warn};
@@ -29,8 +31,10 @@ use crate::config::{
     EnvVars,
     load_or_generate_signing_key,
     load_or_generate_ca,
+    ensure_api_server_pem_files
 };
 use crate::usage::{log_sse_response_task, log_regular_response_task};
+use crate::internal_api::{run_internal_api_server, ApiKeyStore};
 
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -203,6 +207,8 @@ fn create_request_id() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
+    // Install the crypto provider FIRST
+    CryptoProvider::install_default(aws_lc_rs::default_provider()).ok();
 
     tracing_subscriber::fmt()
         .without_time()
@@ -212,37 +218,54 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
 
     let env_vars = Arc::new(EnvVars::load());
 
+    // Initialize the in-memory API key store
+    let api_key_store: ApiKeyStore = Arc::new(RwLock::new(HashMap::new()));
+
+    // Load/Generate CA first
+    let (ca_key_pair, ca_cert) = load_or_generate_ca()?;
+    // Ensure API server PEM files exist using the CA
+    ensure_api_server_pem_files(&ca_cert, &ca_key_pair)?;
+
+    // Load usage signing key
     let signing_key = load_or_generate_signing_key()?;
     let signing_key_arc = Arc::new(signing_key);
 
-    let (ca_key_pair, ca_cert) = load_or_generate_ca()?;
+    // Clone Arcs for the internal API server task
+    let api_key_store_clone = api_key_store.clone();
+    let env_vars_clone = env_vars.clone();
+    // Spawn the internal API server task
+    tokio::spawn(async move {
+        if let Err(e) = run_internal_api_server(api_key_store_clone, env_vars_clone).await {
+            error!("Internal API server failed: {}", e);
+        }
+    });
 
-    let ca = RcgenAuthority::new(
-        ca_key_pair,
-        ca_cert,
+    // Hudsucker CA setup uses the same CA key/cert
+    let hudsucker_ca = RcgenAuthority::new(
+        ca_key_pair, // Use loaded/generated CA key
+        ca_cert,     // Use loaded/generated CA cert
         1_000,
         aws_lc_rs::default_provider()
     );
 
-    let env_for_handlers = env_vars.clone();
-
+    // Adjust LogHandler initialization (no DB needed)
     let proxy = Proxy::builder()
         .with_addr(SocketAddr::from(([0, 0, 0, 0], 8080)))
-        .with_ca(ca)
+        .with_ca(hudsucker_ca) // Use the loaded/generated CA
         .with_rustls_client(aws_lc_rs::default_provider())
         .with_http_handler(LogHandler {
             signing_key: signing_key_arc.clone(),
-            env: env_for_handlers.clone(),
+            env: env_vars.clone(),
         })
         .with_websocket_handler(LogHandler {
             signing_key: signing_key_arc.clone(),
-            env: env_for_handlers.clone(),
+            env: env_vars.clone(),
         })
         .with_graceful_shutdown(shutdown_signal())
         .build()
         .map_err(|e| format!("Failed to build proxy: {}", e))?;
 
-    let db_mode = if env_vars.db_path.is_some() { "file" } else { "memory" };
+    let db_mode = "memory";
     info!("llm-proxy listening on 0.0.0.0:8080 (DB mode: {})", db_mode);
     proxy.start().await?;
 

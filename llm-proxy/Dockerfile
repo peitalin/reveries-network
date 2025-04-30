@@ -26,6 +26,8 @@ RUN mkdir -p /certs && chmod 777 /certs
 
 # Expose proxy port
 EXPOSE 8080
+# Expose internal API port
+EXPOSE 7070
 
 # Run the proxy
 CMD ["llm-proxy"]

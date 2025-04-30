@@ -4,7 +4,7 @@ This MITM (Man-in-the-Middle) proxy intercepts API calls made by Python LLM serv
 
 ## How It Works
 
-The proxy uses the Hudsucker library to serve as a MITM HTTP/S proxy that:
+The proxy uses a forked Hudsucker library to serve as a MITM HTTP/S proxy that:
 
 1. Intercepts outgoing API calls from the Python server to different LLM providers
 2. Decrypts HTTPS traffic to inspect request and response contents
@@ -36,7 +36,7 @@ Additional providers can be added by updating the provider mapping.
 The easiest way to run the proxy along with LLM services is using the provided Docker setup:
 
 ```bash
-docker-compose -f llm-services-compose.yml up -d
+docker-compose -f docker-compose-llm-proxy.yml up -d
 ```
 
 This will:
@@ -55,15 +55,10 @@ When running the proxy for the first time, you'll need to:
 2. Install it in your Python container's trusted certificate store
 3. Set the appropriate environment variables for certificate validation
 
-## Accessing Logs and Metrics
-
-- Token usage is logged to the console in real-time
-- Detailed logs with full request/response data are saved to the `./logs` directory
-- Each log file is named with the provider and timestamp (e.g., `anthropic-2023-05-01_12-34-56.log`)
 
 ## Usage in Rust Applications
 
-The `call_llm_api` function in `node/runtime/src/llm/metrics.rs` doesn't need any modifications.
+The `call_llm_api` function in `node/runtime/src/llm/mod.rs` doesn't need any modifications.
 It will continue to call the Python server at `http://localhost:8000/`, which in turn routes its
 API requests through the proxy.
 

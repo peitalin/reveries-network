@@ -11,6 +11,7 @@ members = [
     "llm-proxy"
 ]
 
+
 [workspace.dependencies]
 anyhow = "1.0.94"
 base64-url = "3.0.0"
@@ -21,7 +22,8 @@ clap = { version = "4.5.6", features = ["derive"] }
 color-eyre = "0.6.3"
 colored = { version = "3.0.0" }
 dotenv = "0.15.0"
-ethers = { version = "2.0.14" }
+# DEPRECATED, imports conflicting rustls versions
+# ethers = { version = "2.0.14" }
 futures = "0.3.30"
 hex = "0.4.3"
 jsonrpsee = { version = "0.24.7", features = ["full"] }
@@ -45,6 +47,8 @@ libp2p = { version = "0.55.0", features = [
 ] }
 libp2p-kad = { version = "0.47.0" }
 libp2p-identify = { version = "0.46.0" }
+libp2p-identity = { version = "0.2.10" }
+once_cell = { version = "1.21" }
 nanoid = { version = "0.4.0" }
 rand = { version = "0.8.5" }
 regex = { version = "1.11.1" }
@@ -66,5 +70,11 @@ sha256 = "1.5"
 rand_core = { version = "0.6", features = ["std"] } # For key generation
 signature = { version = "2", features = ["std"] }
 sha2 = "0.10"
+# Add for reading/verifying node signature
+ed25519-dalek = { version = "2", features = ["pkcs8"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
 
 reqwest = { version = "0.12.15", features = ["json", "rustls-tls"], default-features = false }
+rustls = { version = "0.23.26", default-features = false, features = ["std"] }
+rustls-pemfile = "2.2"
+tokio-rustls = "0.26.2"
