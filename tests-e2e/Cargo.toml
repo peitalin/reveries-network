@@ -14,7 +14,10 @@ llm-proxy = { path = "../llm-proxy" }
 # Workspace dependencies
 color-eyre = { workspace = true }
 dotenv = { workspace = true }
-ethers = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
 sha3 = { workspace = true }
 jsonrpsee = { workspace = true }
 libp2p = { workspace = true }
@@ -34,8 +37,8 @@ serial_test = { workspace = true }
 scopeguard = { workspace = true }
 
 [[test]]
-name = "network_test"
-path = "network_test/mod.rs"
+name = "respawn_test"
+path = "respawn_test/mod.rs"
 
 [[test]]
 name = "memory_test"

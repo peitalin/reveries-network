@@ -40,7 +40,7 @@ pub async fn wait_for_rpc_server(port: u16) -> Result<Client> {
             Ok(client) => return Ok(client),
             Err(e) => {
                 warn!("Waiting for RPC server on port {}: {}", port, e);
-                tokio::time::sleep(Duration::from_millis(1000)).await;
+                tokio::time::sleep(Duration::from_millis(2000)).await;
                 retries -= 1;
             }
         }

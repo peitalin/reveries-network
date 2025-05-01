@@ -114,15 +114,10 @@ async fn wait_for_agent_respawn(
 #[tokio::test]
 #[serial_test::serial]
 pub async fn test_agent_spawn_and_fragments() -> Result<()> {
-    // Logger is now initialized in start_test_network function
-    // init_test_logger();
 
-    // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
     let base_listen_port = 9001;
     let num_nodes = 5;
-
-    // Create port lists for the CleanupGuard
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
     let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
     let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
@@ -203,12 +198,9 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
 #[serial_test::serial]
 pub async fn test_agent_respawn_after_failure() -> Result<()> {
 
-    // Define the ports we'll be using in this test
     let base_rpc_port = 8001;
     let base_listen_port = 9001;
     let num_nodes = 6;
-
-    // Create port lists for the CleanupGuard
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
     let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
     let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();

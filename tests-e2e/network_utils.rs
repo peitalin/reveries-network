@@ -28,8 +28,6 @@ pub async fn start_test_network(
     base_rpc_port: u16,
     base_listen_port: u16
 ) -> Result<Vec<Client>> {
-
-    init_test_logger();
     let bootstrap_url = &format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", base_listen_port, BOOTSTRAP_PEER);
     // Prepare port lists
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
@@ -51,8 +49,8 @@ pub async fn start_test_network(
                 "--rpc-port", &rpc_port.to_string(),
                 "--listen-address", &format!("/ip4/0.0.0.0/tcp/{}", listen_port),
             ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
 
         if let Some(bootstrap_peer) = bootstrap {
             cmd.args(["--bootstrap-peers", bootstrap_peer]);
@@ -82,9 +80,10 @@ pub async fn start_test_network(
     }
 
     println!("All nodes started and ready");
+
     // Allow nodes to discover each other
-    println!("Waiting for peer connections to be established...");
-    time::sleep(Duration::from_secs(3)).await;
+    println!("Waiting longer for peer connections to be established...");
+    time::sleep(Duration::from_secs(7)).await;
 
     Ok(clients)
 }

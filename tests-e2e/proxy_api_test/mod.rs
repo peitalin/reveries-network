@@ -1,7 +1,6 @@
 #[path = "../test_utils.rs"]
 mod test_utils;
 
-use std::process::{Command, Stdio};
 use std::env;
 use color_eyre::Result;
 use libp2p_identity::Keypair;
@@ -21,7 +20,7 @@ const DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
 // Path for the test key export relative to /tests dir
 const TEST_NODE_PUBKEY_EXPORT_TARGET: &str = "../llm-proxy/pubkeys/p2p-node/p2p_node_test.pub.pem";
 // Path for test setup relative to tests dir
-const TEST_KEY_SEED: usize = 2;
+const TEST_KEY_SEED: usize = 2; // any seed between 1 and 5
 // Generate a FIXED keypair using seed
 static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     let (
