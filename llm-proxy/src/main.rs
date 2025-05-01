@@ -13,7 +13,7 @@ use std::{
 };
 use chrono::Utc;
 use hudsucker::{
-    hyper::{self, Request, Response},
+    hyper::{self, Request, Response, header::{HeaderName, HeaderValue}},
     rustls::crypto::aws_lc_rs,
     rustls::crypto::CryptoProvider,
     tokio_tungstenite::tungstenite::Message,
@@ -26,6 +26,7 @@ use hyper::header::CONTENT_TYPE;
 use tracing::{debug, error, info, trace, warn};
 use p256::ecdsa::SigningKey;
 use serde_json::Value;
+use rand_core::OsRng;
 
 use crate::config::{
     EnvVars,
@@ -48,6 +49,18 @@ struct LLMProxyRequestContext {
 struct LogHandler {
     signing_key: Arc<SigningKey>,
     env: Arc<EnvVars>,
+    api_key_store: ApiKeyStore,
+}
+
+// Helper function for safe logging of API keys
+fn log_api_key_info(key_name: &str, api_key: &str, request_id: &str) {
+    let key_len = api_key.len();
+    let prefix = api_key.chars().take(5).collect::<String>();
+    let suffix = api_key.chars().skip(key_len.saturating_sub(4)).collect::<String>();
+    info!(
+        "Request {}: Injecting API key '{}': {}...{}",
+        request_id, key_name, prefix, suffix
+    );
 }
 
 impl HttpHandler for LogHandler {
@@ -56,12 +69,12 @@ impl HttpHandler for LogHandler {
         ctx: &mut HttpContext,
         req: Request<Body>,
     ) -> RequestOrResponse {
-        let (parts, body) = req.into_parts();
+        let (mut parts, body) = req.into_parts();
         let request_id = create_request_id();
         let url = parts.uri.to_string();
 
         info!("===== Intercepted Request {}: {} ====", request_id, url);
-
+        trace!("Request {}: Method: {}", request_id, parts.method);
         for (name, value) in &parts.headers {
             trace!("Request {}: Header: {} = {:?}", request_id, name, value);
         }
@@ -73,8 +86,44 @@ impl HttpHandler for LogHandler {
                 return Request::from_parts(parts, Body::empty()).into();
             }
         };
-
         let body_bytes = collected_body.to_bytes();
+
+        // -- Start API Key Injection Logic --
+        // Log the URI and host before checking
+        debug!(
+            "Request {}: Checking URI: \"{}\", Host: {:?}",
+            request_id,
+            parts.uri,
+            parts.uri.host()
+        );
+        if let Some(host) = parts.uri.host() {
+            if host.contains("anthropic.com") {
+                debug!("Request {}: Detected Anthropic API request.", request_id);
+                // Check if x-api-key header already exists
+                if parts.headers.contains_key("x-api-key") {
+                    debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
+                } else {
+                    debug!("Request {}: x-api-key header missing, attempting injection from store.", request_id);
+                    let store = self.api_key_store.read().expect("API key store lock poisoned");
+                    if let Some(api_key) = store.get("anthropic_api_key") {
+                        match HeaderValue::from_str(api_key) {
+                            Ok(header_value) => {
+                                log_api_key_info("anthropic_api_key", api_key, &request_id);
+                                parts.headers.insert(HeaderName::from_static("x-api-key"), header_value);
+                            }
+                            Err(e) => {
+                                error!("Request {}: Failed to create HeaderValue for Anthropic API key: {}", request_id, e);
+                                // Proceed without the key, Anthropic will likely reject
+                            }
+                        }
+                    } else {
+                        warn!("Request {}: Proxy injection failed: Anthropic API key ('anthropic_api_key') not found in store.", request_id);
+                        // Proceed without the key
+                    }
+                }
+            }
+        }
+        // -- End API Key Injection Logic --
 
         if let Ok(body_str) = std::str::from_utf8(&body_bytes) {
             trace!("Request {}: Body:\n{}", request_id, body_str);
@@ -87,12 +136,10 @@ impl HttpHandler for LogHandler {
             request_url: Some(url.clone()),
             linked_tool_use_id: None,
         };
-
         if let Some(found_tool_use_id) = find_tool_use_id_in_request_body(&body_bytes) {
-            info!("Request {}: Found linked tool_use_id: {}", request_id, found_tool_use_id);
+             info!("Request {}: Found linked tool_use_id: {}", request_id, found_tool_use_id);
             request_context.linked_tool_use_id = Some(found_tool_use_id);
         }
-
         if let Err(e) = ctx.set_request_context(request_context) {
             error!("Request {}: Failed to set request context: {}", request_id, e);
         };
@@ -241,6 +288,7 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
         }
     });
 
+
     // Hudsucker CA setup uses the same CA key/cert
     let hudsucker_ca = RcgenAuthority::new(
         ca_key_pair, // Use loaded/generated CA key
@@ -257,10 +305,12 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
         .with_http_handler(LogHandler {
             signing_key: signing_key_arc.clone(),
             env: env_vars.clone(),
+            api_key_store: api_key_store.clone(),
         })
         .with_websocket_handler(LogHandler {
             signing_key: signing_key_arc.clone(),
             env: env_vars.clone(),
+            api_key_store: api_key_store.clone(),
         })
         .with_graceful_shutdown(shutdown_signal())
         .build()

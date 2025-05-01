@@ -41,7 +41,7 @@ pub type ApiKeyStore = Arc<RwLock<HashMap<String, String>>>;
 
 // Structure to hold shared state, including the node's public key
 #[derive(Clone)]
-struct ApiState {
+pub struct ApiState {
     key_store: ApiKeyStore,
     node_public_key: Arc<EdVerifyingKey>,
 }
