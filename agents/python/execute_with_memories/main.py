@@ -10,9 +10,10 @@ import sys
 from contextlib import asynccontextmanager
 
 from typing import Optional, AsyncGenerator
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 # Import route modules
@@ -31,6 +32,29 @@ logger = logging.getLogger("llm-api-gateway")
 
 # Determine absolute path for weather_mcp.py (adjust if needed based on container structure)
 WEATHER_MCP_SCRIPT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "weather_mcp.py"))
+
+# --- Add Exception Handler ---
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Log detailed validation errors for 422 responses.
+    """
+    # Format the exception details for logging
+    # exc.errors() provides more structure, but str(exc) is simpler for now
+    exc_str = f'{exc}'.replace('\n', ' ').replace('   ', ' ')
+    logger.error(f"Request Validation Error: {exc_str}")
+    # Log details for easier debugging
+    try:
+        body = await request.json()
+        logger.error(f"Request Body causing validation error: {json.dumps(body, indent=2)}")
+    except Exception:
+        logger.error("Request Body causing validation error could not be parsed as JSON.")
+
+    # Return a JSON response similar to FastAPI's default, but with logged details
+    return JSONResponse(
+        content={"detail": exc.errors()}, # Use exc.errors() for structured detail
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+# --- End Exception Handler ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +81,10 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app with lifespan management
 app = FastAPI(title="LLM API Gateway", lifespan=lifespan)
+
+# --- Register Exception Handler ---
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+# --- End Register Exception Handler ---
 
 # Add CORS middleware
 app.add_middleware(

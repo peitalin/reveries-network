@@ -9,8 +9,10 @@ and prepares follow-up responses to send back to the model.
 import logging
 import json
 import asyncio
+import os # Added os import
 from typing import Dict, Any, List, Optional, Union, Tuple
 import httpx
+from fastapi import HTTPException
 
 # Import MCPClient to use it for type hinting
 from mcp_client import MCPClient
@@ -86,7 +88,6 @@ async def process_tool_use_response(
         return tool_use_id, tool_name, f"Error: Tool '{tool_name}' is not supported"
 
 async def make_follow_up_request(
-    api_key: str,
     original_response: Dict[str, Any],
     tool_use_id: str,
     tool_result: str,
@@ -94,17 +95,24 @@ async def make_follow_up_request(
 ) -> Dict[str, Any]:
     """
     Make a follow-up request to Anthropic API with the tool result.
-    (This function remains largely the same, but we need to handle the original messages correctly)
+    Reads ANTHROPIC_API_KEY from environment and adds x-api-key header if found.
     """
     logger.info(f"Making follow-up request with tool result for tool_use_id: {tool_use_id}")
 
     url = "https://api.anthropic.com/v1/messages"
     headers = {
-        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
         "anthropic-beta": "tools-2024-04-04"
     }
+
+    # Attempt to add API key from environment
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if api_key:
+        logger.debug("Follow-up: Found ANTHROPIC_API_KEY in env, adding x-api-key header.")
+        headers["x-api-key"] = api_key
+    else:
+        logger.warning("Follow-up: ANTHROPIC_API_KEY not found in environment. Request might fail if proxy doesn't inject it.")
 
     # Reconstruct the conversation history
     # Need to find the original user message(s) that led to the tool use

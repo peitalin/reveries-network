@@ -2,6 +2,7 @@ import httpx
 import logging
 import sys
 import asyncio
+import os
 from typing import AsyncGenerator, Optional, List, Dict, Any, Union
 from fastapi import HTTPException
 
@@ -44,14 +45,14 @@ WEATHER_TOOLS = [
 ]
 
 async def call_anthropic(
-    api_key: str,
     prompt: str,
-    context: str,
+    context: Optional[str],
     stream: bool = False,
     tools: Optional[List[Dict[str, Any]]] = None
 ) -> Union[str, Dict[str, Any], AsyncGenerator[bytes, None]]:
     """
     Makes a request to Anthropic's Claude API, supporting streaming and tool use.
+    Reads ANTHROPIC_API_KEY from environment and adds x-api-key header if found.
     Uses client.stream() for the streaming case.
     For non-streaming calls, returns the full response dict if tool use is detected,
     otherwise returns the extracted text.
@@ -59,24 +60,34 @@ async def call_anthropic(
     logger.info(f"Making request to Anthropic API (stream={stream}, tools={'yes' if tools else 'no'}) with prompt: '{prompt[:30]}...'")
     url = "https://api.anthropic.com/v1/messages"
     headers = {
-        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
         "anthropic-beta": "tools-2024-04-04"
     }
 
-    messages = [
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if api_key:
+        logger.debug("Found ANTHROPIC_API_KEY in env, adding x-api-key header.")
+        headers["x-api-key"] = api_key
+    else:
+        logger.warning("ANTHROPIC_API_KEY not found in environment. Request might fail if proxy doesn't inject it.")
+
+    messages = [{
+        "role": "user",
+        "content": prompt
+    }]
 
     payload = {
         "model": "claude-3-haiku-20240307",
         "max_tokens": 4096,
         "messages": messages,
     }
+
+    if context:
+        logger.debug("Adding system context to payload.")
+        payload["system"] = f"Use the following JSON data as context for the user's request:\n```json\n{context}\n```"
+    else:
+         logger.debug("No system context provided.")
 
     if tools:
         payload["tools"] = tools

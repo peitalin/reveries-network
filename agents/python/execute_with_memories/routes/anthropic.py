@@ -20,7 +20,6 @@ async def query_anthropic_route(
     try:
         # Make the initial call to Anthropic
         response_data = await call_anthropic(
-            request.api_key,
             request.prompt,
             request.context,
             stream=request.stream,
@@ -28,10 +27,10 @@ async def query_anthropic_route(
         )
 
         if isinstance(response_data, dict):
-             response_data["messages"] = [{
-                    "role": "user",
-                    "content": request.prompt
-                }]
+            response_data["messages"] = [{
+                "role": "user",
+                "content": request.prompt
+            }]
 
         if request.stream:
             # Streaming responses don't support tool use yet
@@ -65,7 +64,6 @@ async def query_anthropic_route(
 
                     # 2. Make the follow-up request with the tool result
                     follow_up_response = await make_follow_up_request(
-                        api_key=request.api_key,
                         original_response=response_data,
                         tool_use_id=tool_use_id,
                         tool_result=tool_result,
