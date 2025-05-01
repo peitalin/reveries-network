@@ -84,25 +84,26 @@ pub fn read_agent_secrets(seed: usize) -> AgentSecretsJson {
 }
 
 /// Result that tracks success and token usage
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LlmResult {
     pub text: String,
 }
 
-pub async fn call_llm_api(
+pub async fn call_python_llm_server(
     api_type: &str,
-    api_key: &str,
     prompt: &str,
-    context: &str
+    context: &str,
+    tools: Option<serde_json::Value>,
+    stream: bool
 ) -> Result<LlmResult> {
+
     let client = reqwest::Client::new();
-
     let api_url = format!("http://localhost:8000/{}", api_type);
-
     let payload = serde_json::json!({
-        "api_key": api_key,
         "prompt": prompt,
-        "context": context
+        "context": context,
+        "stream": stream,
+        "tools": tools
     });
 
     let response = client.post(&api_url)
@@ -116,24 +117,25 @@ pub async fn call_llm_api(
     }
 
     let response_data: LlmResult = response.json().await?;
-
     Ok(response_data)
 }
 
 pub async fn call_anthropic(
-    api_key: &str,
     prompt: &str,
     context: &str,
+    tools: Option<serde_json::Value>,
+    stream: bool,
     metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
-    call_llm_api("anthropic", api_key, prompt, context).await
+    call_python_llm_server("anthropic", prompt, context, tools, stream).await
 }
 
 pub async fn call_deepseek(
-    api_key: &str,
     prompt: &str,
     context: &str,
+    tools: Option<serde_json::Value>,
+    stream: bool,
     metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
-    call_llm_api("deepseek", api_key, prompt, context).await
+    call_python_llm_server("deepseek", prompt, context, tools, stream).await
 }

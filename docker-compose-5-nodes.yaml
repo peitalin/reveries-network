@@ -1,0 +1,132 @@
+services:
+
+  node1:
+    image: 1up
+    expose:
+      - "9001"
+    ports:
+      - "8001:8001"
+      - "9001:9001"
+    stdin_open: true
+    tty: true
+    restart: always
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'ls && cargo run --bin rpc -- \
+        --secret-key-seed 1 \
+        --rpc-port 8001 \
+        --listen-address "/ip4/0.0.0.0/tcp/9001" \
+        --bootstrap-peers "/dns4/node2/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
+        '
+    ## note bootstrap-peers in docker uses /dns4/node2, not /ip4/127.0.0.1
+
+  node2:
+    image: 1up
+    expose:
+      - "9002"
+    ports:
+      - "8002:8002"
+      - "9002:9002"
+    restart: always
+    stdin_open: true
+    tty: true
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'sleep 1 && cargo run --bin rpc -- \
+        --secret-key-seed 2 \
+        --rpc-port 8002 \
+        --listen-address "/ip4/0.0.0.0/tcp/9002" \
+        --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+        '
+
+
+  node3:
+    image: 1up
+    expose:
+      - "9003"
+    ports:
+      - "8003:8003"
+      - "9003:9003"
+    restart: always
+    stdin_open: true
+    tty: true
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'sleep 2 && cargo run --bin rpc -- \
+        --secret-key-seed 3 \
+        --rpc-port 8003 \
+        --listen-address "/ip4/0.0.0.0/tcp/9003" \
+        --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+      '
+
+
+  node4:
+    image: 1up
+    expose:
+      - "9004"
+    ports:
+      - "8004:8004"
+      - "9004:9004"
+    restart: always
+    stdin_open: true
+    tty: true
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'sleep 4 && cargo run --bin rpc -- \
+        --secret-key-seed 4 \
+        --rpc-port 8004 \
+        --listen-address "/ip4/0.0.0.0/tcp/9004" \
+        --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+      '
+
+
+  node5:
+    image: 1up
+    expose:
+      - "9005"
+    ports:
+      - "8005:8005"
+      - "9005:9005"
+    restart: always
+    stdin_open: true
+    tty: true
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'sleep 6 && cargo run --bin rpc -- \
+        --secret-key-seed 5 \
+        --rpc-port 8005 \
+        --listen-address "/ip4/0.0.0.0/tcp/9005" \
+        --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+      '
+
+
+
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   ports: ["9090:9090"]
+  #   volumes: ["./telemetry/prometheus.yml:/etc/prometheus/prometheus.yml"]
+
+  # grafana:
+  #   image: grafana/grafana-oss:latest
+  #   ports: ["3000:3000"]
+  #   depends_on: [prometheus]
+  #   volumes:
+  #     - ./telemetry/dashboards:/etc/grafana/provisioning/dashboards
+  #     - ./telemetry/datasources:/etc/grafana/provisioning/datasources
+  #     - ./telemetry/grafana.ini:/etc/grafana/grafana.ini
+  #   environment:
+  #     # GF_SECURITY_ADMIN_USER: "user"
+  #     # GF_SECURITY_ADMIN_PASSWORD: ""
+  #     # GF_PATHS_CONFIG: "/etc/grafana/grafana.ini"  # or use custom config
+  #     GF_AUTH_ANONYMOUS_ENABLED: "true"
+  #     GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"  # Full access
+  #     GF_AUTH_BASIC_ENABLED: "false"
+
+networks:
+  p2p-net:
+    driver: bridge

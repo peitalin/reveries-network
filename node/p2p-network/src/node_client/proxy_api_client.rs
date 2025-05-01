@@ -18,7 +18,7 @@ use crate::create_network::export_libp2p_public_key;
 use std::env;
 
 // Define constants for relative paths used *only* as defaults or for testing
-const DEFAULT_CA_CERT_PATH_FOR_TESTS: &str = "../../llm-proxy/certs/hudsucker.cer";
+const DEFAULT_CA_CERT_PATH_FOR_TESTS: &str = "./llm-proxy/certs/hudsucker.cer";
 // Read base URL from env var, default to localhost for testing
 const PROXY_API_BASE_URL: &str = "https://localhost:7070"; // Keep default for tests
 

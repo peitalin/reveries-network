@@ -9,7 +9,7 @@ use jsonrpsee::server::{RpcModule, Server, SubscriptionMessage, TrySendError};
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
-use std::sync::Arc;
+use alloy_primitives::Address;
 
 use p2p_network::types::{
     NodeKeysWithVesselStatus,
@@ -18,6 +18,8 @@ use p2p_network::types::{
     ReverieType,
     Reverie,
     VerifyingKey,
+    ExecuteWithMemoryReverieResult,
+    AnthropicQuery,
 };
 use p2p_network::node_client::{NodeClient, RestartReason};
 use p2p_network::get_node_name;
@@ -125,6 +127,10 @@ pub async fn run_server<'a: 'static>(
             verifying_public_key,
         ) = params.parse::<(serde_json::Value, usize, usize, String)>().expect("error parsing params");
 
+        // Parse the string directly into an Address
+        let verifying_public_key: Address = verifying_public_key.parse()
+            .expect("error parsing verifying_public_key string into Address");
+
         let mut nc = nc.clone();
         async move {
             let result = nc
@@ -148,18 +154,24 @@ pub async fn run_server<'a: 'static>(
                 reverie_id,
                 reverie_type,
                 signature,
-            ) = params.parse::<(ReverieId, ReverieType, SignatureType)>().expect("error parsing params");
+                anthropic_query,
+            ) = params.parse::<(
+                ReverieId,
+                ReverieType,
+                SignatureType,
+                AnthropicQuery
+            )>().expect("error parsing params");
 
             let mut nc = nc.clone();
             async move {
-                nc.execute_with_memory_reverie(
+                let result = nc.execute_with_memory_reverie(
                     reverie_id,
                     reverie_type,
                     signature,
-                ).await
-                .map_err(|e| RpcError(e.to_string()))?;
+                    anthropic_query,
+                ).await.map_err(|e| RpcError(e.to_string()))?;
 
-                Ok::<(), RpcError>(())
+                Ok::<ExecuteWithMemoryReverieResult, RpcError>(result)
             }
         }
     )?;

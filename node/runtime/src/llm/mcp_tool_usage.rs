@@ -1,11 +1,7 @@
-use serde::Deserialize;
-use color_eyre::{Result, eyre::anyhow};
-use reqwest;
-use tracing::{info, error};
+use serde::{Deserialize, Serialize};
 
 
-/// Struct to track success metrics for MCP tool usage
-#[derive(Default)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct MCPToolUsageMetrics {
     attempts: usize,
     successes: usize,

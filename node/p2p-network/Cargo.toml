@@ -16,13 +16,16 @@ r2d2 = "0.8.10"
 r2d2_sqlite = "0.24.0"
 
 # Inherited
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
 bincode = { workspace = true }
 color-eyre = { workspace = true }
 colored = { workspace = true }
 clap = { workspace = true }
 chrono = { workspace = true, features = ["serde"] } # Needed for timestamp
 dotenv = { workspace = true }
-ethers = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 lazy_static = { workspace = true }

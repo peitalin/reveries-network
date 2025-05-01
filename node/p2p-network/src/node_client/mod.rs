@@ -1,10 +1,10 @@
 mod commands;
 mod network_events_listener;
-mod memories;
-mod reincarnation;
-pub(crate) mod container_manager;
-pub mod usage_verification;
 mod proxy_api_client;
+mod reincarnation;
+pub mod usage_verification;
+pub(crate) mod memories;
+pub(crate) mod container_manager;
 
 pub use commands::NodeCommand;
 pub use container_manager::{ContainerManager, RestartReason};

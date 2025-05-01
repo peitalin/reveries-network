@@ -5,6 +5,7 @@ mod commands;
 use color_eyre::Result;
 use clap::Parser;
 use libp2p::Multiaddr;
+use std::env;
 
 use commands::Opt;
 use p2p_network::create_network;
@@ -14,14 +15,18 @@ use rpc_server::run_server;
 #[tokio::main]
 async fn main() -> Result<()> {
 
+    // Initialize color_eyre
     color_eyre::install()?;
-    telemetry::init_logger(telemetry::LoggerConfig {
-        show_log_level: true,
-        show_path: true,
-        show_time: false,
-        show_crate_name: false,
-        ..Default::default()
-    });
+    // Only initialize logger if not running in test environment
+    if env::var("TEST_ENV").is_err() {
+        telemetry::init_logger(telemetry::LoggerConfig {
+            show_log_level: true,
+            show_path: true,
+            show_time: false,
+            show_crate_name: false,
+            ..Default::default()
+        });
+    }
 
     let opt = Opt::parse();
 

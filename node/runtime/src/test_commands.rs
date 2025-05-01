@@ -1,6 +1,5 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 
 
 #[derive(Parser, Serialize, Deserialize, Clone, Debug)]
@@ -14,5 +13,4 @@ pub(crate) struct Cmd {
 pub enum CliArgument {
     TestUmbral,
     TestTee,
-    TestEvm
 }

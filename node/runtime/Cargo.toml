@@ -10,11 +10,6 @@ tdx_enabled = ["dep:tdx"]
 [dependencies]
 tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
-revm = { version = "19.3.0" }
-alloy = { version = "0.3", features = ["full"] }
-hex-literal = "0.4.1"
-bcs = "0.1.4"
-sha3 = { workspace = true }
 
 # Inherited
 reqwest = { workspace = true }
@@ -27,6 +22,7 @@ rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha3 = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -3,20 +3,20 @@ use colored::Colorize;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tracing::{info, debug, error, warn};
 
-use crate::types::{
+use crate::{node_client::add_proxy_api_key, types::{
     Reverie,
     ReverieId,
     ReverieType,
     SignatureType,
     VerifyingKey,
-};
+}};
 use runtime::llm::{
     MCPToolUsageMetrics,
     call_anthropic,
     call_deepseek
 };
-
 use super::NodeClient;
+
 
 
 impl<'a> NodeClient<'a> {
@@ -101,8 +101,9 @@ impl<'a> NodeClient<'a> {
         &mut self,
         reverie_id: ReverieId,
         reverie_type: ReverieType,
-        signature: SignatureType
-    ) -> Result<()> {
+        signature: SignatureType,
+        anthropic_query: AnthropicQuery
+    ) -> Result<ExecuteWithMemoryReverieResult> {
 
         let memory_secrets_json: serde_json::Value = self.reconstruct_memory_cfrags(
             reverie_id.clone(),
@@ -111,71 +112,88 @@ impl<'a> NodeClient<'a> {
             signature
         ).await?;
 
-        let use_weather_mcp = memory_secrets_json.get("use_weather_mcp")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
         let mut metrics = MCPToolUsageMetrics::default();
-
-        let base_prompt = "Recite a poem based on one of your memories";
-        let weather_prompt = if use_weather_mcp {
-            "
-            Please follow these instructions:
-            1. Select ONE random memory from my memories. Try not to use the same memory twice.
-            2. Check the current weather forecast for the location associated with that memory (using the latitude and longitude coordinates).
-            3. If the location is in one of the states listed in 'states_to_monitor', also check for any weather alerts in that state.
-            4. Create a poem that blends my original memory with the current weather conditions at that location.
-            5. Begin your response by stating which memory you chose and the weather you found.
-            "
-        } else {
-            base_prompt
-        };
 
         // Then execute LLM with Reverie as context:
         // 1. Test LLM API key from decrypted Reverie works
-        if let Some(_anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
-            info!("Decrypted Anthropic API key, querying Claude...");
+        let claude_result = if let Some(_anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
+            println!("Decrypted Anthropic API key, querying Claude...");
             metrics.record_attempt();
 
+            let name = "anthropic_api_key".to_string();
+            let key = _anthropic_api_key.to_string();
+            let keypair = &self.node_id.id_keys.clone();
+            add_proxy_api_key(name, key, keypair).await?;
+
+            let secret_context = memory_secrets_json["memories"].to_string();
+
             match call_anthropic(
-                _anthropic_api_key,
-                weather_prompt, // Use the weather-related prompt
-                &memory_secrets_json["memories"].to_string(),
+                &anthropic_query.prompt,
+                &secret_context,
+                anthropic_query.tools,
+                anthropic_query.stream.unwrap_or(false),
                 &mut metrics
             ).await {
                 Ok(result) => {
                     info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
+                    serde_json::to_value(result).ok()
                 },
                 Err(e) => {
                     warn!("Failed to call Anthropic API: {}", e);
+                    None
                 }
             }
-        }
+        } else {
+            None
+        };
 
-        // 2. Test DeepSeek API if key is available
-        if let Some(deepseek_api_key) = memory_secrets_json["deepseek_api_key"].as_str() {
-            info!("Decrypted DeepSeek API key, querying DeepSeek...");
-            metrics.record_attempt();
+        let deepseek_result: Option<serde_json::Value> = None;
+        // // 2. Test DeepSeek API if key is available
+        // let deepseek_result = if let Some(deepseek_api_key) = memory_secrets_json["deepseek_api_key"].as_str() {
+        //     info!("Decrypted DeepSeek API key, querying DeepSeek...");
+        //     metrics.record_attempt();
 
-            match call_deepseek(
-                deepseek_api_key,
-                weather_prompt, // Use the weather-related prompt
-                &memory_secrets_json["memories"].to_string(),
-                &mut metrics
-            ).await {
-                Ok(result) => {
-                    info!("\n{} {}\n", "DeepSeek:".bright_black(), result.text.green());
-                },
-                Err(e) => {
-                    warn!("Failed to call DeepSeek API: {}", e);
-                }
-            }
-        }
+        //     match call_deepseek(
+        //         &prompt,
+        //         &memory_secrets_json["memories"].to_string(),
+        //         &mut metrics
+        //     ).await {
+        //         Ok(result) => {
+        //             info!("\n{} {}\n", "DeepSeek:".bright_black(), result.text.green());
+        //             serde_json::to_value(result).ok()
+        //         },
+        //         Err(e) => {
+        //             warn!("Failed to call DeepSeek API: {}", e);
+        //             None
+        //         }
+        //     }
+        // } else {
+        //     None
+        // };
 
-        let report = metrics.generate_report();
-        info!("{}", report);
+        let usage_report = metrics.generate_report();
+        info!("{}", usage_report);
 
-        Ok(())
+        Ok(ExecuteWithMemoryReverieResult {
+            claude: claude_result,
+            deepseek: deepseek_result,
+            usage_report: metrics
+        })
     }
-
 }
+
+
+#[derive(Deserialize, Debug, Clone, Serialize)]
+pub struct AnthropicQuery {
+    pub prompt: String,
+    pub tools: Option<serde_json::Value>,
+    pub stream: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecuteWithMemoryReverieResult {
+    pub claude: Option<serde_json::Value>,
+    pub deepseek: Option<serde_json::Value>,
+    pub usage_report: MCPToolUsageMetrics,
+}
+

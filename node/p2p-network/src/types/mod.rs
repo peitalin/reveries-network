@@ -14,3 +14,5 @@ pub use kademlia_keys::*;
 
 pub use crate::network_events::peer_manager::peer_info::AgentVesselInfo;
 
+pub use crate::node_client::memories::ExecuteWithMemoryReverieResult;
+pub use crate::node_client::memories::AnthropicQuery;
