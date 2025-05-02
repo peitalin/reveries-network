@@ -2,14 +2,21 @@
 mod test_utils;
 
 use std::env;
+use std::str::FromStr;
 use color_eyre::Result;
 use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use scopeguard::defer;
 use tracing::{info, error};
+use alloy_primitives::Address;
+use alloy_signer_local::PrivateKeySigner;
+use alloy_signer::Signer;
 
-use p2p_network::node_client::{add_proxy_api_key, remove_proxy_api_key};
-use p2p_network::create_network::{generate_peer_keys, export_libp2p_public_key};
+use p2p_network::{
+    types::AccessKey,
+    node_client::{add_proxy_api_key, remove_proxy_api_key},
+    create_network::{generate_peer_keys, export_libp2p_public_key},
+};
 use test_utils::{
     init_test_logger,
     shutdown_docker_environment,
@@ -67,13 +74,27 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
     defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); } // Ensure teardown runs on scope exit
 
     // Test adding key
-    let name = "TEST_KEY_REMOVE_INTEGRATION".to_string();
-    let key = format!("test_value_{}", nanoid::nanoid!());
-    let add_result = add_proxy_api_key(name.clone(), key, &TEST_KEYPAIR).await;
+    let reverie_id = "reverie_id_TEST_KEY_REMOVE".to_string();
+    let api_key = format!("test_value_{}", nanoid::nanoid!());
+    // Generate a random signer and get its address
+    let random_signer = PrivateKeySigner::random();
+    let spender = AccessKey::Ecdsa(random_signer.address());
+
+    let add_result = add_proxy_api_key(
+        reverie_id.clone(),
+        "ANTHROPIC_API_KEY".to_string(),
+        api_key,
+        spender.to_string(),
+        spender.get_type(),
+        &TEST_KEYPAIR
+    ).await;
     assert!(add_result.is_ok(), "Prerequisite add_proxy_api_key failed: {:?}", add_result.err());
 
     // Test removing key
-    let remove_result = remove_proxy_api_key(name.clone(), &TEST_KEYPAIR).await;
+    let remove_result = remove_proxy_api_key(
+        reverie_id.clone(),
+        &TEST_KEYPAIR
+    ).await;
     assert!(remove_result.is_ok(), "remove_proxy_api_key failed: {:?}", remove_result.err());
 
     Ok(())

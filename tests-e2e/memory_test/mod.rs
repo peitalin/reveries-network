@@ -17,12 +17,12 @@ use libp2p_identity::Keypair;
 // Alloy imports for signing
 use alloy_primitives::{Address, B256};
 use alloy_signer::Signer;
-use alloy_signer_local::LocalWallet;
+use alloy_signer_local::PrivateKeySigner;
 
 use p2p_network::types::{
     Reverie,
     ReverieType,
-    SignatureType,
+    AccessCondition,
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
@@ -38,8 +38,8 @@ use self::test_utils::{
 use self::network_utils::start_test_network;
 
 
-async fn create_signer() -> Result<LocalWallet> {
-    let wallet = LocalWallet::random(); // Generate a random wallet
+async fn create_signer() -> Result<PrivateKeySigner> {
+    let wallet = PrivateKeySigner::random(); // Generate a random wallet
     Ok(wallet)
 }
 
@@ -189,7 +189,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     let hash = B256::from_slice(digest.as_slice());
     let signature = signer.sign_hash(&hash).await?;
     let signature_bytes = signature.as_bytes().to_vec();
-    let signature_type = SignatureType::Ecdsa(signature_bytes);
+    let signature_type = AccessCondition::EcdsaSignature(signature_bytes);
 
     println!("Executing memory reverie (this will trigger LLM calls)...");
 
