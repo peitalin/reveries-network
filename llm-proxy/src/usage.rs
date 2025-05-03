@@ -31,6 +31,9 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct UsageData {
+    pub reverie_id: Option<String>,
+    pub spender: Option<String>,
+    pub spender_type: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_creation_input_tokens: Option<u64>,
@@ -41,6 +44,9 @@ pub struct UsageData {
 impl UsageData {
     pub fn new() -> Self {
         UsageData {
+            reverie_id: None,
+            spender: None,
+            spender_type: None,
             input_tokens: 0,
             output_tokens: 0,
             cache_creation_input_tokens: None,
@@ -120,8 +126,11 @@ fn process_and_log_regular_body(
     signing_key: &Arc<SigningKey>,
     request_url: Option<String>,
     linked_tool_use_id: Option<String>,
+    reverie_id: Option<String>,
     report_target_url: String,
     request_id: String,
+    spender: Option<String>,
+    spender_type: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let content_encoding = headers.get(CONTENT_ENCODING).and_then(|h| h.to_str().ok());
@@ -130,26 +139,25 @@ fn process_and_log_regular_body(
         &Bytes::from(log_buffer)
     )?;
 
-    let usage_report_payload = match parser::parse_json_and_extract_usage(
+    let mut usage_report_payload = match parser::parse_json_and_extract_usage(
         &decompressed_bytes,
         request_url.as_deref()
     ) {
         Err(e) => {
             warn!("Failed to parse response body as JSON: {}. Falling back to string.", e);
             if let Ok(body_str) = std::str::from_utf8(&decompressed_bytes) {
-                println!("Body (String): {} ", body_str);
+                info!("Body (String): {} ", body_str);
             } else {
-                println!("Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len());
+                info!("Body: <Non-UTF8 data: {} bytes>", decompressed_bytes.len());
             }
             Err(Box::new(e))
         }
         Ok((json_value, usage_option)) => {
-            // Log the body
             match serde_json::to_string_pretty(&json_value) {
-                Ok(pretty_json) => println!("Body (JSON): {} ", pretty_json),
-                Err(_) => println!("Body (Raw JSON): {:?}", json_value),
+                Ok(pretty_json) => info!("Body (JSON): {} ", pretty_json),
+                Err(_) => info!("Body (Raw JSON): {:?}", json_value),
             };
-            let usage_data = match usage_option {
+            let mut usage_data = match usage_option {
                 None => return Err(anyhow!("No usage data found in response.").into()),
                 Some(usage_data) => {
                     if let Some(ref tool_use) = usage_data.tool_use {
@@ -158,14 +166,18 @@ fn process_and_log_regular_body(
                     usage_data
                 },
             };
+            usage_data.reverie_id = reverie_id.clone();
             Ok(UsageReportPayload {
-                usage: usage_data.clone(),
+                usage: usage_data,
                 timestamp: Utc::now().timestamp(),
                 linked_tool_use_id: linked_tool_use_id.clone(),
                 request_id: request_id.clone(),
             })
         }
     }?;
+
+    usage_report_payload.usage.spender = spender.clone();
+    usage_report_payload.usage.spender_type = spender_type.clone();
 
     // Sign and submit
     match serde_json::to_vec(&usage_report_payload) {
@@ -193,8 +205,11 @@ pub async fn log_regular_response_task(
     signing_key: Arc<SigningKey>,
     request_url: Option<String>,
     linked_tool_use_id: Option<String>,
+    reverie_id: Option<String>,
     report_target_url: String,
     request_id: String,
+    spender: Option<String>,
+    spender_type: Option<String>,
 ) {
     let mut log_buffer = Vec::new();
     let mut stream_error = false;
@@ -219,10 +234,13 @@ pub async fn log_regular_response_task(
                 &signing_key,
                 request_url,
                 linked_tool_use_id,
+                reverie_id,
                 report_target_url,
-                request_id.clone()
+                request_id.clone(),
+                spender,
+                spender_type,
             ) {
-                 error!("Error processing regular body for request {}: {}", request_id, e);
+                error!("Error processing regular body for request {}: {}", request_id, e);
             }
         }
     } else {
@@ -238,11 +256,18 @@ pub async fn log_sse_response_task(
     signing_key: Arc<SigningKey>,
     request_url: Option<String>,
     linked_tool_use_id: Option<String>,
+    reverie_id: Option<String>,
     report_target_url: String,
     request_id: String,
+    spender: Option<String>,
+    spender_type: Option<String>,
 ) {
     let mut current_usage = UsageData::new();
+    current_usage.reverie_id = reverie_id.clone();
     let mut final_usage_to_submit = UsageData::default();
+    final_usage_to_submit.reverie_id = reverie_id.clone();
+    final_usage_to_submit.spender = spender.clone();
+    final_usage_to_submit.spender_type = spender_type.clone();
 
     println!("--- Background Log: SSE Events Start ---");
     if let Some(url) = &request_url {
@@ -299,7 +324,8 @@ pub async fn log_sse_response_task(
                         },
                         Err(e) => error!("Failed to serialize SSE usage payload for signing: {}", e),
                     }
-                    current_usage = UsageData::new(); // Reset
+                    current_usage = UsageData::new();
+                    current_usage.reverie_id = reverie_id.clone();
                 }
             },
             parser::SSEChunk::Text(text) => {

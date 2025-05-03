@@ -24,6 +24,7 @@ elliptic-curve = { workspace = true }
 p256 = { workspace = true }
 rand_core = { workspace = true }
 signature = { workspace = true }
+rand = { workspace = true }
 
 # Unique to llm-proxy
 bytes = "1.5"
@@ -46,3 +47,6 @@ ed25519-dalek = { workspace = true }
 pkcs8 = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+
+[dev-dependencies]
+# ... dev dependencies

@@ -27,6 +27,8 @@ use tracing::{debug, error, info, trace, warn};
 use p256::ecdsa::SigningKey;
 use serde_json::Value;
 use rand_core::OsRng;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use crate::config::{
     EnvVars,
@@ -43,6 +45,9 @@ struct LLMProxyRequestContext {
     request_id: String,
     request_url: Option<String>,
     linked_tool_use_id: Option<String>,
+    reverie_id: Option<String>,
+    spender: Option<String>,
+    spender_type: Option<String>,
 }
 
 #[derive(Clone)]
@@ -72,6 +77,9 @@ impl HttpHandler for LogHandler {
         let (mut parts, body) = req.into_parts();
         let request_id = create_request_id();
         let url = parts.uri.to_string();
+        let mut reverie_id_for_context: Option<String> = None;
+        let mut spender_for_context: Option<String> = None;
+        let mut spender_type_for_context: Option<String> = None;
 
         info!("===== Intercepted Request {}: {} ====", request_id, url);
         trace!("Request {}: Method: {}", request_id, parts.method);
@@ -79,17 +87,15 @@ impl HttpHandler for LogHandler {
             trace!("Request {}: Header: {} = {:?}", request_id, name, value);
         }
 
-        let collected_body = match body.collect().await {
-            Ok(collected) => collected,
+        let body_bytes = match body.collect().await {
+            Ok(collected) => collected.to_bytes(),
             Err(e) => {
                 error!("Request {}: Failed to collect request body: {}", request_id, e);
                 return Request::from_parts(parts, Body::empty()).into();
             }
         };
-        let body_bytes = collected_body.to_bytes();
 
         // -- Start API Key Injection Logic --
-        // Log the URI and host before checking
         debug!(
             "Request {}: Checking URI: \"{}\", Host: {:?}",
             request_id,
@@ -99,26 +105,42 @@ impl HttpHandler for LogHandler {
         if let Some(host) = parts.uri.host() {
             if host.contains("anthropic.com") {
                 debug!("Request {}: Detected Anthropic API request.", request_id);
-                // Check if x-api-key header already exists
                 if parts.headers.contains_key("x-api-key") {
                     debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
                 } else {
                     debug!("Request {}: x-api-key header missing, attempting injection from store.", request_id);
                     let store = self.api_key_store.read().expect("API key store lock poisoned");
-                    if let Some(api_key) = store.get("anthropic_api_key") {
-                        match HeaderValue::from_str(api_key) {
-                            Ok(header_value) => {
-                                log_api_key_info("anthropic_api_key", api_key, &request_id);
-                                parts.headers.insert(HeaderName::from_static("x-api-key"), header_value);
-                            }
-                            Err(e) => {
-                                error!("Request {}: Failed to create HeaderValue for Anthropic API key: {}", request_id, e);
-                                // Proceed without the key, Anthropic will likely reject
-                            }
-                        }
+
+                    // 1. Filter for Anthropic keys
+                    let anthropic_keys: Vec<_> = store.values()
+                        .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY")) // Use case-insensitive compare
+                        .collect();
+
+                    if anthropic_keys.is_empty() {
+                        warn!("Request {}: Proxy injection failed: No Anthropic keys found in store.", request_id);
                     } else {
-                        warn!("Request {}: Proxy injection failed: Anthropic API key ('anthropic_api_key') not found in store.", request_id);
-                        // Proceed without the key
+                        // 2. Randomly select one
+                        if let Some(&selected_payload) = anthropic_keys.choose(&mut thread_rng()) {
+                            let api_key = &selected_payload.api_key;
+                            reverie_id_for_context = Some(selected_payload.reverie_id.clone()); // Store reverie_id
+                            spender_for_context = Some(selected_payload.spender.clone()); // Store spender
+                            spender_type_for_context = Some(selected_payload.spender_type.clone()); // Store spender_type
+
+                            // 3. Inject the header
+                            match HeaderValue::from_str(api_key) { // Use api_key ref here
+                                Ok(header_value) => {
+                                    // Use selected_payload.reverie_id in log
+                                    log_api_key_info(&selected_payload.reverie_id, api_key, &request_id);
+                                    parts.headers.insert(HeaderName::from_static("x-api-key"), header_value);
+                                }
+                                Err(e) => {
+                                    error!("Request {}: Failed to create HeaderValue for selected Anthropic API key (Reverie: {}): {}", request_id, selected_payload.reverie_id, e);
+                                }
+                            }
+                        } else {
+                            // This case should theoretically not happen if anthropic_keys is not empty
+                            warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found.", request_id);
+                        }
                     }
                 }
             }
@@ -135,6 +157,9 @@ impl HttpHandler for LogHandler {
             request_id: request_id.clone(),
             request_url: Some(url.clone()),
             linked_tool_use_id: None,
+            reverie_id: reverie_id_for_context,
+            spender: spender_for_context,
+            spender_type: spender_type_for_context,
         };
         if let Some(found_tool_use_id) = find_tool_use_id_in_request_body(&body_bytes) {
              info!("Request {}: Found linked tool_use_id: {}", request_id, found_tool_use_id);
@@ -157,18 +182,24 @@ impl HttpHandler for LogHandler {
         let (
             request_id,
             request_url,
-            linked_tool_use_id
+            linked_tool_use_id,
+            reverie_id,
+            spender,
+            spender_type,
         ) = if let Some(context) = &ctx.request_context {
             let request_context = serde_json::from_value::<LLMProxyRequestContext>(context.clone()).unwrap();
             info!("Response {}: Retrieved context from HttpContext field", request_context.request_id);
             (
                 request_context.request_id.clone(),
                 request_context.request_url.clone(),
-                request_context.linked_tool_use_id.clone()
+                request_context.linked_tool_use_id.clone(),
+                request_context.reverie_id.clone(),
+                request_context.spender.clone(),
+                request_context.spender_type.clone(),
             )
         } else {
-                warn!("Response: Could not retrieve request context from HttpContext field! Generating new ID.");
-                (create_request_id(), None, None)
+            warn!("Response: Could not retrieve request context from HttpContext field! Generating new ID.");
+            (create_request_id(), None, None, None, None, None)
         };
 
         info!("Response for {}: Intercepted response with status: {}", request_id, parts.status);
@@ -190,8 +221,11 @@ impl HttpHandler for LogHandler {
                 key_arc,
                 request_url,
                 linked_tool_use_id,
+                reverie_id,
                 report_url,
-                request_id.clone()
+                request_id.clone(),
+                spender,
+                spender_type,
             ));
             response_body = teed_body;
         } else {
@@ -203,8 +237,11 @@ impl HttpHandler for LogHandler {
                 key_arc,
                 request_url,
                 linked_tool_use_id,
+                reverie_id,
                 report_url,
-                request_id.clone()
+                request_id.clone(),
+                spender,
+                spender_type,
             ));
             response_body = teed_body;
         }

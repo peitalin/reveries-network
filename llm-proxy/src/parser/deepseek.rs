@@ -26,6 +26,9 @@ impl UsageParser for DeepseekParser {
                 // Note: We map prompt_cache_miss_tokens to cache_creation_input_tokens
                 // This is a reasonable approximation, though not a perfect match
                 UsageData {
+                    reverie_id: None,
+                    spender: None,
+                    spender_type: None,
                     input_tokens: input,
                     output_tokens: output,
                     cache_creation_input_tokens: cache_miss,
