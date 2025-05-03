@@ -22,7 +22,7 @@ use alloy_signer_local::PrivateKeySigner;
 use p2p_network::types::{
     Reverie,
     ReverieType,
-    AccessCondition,
+    AccessKey,
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
@@ -189,7 +189,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     let hash = B256::from_slice(digest.as_slice());
     let signature = signer.sign_hash(&hash).await?;
     let signature_bytes = signature.as_bytes().to_vec();
-    let signature_type = AccessCondition::EcdsaSignature(signature_bytes);
+    let signature_type = AccessKey::EcdsaSignature(signature_bytes);
 
     println!("Executing memory reverie (this will trigger LLM calls)...");
 

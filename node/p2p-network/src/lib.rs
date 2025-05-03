@@ -7,6 +7,7 @@ pub mod node_client;
 pub mod types;
 pub mod utils;
 pub mod usage_db;
+pub mod env_var;
 
 use color_eyre::{Result, eyre::anyhow, eyre};
 use std::{

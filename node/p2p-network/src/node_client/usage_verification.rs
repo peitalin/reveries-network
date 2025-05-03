@@ -21,8 +21,6 @@ use llm_proxy::usage::{
 };
 use tokio::time::sleep as tokio_sleep;
 
-/// Path to the proxy's public key file
-pub const PROXY_PUBLIC_KEY_PATH: &str = "./llm-proxy/pubkeys/llm-proxy/llm-proxy.pub.pem";
 
 #[derive(Debug)]
 pub enum VerificationError {
@@ -136,6 +134,9 @@ mod tests {
     fn create_signed_report(signing_key: &SigningKey) -> (UsageReportPayload, SignedUsageReport) {
         // Create test usage data
         let usage = UsageData {
+            reverie_id: Some(String::from("reverie_123")),
+            spender: Some(String::from("spender_123")),
+            spender_type: Some(String::from("escdsa")),
             input_tokens: 100,
             output_tokens: 250,
             cache_creation_input_tokens: Some(50),

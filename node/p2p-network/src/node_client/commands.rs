@@ -17,7 +17,8 @@ use crate::types::{
     ReverieMessage,
     ReverieType,
     AgentVesselInfo,
-    SignatureType,
+    AccessCondition,
+    AccessKey,
 };
 use super::container_manager::RestartReason;
 
@@ -64,7 +65,7 @@ pub enum NodeCommand {
     RequestCapsuleFragment {
         reverie_id: ReverieId,
         kfrag_provider_peer_id: PeerId, // peer to request fragment from
-        signature: SignatureType,
+        access_key: AccessKey,
         sender: oneshot::Sender<Result<Vec<u8>, SendError>>,
     },
 

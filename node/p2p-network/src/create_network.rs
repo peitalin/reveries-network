@@ -38,7 +38,8 @@ use crate::behaviour::heartbeat_behaviour::{
 use crate::network_events::{NetworkEvents, NodeIdentity};
 use crate::node_client::{NodeClient, ContainerManager};
 use crate::usage_db::init_usage_db;
-use crate::node_client::usage_verification::{load_proxy_key, PROXY_PUBLIC_KEY_PATH};
+use crate::node_client::usage_verification::load_proxy_key;
+use crate::env_var::EnvVars;
 use p256::ecdsa::VerifyingKey as P256VerifyingKey;
 use ed25519_dalek::VerifyingKey as EdDalekVerifyingKey;
 
@@ -181,9 +182,11 @@ pub async fn new<'a>(
         umbral_key.clone(),
     );
 
+    let env_vars = EnvVars::load();
+
     // Initialize Usage Report DB Pool
     let usage_db_pool = init_usage_db()?;
-    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(PROXY_PUBLIC_KEY_PATH, false).await.ok();
+    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(&env_vars.PROXY_PUBLIC_KEY_PATH, false).await.ok();
 
     let node_client = NodeClient::new(
         node_identity.clone(),

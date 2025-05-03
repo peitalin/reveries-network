@@ -13,9 +13,7 @@ use alloy_signer_local::PrivateKeySigner;
 use alloy_signer::Signer;
 
 use p2p_network::{
-    types::AccessKey,
-    node_client::{add_proxy_api_key, remove_proxy_api_key},
-    create_network::{generate_peer_keys, export_libp2p_public_key},
+    create_network::{export_libp2p_public_key, generate_peer_keys}, node_client::{add_proxy_api_key, remove_proxy_api_key}, types::{AccessCondition, AccessKey}
 };
 use test_utils::{
     init_test_logger,
@@ -77,15 +75,15 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
     let reverie_id = "reverie_id_TEST_KEY_REMOVE".to_string();
     let api_key = format!("test_value_{}", nanoid::nanoid!());
     // Generate a random signer and get its address
-    let random_signer = PrivateKeySigner::random();
-    let spender = AccessKey::Ecdsa(random_signer.address());
+    let random_spender = PrivateKeySigner::random();
+    let access_condition = AccessCondition::Ecdsa(random_spender.address());
 
     let add_result = add_proxy_api_key(
         reverie_id.clone(),
         "ANTHROPIC_API_KEY".to_string(),
         api_key,
-        spender.to_string(),
-        spender.get_type(),
+        random_spender.address().to_string(),
+        access_condition.get_type(),
         &TEST_KEYPAIR
     ).await;
     assert!(add_result.is_ok(), "Prerequisite add_proxy_api_key failed: {:?}", add_result.err());

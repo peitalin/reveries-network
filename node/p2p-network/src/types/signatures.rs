@@ -13,23 +13,26 @@ use regex::Regex;
 use alloy_primitives::{Address, Signature, B256};
 use sha3::{Digest, Keccak256};
 
+type SignatureBytes = Vec<u8>;
+type ContractCalldata = Vec<u8>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SignatureType {
-    /// ECDSA signature (e.g. from Ethereum)
-    Ecdsa(Vec<u8>),
-    /// Umbral's ECDSA signature
-    Umbral(Vec<u8>),
-    /// ED25519 signature (e.g. from Solana or NEAR)
-    Ed25519(Vec<u8>),
+pub enum AccessKey {
+    /// Requires valid ECDSA signature (e.g. from Ethereum)
+    EcdsaSignature(SignatureBytes),
+    /// Requires valid Umbral's ECDSA signature
+    UmbralSignature(SignatureBytes),
+    /// Requires valid ED25519 signature (e.g. from Solana or NEAR)
+    Ed25519Signature(SignatureBytes),
 }
 
-impl From<Signature> for SignatureType {
+impl From<Signature> for AccessKey {
     fn from(sig: Signature) -> Self {
-        SignatureType::Ecdsa(sig.as_bytes().to_vec())
+        AccessKey::EcdsaSignature(sig.as_bytes().to_vec())
     }
 }
 
-impl From<String> for SignatureType {
+impl From<String> for AccessKey {
     fn from(sig: String) -> Self {
         let re = Regex::new(r"^(Umbral|Ecdsa|Ed25519)\((.*)\)$").unwrap();
 
@@ -39,39 +42,39 @@ impl From<String> for SignatureType {
             let bytes = hex::decode(content).unwrap();
 
             match prefix {
-                "Umbral" => SignatureType::Umbral(bytes),
-                "Ecdsa" => SignatureType::Ecdsa(bytes),
-                "Ed25519" => SignatureType::Ed25519(bytes),
+                "Umbral" => AccessKey::UmbralSignature(bytes),
+                "Ecdsa" => AccessKey::EcdsaSignature(bytes),
+                "Ed25519" => AccessKey::Ed25519Signature(bytes),
                 _ => unreachable!(), // We know the regex only matches these prefixes
             }
         } else {
             // Fallback to the original behavior - assume it's an Umbral signature
             let bytes = hex::decode(sig).unwrap();
-            SignatureType::Umbral(bytes)
+            AccessKey::UmbralSignature(bytes)
         }
     }
 }
 
-impl SignatureType {
+impl AccessKey {
     pub fn deserialize(&self) -> Result<UmbralSignature> {
         match self {
-            SignatureType::Umbral(bytes) => {
-                serde_json::from_slice::<UmbralSignature>(bytes)
+            AccessKey::UmbralSignature(sig_bytes) => {
+                serde_json::from_slice::<UmbralSignature>(sig_bytes)
             }
-            SignatureType::Ecdsa(bytes) => {
+            AccessKey::EcdsaSignature(sig_bytes) => {
                 unimplemented!("Deserializing ECDSA Ethereum signatures is not meaningful in this context");
             }
-            SignatureType::Ed25519(bytes) => {
+            AccessKey::Ed25519Signature(sig_bytes) => {
                 unimplemented!("Ed25519 signatures are not implemented yet");
             },
         }.map_err(|e| anyhow!("Failed to deserialize signature: {}", e))
     }
 
-    pub fn verify_sig(&self, verifying_key: &VerifyingKey, message_hash: &[u8]) -> bool {
+    pub fn verify_sig(&self, verifying_key: &AccessCondition, message_hash: &[u8]) -> bool {
         match self {
-            SignatureType::Umbral(bytes) => {
-                if let Ok(signature) = serde_json::from_slice::<UmbralSignature>(bytes) {
-                    if let VerifyingKey::Umbral(umbral_verifying_key) = verifying_key {
+            AccessKey::UmbralSignature(sig_bytes) => {
+                if let Ok(signature) = serde_json::from_slice::<UmbralSignature>(sig_bytes) {
+                    if let AccessCondition::Umbral(umbral_verifying_key) = verifying_key {
                         if signature.verify(&umbral_verifying_key, message_hash) {
                             return true;
                         } else {
@@ -86,8 +89,8 @@ impl SignatureType {
                 }
                 false
             },
-            SignatureType::Ecdsa(sig_bytes) => {
-                if let VerifyingKey::Ecdsa(expected_address) = verifying_key {
+            AccessKey::EcdsaSignature(sig_bytes) => {
+                if let AccessCondition::Ecdsa(expected_address) = verifying_key {
                     // Convert message hash slice to B256
                     let hash = B256::from_slice(message_hash);
                     // Parse the signature bytes into an alloy Signature using TryFrom
@@ -115,40 +118,83 @@ impl SignatureType {
                     false
                 }
             },
-            SignatureType::Ed25519(_) => {
+            AccessKey::Ed25519Signature(_) => {
                 unimplemented!("Ed25519 signatures are not implemented yet");
             },
         }
     }
 }
 
-impl std::fmt::Display for SignatureType {
+impl std::fmt::Display for AccessKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex_sig = match self {
-            SignatureType::Umbral(bytes) => {
-                format!("Umbral(0x{})", hex::encode(bytes.clone()))
+            AccessKey::UmbralSignature(sig_bytes) => {
+                format!("UmbralSignature(0x{})", hex::encode(sig_bytes.clone()))
             }
-            SignatureType::Ecdsa(bytes) => {
-                format!("ECDSA(0x{})", hex::encode(bytes.clone()))
+            AccessKey::EcdsaSignature(sig_bytes) => {
+                format!("ECDSASignature(0x{})", hex::encode(sig_bytes.clone()))
             }
-            SignatureType::Ed25519(bytes) => {
-                format!("Ed25519(0x{})", hex::encode(bytes.clone()))
+            AccessKey::Ed25519Signature(sig_bytes) => {
+                format!("Ed25519Signature(0x{})", hex::encode(sig_bytes.clone()))
             }
         };
         write!(f, "{}", hex_sig)
     }
 }
 
+impl AccessKey {
+    pub fn get_type(&self) -> String {
+        match self {
+            AccessKey::UmbralSignature(_) => "umbral".to_string(),
+            AccessKey::EcdsaSignature(_) => "ecdsa".to_string(),
+            AccessKey::Ed25519Signature(_) => "ed25519".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub enum VerifyingKey {
+pub enum AccessCondition {
     Umbral(umbral_pre::PublicKey),
     Ecdsa(Address),
     Ed25519(String),
+    /// TODO: Requires valid Contract evaluation (preconditions)
+    Contract(Address, ContractCalldata),
 }
 
-impl From<Address> for VerifyingKey {
+impl std::fmt::Display for AccessCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hex_sig = match self {
+            AccessCondition::Umbral(pubkey) => {
+                format!("umbral:{}", pubkey.to_string())
+            }
+            AccessCondition::Ecdsa(address) => {
+                format!("ecdsa:{}", address.to_string())
+            }
+            AccessCondition::Ed25519(address) => {
+                format!("ed25519:{}", address.to_string())
+            }
+            AccessCondition::Contract(address, calldata) => {
+                format!("contract:{}", address.to_string())
+            }
+        };
+        write!(f, "{}", hex_sig)
+    }
+}
+
+impl AccessCondition {
+    pub fn get_type(&self) -> String {
+        match self {
+            AccessCondition::Umbral(_) => "umbral".to_string(),
+            AccessCondition::Ecdsa(_) => "ecdsa".to_string(),
+            AccessCondition::Ed25519(_) => "ed25519".to_string(),
+            AccessCondition::Contract(_, _) => "contract".to_string(),
+        }
+    }
+}
+
+impl From<Address> for AccessCondition {
     fn from(address: Address) -> Self {
-        VerifyingKey::Ecdsa(address)
+        AccessCondition::Ecdsa(address)
     }
 }
 
@@ -157,10 +203,11 @@ mod tests {
     use super::*;
     use alloy_primitives::{Address, B256};
     use alloy_signer::Signer;
-    use alloy_signer_local::LocalWallet;
+    use alloy_signer_local::PrivateKeySigner;
 
-    async fn create_test_signer() -> Result<LocalWallet> {
-        let wallet = LocalWallet::random(); // Generate a random wallet
+    async fn create_test_signer() -> Result<PrivateKeySigner> {
+        // Generate a random wallet
+        let wallet = PrivateKeySigner::random();
         Ok(wallet)
     }
 
@@ -169,10 +216,10 @@ mod tests {
         let hex_data = "deadbeef";
         let sig_string = format!("Umbral({})", hex_data);
 
-        let sig_type = SignatureType::from(sig_string);
+        let sig_type = AccessKey::from(sig_string);
 
         match sig_type {
-            SignatureType::Umbral(bytes) => {
+            AccessKey::UmbralSignature(bytes) => {
                 assert_eq!(bytes, hex::decode(hex_data).unwrap());
             },
             _ => panic!("Expected Umbral signature type"),
@@ -184,10 +231,10 @@ mod tests {
         let hex_data = "cafebabe";
         let sig_string = format!("Ecdsa({})", hex_data);
 
-        let sig_type = SignatureType::from(sig_string);
+        let sig_type = AccessKey::from(sig_string);
 
         match sig_type {
-            SignatureType::Ecdsa(bytes) => {
+            AccessKey::EcdsaSignature(bytes) => {
                 assert_eq!(bytes, hex::decode(hex_data).unwrap());
             },
             _ => panic!("Expected Ecdsa signature type"),
@@ -199,11 +246,11 @@ mod tests {
         let hex_data = "f00dfeed";
         let sig_string = format!("Ed25519({})", hex_data);
 
-        let sig_type = SignatureType::from(sig_string);
+        let sig_type = AccessKey::from(sig_string);
         println!("signature_type: {}", sig_type);
 
         match sig_type {
-            SignatureType::Ed25519(bytes) => {
+            AccessKey::Ed25519Signature(bytes) => {
                 assert_eq!(bytes, hex::decode(hex_data).unwrap());
             },
             _ => panic!("Expected Ed25519 signature type"),
@@ -214,11 +261,11 @@ mod tests {
     fn test_signature_type_from_string_without_prefix() {
         let hex_data = "abcdef1234";
 
-        let sig_type = SignatureType::from(hex_data.to_string());
+        let sig_type = AccessKey::from(hex_data.to_string());
         println!("signature_type: {}", sig_type);
 
         match sig_type {
-            SignatureType::Umbral(bytes) => {
+            AccessKey::UmbralSignature(bytes) => {
                 assert_eq!(bytes, hex::decode(hex_data).unwrap());
             },
             _ => panic!("Expected default Umbral signature type"),
@@ -238,10 +285,10 @@ mod tests {
         // Convert signature to standard R, S, V bytes
         let signature_bytes = signature.as_bytes().to_vec();
 
-        let signature_type = SignatureType::Ecdsa(signature_bytes);
+        let signature_type = AccessKey::EcdsaSignature(signature_bytes);
         println!("signature_type: {}", signature_type);
 
-        let verifying_key = VerifyingKey::Ecdsa(signer_address);
+        let verifying_key = AccessCondition::Ecdsa(signer_address);
 
         assert!(signature_type.verify_sig(&verifying_key, &digest));
 
@@ -251,7 +298,7 @@ mod tests {
 
         let wrong_address_str = "0x1111111111111111111111111111111111111111";
         let wrong_address: Address = wrong_address_str.parse()?;
-        let wrong_key = VerifyingKey::Ecdsa(wrong_address);
+        let wrong_key = AccessCondition::Ecdsa(wrong_address);
         assert!(!signature_type.verify_sig(&wrong_key, &digest));
 
         Ok(())

@@ -30,8 +30,8 @@ use p2p_network::{
         NodeKeysWithVesselStatus,
         ReverieId,
         ReverieType,
-        SignatureType,
-        ReverieNameWithNonce
+        ReverieNameWithNonce,
+        AccessCondition,
     },
     get_node_name,
     short_peer_id,

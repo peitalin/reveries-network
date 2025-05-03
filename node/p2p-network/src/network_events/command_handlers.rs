@@ -219,7 +219,7 @@ impl<'a> NetworkEvents<'a> {
             NodeCommand::RequestCapsuleFragment {
                 reverie_id,
                 kfrag_provider_peer_id,
-                signature,
+                access_key,
                 sender,
             } => {
                 info!("{}", format!("RequestCapsuleFragment for {} from {} {}",
@@ -234,7 +234,7 @@ impl<'a> NetworkEvents<'a> {
                         &kfrag_provider_peer_id,
                         FragmentRequestEnum::GetFragmentRequest(
                             reverie_id,
-                            signature
+                            access_key
                         )
                     );
 

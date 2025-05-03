@@ -18,7 +18,6 @@ use crate::types::{
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
-    VerifyingKey,
 };
 use crate::{short_peer_id, get_node_name, get_node_name2};
 use super::NetworkEvents;
@@ -56,9 +55,10 @@ impl<'a> NetworkEvents<'a> {
                             None => return Err(anyhow!("{} No cfrag found for {}", self.nname(), reverie_id)),
                         };
 
+                        // TODO: refactor to a AccessCondition / Auth module for generalizing access control and conditions
                         // Verify signature is from intended recipient/target before sending capsule fragment
                         let digest = Keccak256::digest(reverie_id.clone().as_bytes());
-                        match signature.verify_sig(&cfrag.target_verifying_pubkey, &digest) {
+                        match signature.verify_sig(&cfrag.access_condition, &digest) {
                             false => return Err(anyhow!("Invalid signature for fragment request for {reverie_id}".to_string())),
                             true => info!("{}", format!("Signature verified!").green())
                         }
@@ -133,6 +133,7 @@ impl<'a> NetworkEvents<'a> {
                                 source_verifying_pubkey: reverie_keyfrag.source_verifying_pubkey, // source vessel verifying key
                                 target_pubkey: reverie_keyfrag.target_pubkey, // target vessel
                                 target_verifying_pubkey: reverie_keyfrag.target_verifying_pubkey, // target vessel verifying key
+                                access_condition: reverie_keyfrag.access_condition, // access condition to be checked against to request cfrags
                                 kfrag_provider_peer_id: self.node_id.peer_id,
                             }
                         );

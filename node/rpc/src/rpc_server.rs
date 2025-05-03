@@ -13,11 +13,11 @@ use alloy_primitives::Address;
 
 use p2p_network::types::{
     NodeKeysWithVesselStatus,
-    SignatureType,
+    AccessCondition,
     ReverieId,
     ReverieType,
     Reverie,
-    VerifyingKey,
+    AccessKey,
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
@@ -26,7 +26,6 @@ use p2p_network::get_node_name;
 use runtime::llm::AgentSecretsJson;
 use runtime::QuoteBody;
 use llm_proxy::usage::SignedUsageReport;
-
 
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -50,11 +49,10 @@ impl Into<ErrorObjectOwned> for RpcError {
     }
 }
 
-
 pub async fn run_server<'a: 'static>(
     rpc_port: usize,
     network_client: NodeClient<'a>,
-    // proxy_verifying_key: Arc<VerifyingKey>
+    // proxy_verifying_key: Arc<AccessKey>
 ) -> color_eyre::Result<SocketAddr> {
 
 	let server = Server::builder()
@@ -124,12 +122,12 @@ pub async fn run_server<'a: 'static>(
             memory_secrets_json,
             threshold,
             total_frags,
-            verifying_public_key,
+            access_public_key, // user address allowed to access the memory
         ) = params.parse::<(serde_json::Value, usize, usize, String)>().expect("error parsing params");
 
         // Parse the string directly into an Address
-        let verifying_public_key: Address = verifying_public_key.parse()
-            .expect("error parsing verifying_public_key string into Address");
+        let access_public_key: Address = access_public_key.parse()
+            .expect("error parsing access_public_key string into Address");
 
         let mut nc = nc.clone();
         async move {
@@ -138,7 +136,7 @@ pub async fn run_server<'a: 'static>(
                     memory_secrets_json,
                     threshold,
                     total_frags,
-                    VerifyingKey::Ecdsa(verifying_public_key)
+                    AccessCondition::Ecdsa(access_public_key)
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
             Ok::<Reverie, RpcError>(result)
@@ -153,12 +151,12 @@ pub async fn run_server<'a: 'static>(
             let (
                 reverie_id,
                 reverie_type,
-                signature,
+                access_key,
                 anthropic_query,
             ) = params.parse::<(
                 ReverieId,
                 ReverieType,
-                SignatureType,
+                AccessKey,
                 AnthropicQuery
             )>().expect("error parsing params");
 
@@ -167,7 +165,7 @@ pub async fn run_server<'a: 'static>(
                 let result = nc.execute_with_memory_reverie(
                     reverie_id,
                     reverie_type,
-                    signature,
+                    access_key,
                     anthropic_query,
                 ).await.map_err(|e| RpcError(e.to_string()))?;
 
