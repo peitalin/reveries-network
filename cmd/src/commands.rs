@@ -43,8 +43,7 @@ pub enum CliArgument {
     Websocket,
 
     SubscribeHeartbeat,
-
-    #[clap(name = "spawn-memory-reverie")]
+    #[clap(name = "spawn-api-key-reverie")]
     SpawnMemoryReverie {
         /// JSON containing memory secrets
         #[clap(long)]

@@ -12,6 +12,8 @@ use umbral_pre::Signature as UmbralSignature;
 use regex::Regex;
 use alloy_primitives::{Address, Signature, B256};
 use sha3::{Digest, Keccak256};
+use std::str::FromStr;
+use alloy_primitives::hex;
 
 type SignatureBytes = Vec<u8>;
 type ContractCalldata = Vec<u8>;
@@ -167,11 +169,11 @@ impl std::fmt::Display for AccessCondition {
             AccessCondition::Umbral(pubkey) => {
                 format!("umbral:{}", pubkey.to_string())
             }
-            AccessCondition::Ecdsa(address) => {
-                format!("ecdsa:{}", address.to_string())
+            AccessCondition::Ecdsa(pubkey) => {
+                format!("ecdsa:{}", pubkey.to_string())
             }
-            AccessCondition::Ed25519(address) => {
-                format!("ed25519:{}", address.to_string())
+            AccessCondition::Ed25519(pubkey) => {
+                format!("ed25519:{}", pubkey.to_string())
             }
             AccessCondition::Contract(address, calldata) => {
                 format!("contract:{}", address.to_string())
@@ -195,6 +197,45 @@ impl AccessCondition {
 impl From<Address> for AccessCondition {
     fn from(address: Address) -> Self {
         AccessCondition::Ecdsa(address)
+    }
+}
+
+impl FromStr for AccessCondition {
+    type Err = color_eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some((prefix, value)) = s.split_once(':') {
+            match prefix {
+                "ecdsa" => {
+                    let addr = Address::from_str(value)
+                        .map_err(|e| anyhow!("Failed to parse ECDSA address from '{}': {}", value, e))?;
+                    Ok(AccessCondition::Ecdsa(addr))
+                }
+                "umbral" => {
+                    // Assuming PublicKey can be deserialized from hex string
+                    let bytes = hex::decode(value).map_err(|e| anyhow!("Invalid hex for Umbral key '{}': {}", value, e))?;
+                    let pk = umbral_pre::PublicKey::try_from_compressed_bytes(&bytes[..])
+                        .map_err(|e| anyhow!("Failed to deserialize Umbral PublicKey from bytes: {}", e))?;
+                     Ok(AccessCondition::Umbral(pk))
+                }
+                "ed25519" => {
+                    Ok(AccessCondition::Ed25519(value.to_string()))
+                }
+                "contract" => {
+                    // Assuming format contract:address:calldata_hex
+                    if let Some((addr_str, calldata_hex)) = value.split_once(':') {
+                       let addr = Address::from_str(addr_str).map_err(|e| anyhow!("Invalid contract address '{}': {}", addr_str, e))?;
+                       let calldata = hex::decode(calldata_hex).map_err(|e| anyhow!("Invalid hex for calldata '{}': {}", calldata_hex, e))?;
+                       Ok(AccessCondition::Contract(addr, calldata))
+                    } else {
+                       Err(anyhow!("Invalid format for 'contract' AccessCondition, expected 'contract:address:calldata_hex', got '{}'", value))
+                    }
+                }
+                _ => Err(anyhow!("Unknown AccessCondition prefix: '{}'", prefix)),
+            }
+        } else {
+            Err(anyhow!("Invalid AccessCondition format: expected 'prefix:value', got '{}'", s))
+        }
     }
 }
 

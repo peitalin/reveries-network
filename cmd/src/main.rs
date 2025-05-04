@@ -240,7 +240,7 @@ async fn main() -> Result<()> {
             ).await?;
 
             info!("{}\n{}",
-                format!("Spawned Memory Reverie in vessel: {}\n{}",
+                format!("Spawned Reverie for vessel: {}\n{}",
                     get_node_name(&peer_id),
                     short_peer_id(&peer_id),
                 ).yellow(),

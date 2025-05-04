@@ -28,7 +28,7 @@ impl<'a> NodeClient<'a> {
         memory_secrets: serde_json::Value,
         threshold: usize,
         total_frags: usize,
-        user_public_key: AccessCondition, // user using the memory
+        user_public_key: AccessCondition, // access condition for using the memory
     ) -> Result<Reverie> {
 
         if threshold > total_frags {
@@ -100,6 +100,42 @@ impl<'a> NodeClient<'a> {
         Ok((next_agent_secrets, access_key))
     }
 
+    pub async fn delegate_api_key(
+        &mut self,
+        reverie_id: ReverieId,
+        reverie_type: ReverieType,
+        access_key: AccessKey,
+        // Dev's signature required to access the delegated API key
+    ) -> Result<()> {
+
+        let (
+            api_keys_json,
+            spenders_address // user using the memory
+        ) = self.reconstruct_memory_reverie::<serde_json::Value>(
+            &reverie_id,
+            reverie_type,
+            self.node_id.peer_id,
+            access_key
+        ).await?;
+
+        if let Some(anthropic_api_key) = api_keys_json["anthropic_api_key"].as_str() {
+            println!("Decrypted Anthropic API key, delegating...");
+            let node_keypair = &self.node_id.id_keys.clone();
+
+            add_proxy_api_key(
+                reverie_id.clone(),
+                "ANTHROPIC_API_KEY".to_string(),
+                anthropic_api_key.to_string(),
+                spenders_address.to_string(),
+                spenders_address.get_type(),
+                node_keypair
+            ).await
+
+        } else {
+            Err(anyhow!("No Anthropic API key found in decrypted Reverie. Delegation failed."))
+        }
+    }
+
     pub async fn execute_with_memory_reverie(
         &mut self,
         reverie_id: ReverieId,
@@ -122,40 +158,27 @@ impl<'a> NodeClient<'a> {
 
         // Then execute LLM with Reverie as context:
         // 1. Test LLM API key from decrypted Reverie works
-        let claude_result = if let Some(anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
-            println!("Decrypted Anthropic API key, querying Claude...");
-            metrics.record_attempt();
-            let node_keypair = &self.node_id.id_keys.clone();
+        println!("Decrypted secret memory, querying Claude with private contexts...");
+        metrics.record_attempt();
+        let node_keypair = &self.node_id.id_keys.clone();
+        let secret_context = memory_secrets_json["memories"].to_string();
 
-            add_proxy_api_key(
-                reverie_id.clone(),
-                "ANTHROPIC_API_KEY".to_string(),
-                anthropic_api_key.to_string(),
-                spenders_address.to_string(),
-                spenders_address.get_type(),
-                node_keypair
-            ).await?;
-
-            let secret_context = memory_secrets_json["memories"].to_string();
-
-            match call_anthropic(
-                &anthropic_query.prompt,
-                &secret_context,
-                anthropic_query.tools,
-                anthropic_query.stream.unwrap_or(false),
-                &mut metrics
-            ).await {
-                Ok(result) => {
-                    info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
-                    serde_json::to_value(result).ok()
-                },
-                Err(e) => {
-                    warn!("Failed to call Anthropic API: {}", e);
-                    None
-                }
+        // API Key must already be delegated to the vessel
+        let claude_result = match call_anthropic(
+            &anthropic_query.prompt,
+            &secret_context,
+            anthropic_query.tools,
+            anthropic_query.stream.unwrap_or(false),
+            &mut metrics
+        ).await {
+            Ok(result) => {
+                info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
+                serde_json::to_value(result).ok()
+            },
+            Err(e) => {
+                warn!("Failed to call Anthropic API: {}", e);
+                None
             }
-        } else {
-            None
         };
 
         let deepseek_result: Option<serde_json::Value> = None;
