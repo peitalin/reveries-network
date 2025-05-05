@@ -13,25 +13,29 @@ pub type UsageDbPool = Arc<Pool<SqliteConnectionManager>>;
 
 const DB_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS usage_reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    request_id TEXT UNIQUE,
+    request_id TEXT PRIMARY KEY, -- Set as PRIMARY KEY
     timestamp INTEGER NOT NULL,
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     cache_creation_tokens INTEGER,
     cache_read_tokens INTEGER,
-    tool_id TEXT,            -- The ID of the tool *if* this report is for the FIRST call
+    tool_id TEXT,
     tool_name TEXT,
     tool_input TEXT,
     tool_type TEXT,
-    linked_tool_id TEXT,     -- The ID of the tool use this report is a *follow-up* to
+    linked_tool_id TEXT,
+    reverie_id TEXT,
+    spender_address TEXT,
+    spender_type TEXT,
     received_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_usage_reports_request_id ON usage_reports(request_id);
+-- CREATE INDEX IF NOT EXISTS idx_usage_reports_request_id ON usage_reports(request_id);
 CREATE INDEX IF NOT EXISTS idx_usage_reports_timestamp ON usage_reports(timestamp);
 CREATE INDEX IF NOT EXISTS idx_usage_reports_tool_id ON usage_reports(tool_id);
 CREATE INDEX IF NOT EXISTS idx_usage_reports_linked_tool_id ON usage_reports(linked_tool_id);
+CREATE INDEX IF NOT EXISTS idx_usage_reports_reverie_id ON usage_reports(reverie_id);
+CREATE INDEX IF NOT EXISTS idx_usage_reports_spender_address ON usage_reports(spender_address);
 ";
 
 /// Initializes the SQLite database pool for usage reports.
@@ -85,14 +89,12 @@ pub fn store_usage_payload(pool: &UsageDbPool, payload: &UsageReportPayload) -> 
         .map(|tu| serde_json::to_string(&tu.input).unwrap_or_else(|_| "null".to_string()));
     let tool_type = payload.usage.tool_use.as_ref().map(|tu| tu.tool_type.clone());
 
-    // Get the linking ID from the payload using the correct name
-    let linked_tool_id = payload.linked_tool_use_id.clone();
-
     conn.execute(
         "INSERT INTO usage_reports (
             request_id, timestamp, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-            tool_id, tool_name, tool_input, tool_type, linked_tool_id -- DB column names
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            tool_id, tool_name, tool_input, tool_type, linked_tool_id,
+            reverie_id, spender_address, spender_type -- Added DB columns
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", // Added placeholders
         params![
             payload.request_id,
             payload.timestamp,
@@ -100,11 +102,14 @@ pub fn store_usage_payload(pool: &UsageDbPool, payload: &UsageReportPayload) -> 
             payload.usage.output_tokens,
             payload.usage.cache_creation_input_tokens,
             payload.usage.cache_read_input_tokens,
-            tool_id, // Value extracted from payload.usage.tool_use
-            tool_name, // Value extracted from payload.usage.tool_use
-            tool_input_json, // Value extracted from payload.usage.tool_use
-            tool_type, // Value extracted from payload.usage.tool_use
-            linked_tool_id, // Value extracted from payload.linked_tool_use_id
+            tool_id,
+            tool_name,
+            tool_input_json,
+            tool_type,
+            payload.linked_tool_use_id,
+            payload.usage.reverie_id,
+            payload.usage.spender,
+            payload.usage.spender_type,
         ],
     )?;
 

@@ -144,6 +144,9 @@ fn extract_generic_usage(json: &Value) -> Option<UsageData> {
 
             // Create the basic UsageData object with token counts
             UsageData {
+                reverie_id: None,
+                spender: None,
+                spender_type: None,
                 input_tokens: input,
                 output_tokens: output,
                 cache_creation_input_tokens: cache_creation,

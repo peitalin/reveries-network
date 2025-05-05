@@ -14,8 +14,8 @@ use crate::types::{
     ReverieId,
     ReverieType,
     AgentVesselInfo,
-    SignatureType,
-    VerifyingKey,
+    AccessCondition,
+    AccessKey,
 };
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
@@ -26,7 +26,7 @@ use super::NodeClient;
 
 
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
 
     /// Client sends AgentSecretsJson over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
@@ -65,7 +65,8 @@ impl<'a> NodeClient<'a> {
             threshold,
             total_frags,
             target_vessel.umbral_public_key,
-            VerifyingKey::Umbral(target_vessel.umbral_verifying_public_key),
+            target_vessel.umbral_verifying_public_key,
+            AccessCondition::Umbral(target_vessel.umbral_verifying_public_key),
             capsule,
             ciphertext
         );
@@ -137,7 +138,9 @@ impl<'a> NodeClient<'a> {
             threshold,
             total_frags,
             target_vessel.umbral_public_key,
-            VerifyingKey::Umbral(target_vessel.umbral_verifying_public_key)
+            // in this case verifying_public_key is the same as the access_key
+            target_vessel.umbral_verifying_public_key,
+            AccessCondition::Umbral(target_vessel.umbral_verifying_public_key),
         )?;
         info!("Encrypted Secrets:\n{}", format!("{}", hex::encode(reverie.umbral_ciphertext.clone())).black());
 
@@ -168,7 +171,7 @@ impl<'a> NodeClient<'a> {
         prev_failed_vessel_peer_id: PeerId
     ) -> Result<AgentSecretsJson> {
 
-        let reverie_msg = self.get_reverie(prev_reverie_id.clone(), prev_reverie_type).await?;
+        let reverie_msg = self.get_reverie(&prev_reverie_id, prev_reverie_type).await?;
         let prev_kfrag_providers = reverie_msg.keyfrag_providers.clone();
         let capsule = reverie_msg.reverie.encode_capsule()?;
 
@@ -177,17 +180,18 @@ impl<'a> NodeClient<'a> {
         // Sign with our umbral signer key (corresponds to the verifying key)
         let umbral_signature = self.umbral_key.sign(&digest);
         let cfrags_raw = self.request_cfrags(
-            prev_reverie_id.clone(),
+            &prev_reverie_id,
             prev_kfrag_providers,
-            SignatureType::Umbral(
+            AccessKey::UmbralSignature(
                 serde_json::to_vec(&umbral_signature)
-                    .expect("Failed to serialize umbral signature")
-            )
+                    .expect("Failed to serialize umbral signature"))
         ).await;
 
         let (
             verified_cfrags,
             delegator_pubkey,
+            target_verifying_pubkey,
+            access_pubkey,
             total_frags_received
         ) = self.parse_cfrags(cfrags_raw, capsule.clone())?;
 

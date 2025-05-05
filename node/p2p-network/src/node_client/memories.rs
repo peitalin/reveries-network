@@ -7,8 +7,8 @@ use crate::{node_client::add_proxy_api_key, types::{
     Reverie,
     ReverieId,
     ReverieType,
-    SignatureType,
-    VerifyingKey,
+    AccessCondition,
+    AccessKey,
 }};
 use runtime::llm::{
     MCPToolUsageMetrics,
@@ -19,7 +19,7 @@ use super::NodeClient;
 
 
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
 
     /// Client sends some ReverieType over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
@@ -28,7 +28,7 @@ impl<'a> NodeClient<'a> {
         memory_secrets: serde_json::Value,
         threshold: usize,
         total_frags: usize,
-        verifying_public_key: VerifyingKey,
+        user_public_key: AccessCondition, // access condition for using the memory
     ) -> Result<Reverie> {
 
         if threshold > total_frags {
@@ -48,7 +48,8 @@ impl<'a> NodeClient<'a> {
             threshold,
             total_frags,
             target_vessel.umbral_public_key,
-            verifying_public_key
+            target_vessel.umbral_verifying_public_key,
+            user_public_key // access_pubkey to be checked against to request cfrags
         )?;
 
         self.broadcast_reverie_keyfrags(
@@ -63,27 +64,29 @@ impl<'a> NodeClient<'a> {
 
     // This needs to happen within the TEE as there is a decryption step, and the original
     // plaintext is revealed within the TEE, before executing with it as context
-    async fn reconstruct_memory_cfrags<T: Serialize + DeserializeOwned>(
+    async fn reconstruct_memory_reverie<T: Serialize + DeserializeOwned>(
         &mut self,
-        reverie_id: ReverieId,
+        reverie_id: &ReverieId,
         reverie_type: ReverieType,
         prev_failed_vessel_peer_id: libp2p::PeerId,
-        signature: SignatureType
-    ) -> Result<T> {
+        access_key: AccessKey
+    ) -> Result<(T, AccessKey)> {
 
-        let reverie_msg = self.get_reverie(reverie_id.clone(), reverie_type).await?;
+        let reverie_msg = self.get_reverie(reverie_id, reverie_type).await?;
         let capsule = reverie_msg.reverie.encode_capsule()?;
         let keyfrag_providers = reverie_msg.keyfrag_providers.clone();
 
         let cfrags_raw = self.request_cfrags(
-            reverie_id.clone(),
+            reverie_id,
             keyfrag_providers,
-            signature
+            access_key.clone()
         ).await;
 
         let (
             verified_cfrags,
             source_pubkey,
+            target_verifying_pubkey, // target public intended to decrypt the ciphertext
+            access_condition,
             total_frags_received
         ) = self.parse_cfrags(cfrags_raw, capsule.clone())?;
 
@@ -92,59 +95,90 @@ impl<'a> NodeClient<'a> {
             reverie_msg.reverie.umbral_ciphertext,
             source_pubkey,
             verified_cfrags
-        );
+        )?;
 
-        next_agent_secrets
+        Ok((next_agent_secrets, access_key))
+    }
+
+    pub async fn delegate_api_key(
+        &mut self,
+        reverie_id: ReverieId,
+        reverie_type: ReverieType,
+        access_key: AccessKey,
+        // Dev's signature required to access the delegated API key
+    ) -> Result<()> {
+
+        let (
+            api_keys_json,
+            spenders_address // user using the memory
+        ) = self.reconstruct_memory_reverie::<serde_json::Value>(
+            &reverie_id,
+            reverie_type,
+            self.node_id.peer_id,
+            access_key
+        ).await?;
+
+        if let Some(anthropic_api_key) = api_keys_json["anthropic_api_key"].as_str() {
+            println!("Decrypted Anthropic API key, delegating...");
+            let node_keypair = &self.node_id.id_keys.clone();
+
+            add_proxy_api_key(
+                reverie_id.clone(),
+                "ANTHROPIC_API_KEY".to_string(),
+                anthropic_api_key.to_string(),
+                spenders_address.to_string(),
+                spenders_address.get_type(),
+                node_keypair
+            ).await
+
+        } else {
+            Err(anyhow!("No Anthropic API key found in decrypted Reverie. Delegation failed."))
+        }
     }
 
     pub async fn execute_with_memory_reverie(
         &mut self,
         reverie_id: ReverieId,
         reverie_type: ReverieType,
-        signature: SignatureType,
+        access_key: AccessKey, // Signature required to access the memory
         anthropic_query: AnthropicQuery
     ) -> Result<ExecuteWithMemoryReverieResult> {
 
-        let memory_secrets_json: serde_json::Value = self.reconstruct_memory_cfrags(
-            reverie_id.clone(),
+        let (
+            memory_secrets_json,
+            spenders_address // user using the memory
+        ) = self.reconstruct_memory_reverie::<serde_json::Value>(
+            &reverie_id,
             reverie_type,
             self.node_id.peer_id,
-            signature
+            access_key
         ).await?;
 
         let mut metrics = MCPToolUsageMetrics::default();
 
         // Then execute LLM with Reverie as context:
         // 1. Test LLM API key from decrypted Reverie works
-        let claude_result = if let Some(_anthropic_api_key) = memory_secrets_json["anthropic_api_key"].as_str() {
-            println!("Decrypted Anthropic API key, querying Claude...");
-            metrics.record_attempt();
+        println!("Decrypted secret memory, querying Claude with private contexts...");
+        metrics.record_attempt();
+        let node_keypair = &self.node_id.id_keys.clone();
+        let secret_context = memory_secrets_json["memories"].to_string();
 
-            let name = "anthropic_api_key".to_string();
-            let key = _anthropic_api_key.to_string();
-            let keypair = &self.node_id.id_keys.clone();
-            add_proxy_api_key(name, key, keypair).await?;
-
-            let secret_context = memory_secrets_json["memories"].to_string();
-
-            match call_anthropic(
-                &anthropic_query.prompt,
-                &secret_context,
-                anthropic_query.tools,
-                anthropic_query.stream.unwrap_or(false),
-                &mut metrics
-            ).await {
-                Ok(result) => {
-                    info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
-                    serde_json::to_value(result).ok()
-                },
-                Err(e) => {
-                    warn!("Failed to call Anthropic API: {}", e);
-                    None
-                }
+        // API Key must already be delegated to the vessel
+        let claude_result = match call_anthropic(
+            &anthropic_query.prompt,
+            &secret_context,
+            anthropic_query.tools,
+            anthropic_query.stream.unwrap_or(false),
+            &mut metrics
+        ).await {
+            Ok(result) => {
+                info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
+                serde_json::to_value(result).ok()
+            },
+            Err(e) => {
+                warn!("Failed to call Anthropic API: {}", e);
+                None
             }
-        } else {
-            None
         };
 
         let deepseek_result: Option<serde_json::Value> = None;

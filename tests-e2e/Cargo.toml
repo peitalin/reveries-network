@@ -37,13 +37,13 @@ serial_test = { workspace = true }
 scopeguard = { workspace = true }
 
 [[test]]
-name = "respawn_test"
-path = "respawn_test/mod.rs"
-
-[[test]]
-name = "memory_test"
-path = "memory_test/mod.rs"
+name = "api_key_delegation_test"
+path = "api_key_delegation_test/mod.rs"
 
 [[test]]
 name = "proxy_api_test"
 path = "proxy_api_test/mod.rs"
+
+[[test]]
+name = "respawn_test"
+path = "respawn_test/mod.rs"

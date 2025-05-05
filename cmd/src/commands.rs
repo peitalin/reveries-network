@@ -1,8 +1,7 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use p2p_network::types::{ReverieId, ReverieType, SignatureType};
-
+use p2p_network::types::AccessKey;
 
 #[derive(Parser, Serialize, Deserialize, Clone, Debug)]
 #[clap(name = "libp2p-client")]
@@ -44,8 +43,7 @@ pub enum CliArgument {
     Websocket,
 
     SubscribeHeartbeat,
-
-    #[clap(name = "spawn-memory-reverie")]
+    #[clap(name = "spawn-api-key-reverie")]
     SpawnMemoryReverie {
         /// JSON containing memory secrets
         #[clap(long)]
@@ -74,8 +72,8 @@ pub enum CliArgument {
         #[clap(long)]
         reverie_type: String,
 
-        /// Optional signature for verification (in hex format)
+        /// AccessCondition: Signature required to access the memory reverie
         #[clap(long)]
-        signature: SignatureType,
+        signature: AccessKey,
     },
 }

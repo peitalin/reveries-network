@@ -11,7 +11,7 @@ use crate::utils::{
 use crate::types::{
     ReverieNameWithNonce,
     PeerIdToNodeStatusKey,
-    VerifyingKey,
+    AccessCondition,
     KademliaKeyTrait,
     PEER_ID_TO_NODE_STATUS,
 };
@@ -35,8 +35,11 @@ pub struct Reverie {
     pub description: String,
     pub threshold: usize,
     pub total_frags: usize,
+    // umbral keys for a node to decrypt the ciphertext
     pub target_public_key: umbral_pre::PublicKey,
-    pub verifying_public_key: VerifyingKey, // target key needed to request cfrags
+    pub verifying_public_key: umbral_pre::PublicKey,
+    // access condition for user permission to access/execute a reverie
+    pub access_condition: AccessCondition,
     pub umbral_capsule: Vec<u8>,
     pub umbral_ciphertext: Box<[u8]>,
 }
@@ -50,10 +53,13 @@ pub struct ReverieKeyfrag {
     pub total_frags: usize,
     pub umbral_keyfrag: Vec<u8>,
     pub umbral_capsule: Vec<u8>,
+    // umbral keys for a node to decrypt the ciphertext
     pub source_pubkey: umbral_pre::PublicKey,           // source_pubkey
     pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
     pub target_pubkey: umbral_pre::PublicKey,           // target_pubkey
-    pub target_verifying_pubkey: VerifyingKey,          // target verifying key
+    pub target_verifying_pubkey: umbral_pre::PublicKey, // target verifying key
+    // access condition for user permission to access/execute a reverie
+    pub access_condition: AccessCondition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,10 +84,13 @@ pub struct ReverieCapsulefrag {
     pub frag_num: usize,
     pub threshold: usize,
     pub umbral_capsule_frag: Vec<u8>,
+    // umbral keys for a node to decrypt the ciphertext
     pub source_pubkey: umbral_pre::PublicKey,           // source_pubkey
     pub source_verifying_pubkey: umbral_pre::PublicKey, // source verifying key
     pub target_pubkey: umbral_pre::PublicKey,           // target_pubkey
-    pub target_verifying_pubkey: VerifyingKey,          // target verifying key
+    pub target_verifying_pubkey: umbral_pre::PublicKey, // target verifying key
+    // access condition for user permission to access/execute a reverie
+    pub access_condition: AccessCondition,
     pub kfrag_provider_peer_id: PeerId,
 }
 
@@ -98,8 +107,8 @@ pub enum ReverieType {
     Agent(ReverieNameWithNonce),
     APIKey(String),
     Memory,
-    Retrieval,
     Tools,
+    GithubRepo,
 }
 
 impl ReverieType {
@@ -115,8 +124,8 @@ impl Into<String> for ReverieType {
             ReverieType::Agent(agent_name_nonce) => agent_name_nonce.into(),
             ReverieType::APIKey(api_key) => api_key.clone(),
             ReverieType::Memory => "Memory".to_string(),
-            ReverieType::Retrieval => "Retrieval".to_string(),
             ReverieType::Tools => "Tools".to_string(),
+            ReverieType::GithubRepo => "GithubRepo".to_string(),
         }
     }
 }
@@ -128,7 +137,8 @@ impl Reverie {
         threshold: usize,
         total_frags: usize,
         target_public_key: umbral_pre::PublicKey,
-        verifying_public_key: VerifyingKey,
+        verifying_public_key: umbral_pre::PublicKey,
+        access_condition: AccessCondition,
         capsule: umbral_pre::Capsule,
         ciphertext: Box<[u8]>
     ) -> Self {
@@ -140,6 +150,7 @@ impl Reverie {
             total_frags: total_frags,
             target_public_key: target_public_key,
             verifying_public_key: verifying_public_key,
+            access_condition: access_condition,
             umbral_capsule: serde_json::to_vec(&capsule).expect("Failed to serialize capsule"),
             umbral_ciphertext: ciphertext
         }

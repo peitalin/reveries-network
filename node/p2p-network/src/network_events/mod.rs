@@ -54,17 +54,17 @@ use time::Duration;
 
 
 #[derive(Clone)]
-pub struct NodeIdentity<'a> {
-    pub node_name: &'a str,
+pub struct NodeIdentity {
+    pub node_name: String,
     pub peer_id: PeerId,
     pub id_keys: identity::Keypair,
     seed: usize,
     umbral_key: UmbralKey,
 }
 
-impl<'a> NodeIdentity<'a> {
+impl NodeIdentity {
     pub fn new(
-        node_name: &'a str,
+        node_name: String,
         peer_id: PeerId,
         id_keys: identity::Keypair,
         seed: usize,
@@ -80,9 +80,9 @@ impl<'a> NodeIdentity<'a> {
     }
 }
 
-pub struct NetworkEvents<'a> {
+pub struct NetworkEvents {
     // Node identity
-    node_id: NodeIdentity<'a>,
+    node_id: NodeIdentity,
     // IPFS Swarm
     swarm: Swarm<Behaviour>,
     // Command receiver
@@ -145,16 +145,16 @@ impl PendingRequests {
     }
 }
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub fn new(
         swarm: Swarm<Behaviour>,
-        node_id: NodeIdentity<'a>,
+        node_id: NodeIdentity,
         command_receiver: mpsc::Receiver<NodeCommand>,
         network_event_sender: mpsc::Sender<NetworkEvent>,
         internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
         container_manager: Arc<RwLock<ContainerManager>>
     ) -> Self {
-        let node_name = node_id.node_name.to_string();
+        let node_name = node_id.node_name.clone();
         let peer_id = node_id.peer_id.clone();
         Self {
             swarm,

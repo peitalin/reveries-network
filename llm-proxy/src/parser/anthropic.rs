@@ -26,6 +26,9 @@ impl UsageParser for AnthropicParser {
                 // Only create base UsageData if tokens exist
                 if input > 0 || output > 0 {
                     Some(UsageData {
+                        reverie_id: None,
+                        spender: None,
+                        spender_type: None,
                         input_tokens: input,
                         output_tokens: output,
                         cache_creation_input_tokens: cache_creation,

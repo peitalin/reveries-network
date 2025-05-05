@@ -44,26 +44,27 @@ use crate::types::{
     ReverieMessage,
     ReverieType,
     VesselStatus,
-    SignatureType,
-    VerifyingKey,
+    AccessCondition,
+    AccessKey,
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use crate::node_client::usage_verification::{
     verify_usage_report,
     load_proxy_key,
-    PROXY_PUBLIC_KEY_PATH,
 };
+use crate::usage_db::{UsageDbPool, store_usage_payload};
+use crate::env_var::EnvVars;
 
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::AgentSecretsJson;
 use llm_proxy::usage::SignedUsageReport;
-use crate::usage_db::{UsageDbPool, store_usage_payload};
+
 
 
 #[derive(Clone)]
-pub struct NodeClient<'a> {
-    pub node_id: NodeIdentity<'a>,
+pub struct NodeClient {
+    pub node_id: NodeIdentity,
     pub command_sender: mpsc::Sender<NodeCommand>,
     // container app state
     container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
@@ -76,9 +77,9 @@ pub struct NodeClient<'a> {
     pub usage_db_pool: UsageDbPool,
 }
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
     pub fn new(
-        node_id: NodeIdentity<'a>,
+        node_id: NodeIdentity,
         command_sender: mpsc::Sender<NodeCommand>,
         umbral_key: UmbralKey,
         container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
@@ -108,7 +109,8 @@ impl<'a> NodeClient<'a> {
         threshold: usize,
         total_frags: usize,
         target_public_key: umbral_pre::PublicKey,
-        verifying_public_key: VerifyingKey,
+        verifying_public_key: umbral_pre::PublicKey,
+        access_condition: AccessCondition,
     ) -> Result<Reverie> {
 
         let (
@@ -124,6 +126,7 @@ impl<'a> NodeClient<'a> {
             total_frags,
             target_public_key,
             verifying_public_key,
+            access_condition,
             capsule,
             ciphertext
         );
@@ -156,7 +159,8 @@ impl<'a> NodeClient<'a> {
                 source_pubkey: self.umbral_key.public_key,
                 target_pubkey: reverie.target_public_key,
                 source_verifying_pubkey: self.umbral_key.verifying_public_key,
-                target_verifying_pubkey: reverie.verifying_public_key.clone(),
+                target_verifying_pubkey: reverie.verifying_public_key,
+                access_condition: reverie.access_condition.clone(),
             }
         }).collect::<Vec<ReverieKeyfrag>>();
 
@@ -310,12 +314,12 @@ impl<'a> NodeClient<'a> {
         pks
     }
 
-    pub async fn get_reverie(&self, reverie_id: ReverieId, reverie_type: ReverieType) -> Result<ReverieMessage> {
+    pub async fn get_reverie(&self, reverie_id: &ReverieId, reverie_type: ReverieType) -> Result<ReverieMessage> {
         let (sender, receiver) = oneshot::channel();
 
         self.command_sender
             .send(NodeCommand::GetReverie {
-                reverie_id: reverie_id,
+                reverie_id: reverie_id.clone(),
                 reverie_type: reverie_type,
                 sender: sender
             })
@@ -326,21 +330,16 @@ impl<'a> NodeClient<'a> {
 
     pub async fn request_cfrags(
         &mut self,
-        reverie_id: ReverieId,
+        reverie_id: &ReverieId,
         keyfrag_providers: Vec<PeerId>,
-        signature: SignatureType
+        access_key: AccessKey
     ) -> Vec<Result<Vec<u8>, SendError>> {
 
-        // info!("Finding kfrag providers for: {}", reverie_id);
-        // let providers = self.get_kfrag_providers(reverie_id.clone()).await;
-        // info!("Kfrag providers: {:?}\n", providers);
-
-        // Rest of the function using signature
         let requests = keyfrag_providers.iter()
             .map(|kfrag_provider_peer_id| {
 
                 let reverie_id2 = reverie_id.clone();
-                let signature2 = signature.clone();
+                let access_key2 = access_key.clone();
                 let nc = self.clone();
 
                 info!("Requesting {} cfrag from {}", &reverie_id2, get_node_name(&kfrag_provider_peer_id));
@@ -351,7 +350,7 @@ impl<'a> NodeClient<'a> {
                         .send(NodeCommand::RequestCapsuleFragment {
                             reverie_id: reverie_id2.clone(),
                             kfrag_provider_peer_id: kfrag_provider_peer_id.clone(),
-                            signature: signature2,
+                            access_key: access_key2,
                             sender
                         })
                         .await?;
@@ -371,7 +370,13 @@ impl<'a> NodeClient<'a> {
         &self,
         cfrags_raw: Vec<Result<Vec<u8>, SendError>>,
         capsule: umbral_pre::Capsule,
-    ) -> Result<(Vec<VerifiedCapsuleFrag>, umbral_pre::PublicKey, usize)> {
+    ) -> Result<(
+        Vec<VerifiedCapsuleFrag>,
+        umbral_pre::PublicKey,
+        umbral_pre::PublicKey,
+        AccessCondition,
+        usize
+    )> {
 
         let mut verified_cfrags: Vec<VerifiedCapsuleFrag> = Vec::new();
         let mut reverie_cfrags: Vec<ReverieCapsulefrag> = Vec::new();
@@ -427,7 +432,14 @@ impl<'a> NodeClient<'a> {
             cfrag.target_verifying_pubkey == first_cfrag.target_verifying_pubkey
         });
 
-        Ok((verified_cfrags, first_cfrag.source_pubkey, total_frags_received))
+
+        Ok((
+            verified_cfrags,
+            first_cfrag.source_pubkey,
+            first_cfrag.target_verifying_pubkey,
+            first_cfrag.access_condition,
+            total_frags_received
+        ))
     }
 
     fn decrypt_cfrags<T: Serialize + DeserializeOwned>(
@@ -514,7 +526,8 @@ impl<'a> NodeClient<'a> {
         // Load the public key if it's not already loaded
         let public_key = if self.proxy_public_key.is_none() {
             // Await the async load function
-            let loaded_key = load_proxy_key(PROXY_PUBLIC_KEY_PATH, true).await?;
+            let env_vars = EnvVars::load();
+            let loaded_key = load_proxy_key(&env_vars.PROXY_PUBLIC_KEY_PATH, true).await?;
             self.proxy_public_key = Some(loaded_key);
             loaded_key
         } else {

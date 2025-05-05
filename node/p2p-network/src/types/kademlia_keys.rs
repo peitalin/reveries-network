@@ -11,7 +11,6 @@ use crate::types::{
     ReverieNameWithNonce,
     PeerIdToNodeStatusKey,
     ReverieId,
-    VerifyingKey,
     PEER_ID_TO_NODE_STATUS,
 };
 
@@ -49,19 +48,6 @@ impl From<&str> for KademliaKey {
             }
         }
     }
-
-    // fn to_kad_key(&self) -> kad::RecordKey {
-    //     match self {
-    //         KademliaKey::PeerIdToNodeStatusKey(key) => key.to_kad_key(),
-    //         KademliaKey::ReverieIdToNameKey(key) => key.to_kad_key(),
-    //         KademliaKey::ReverieIdToReverie(key) => key.to_kad_key(),
-    //         KademliaKey::ReverieIdToKfragProvidersKey(key) => key.to_kad_key(),
-    //         KademliaKey::Unknown(key) => {
-    //             tracing::error!("Unknown KademliaKey: {}", key);
-    //             kad::RecordKey::new(&key)
-    //         }
-    //     }
-    // }
 }
 
 impl From<&kad::RecordKey> for KademliaKey {

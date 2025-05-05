@@ -10,7 +10,7 @@ use crate::types::{
     ReverieKeyfrag,
     ReverieKeyfragMessage,
     ReverieMessage,
-    SignatureType,
+    AccessKey,
 };
 use crate::SendError;
 
@@ -34,7 +34,7 @@ pub enum FragmentRequestEnum {
     /// 3. If verification passes, the fragment is returned; otherwise, the request is rejected
     GetFragmentRequest(
         ReverieId,
-        SignatureType,
+        AccessKey,
     ),
     /// Encryptor sends provider nodes a KeyFrag to save
     SaveFragmentRequest(

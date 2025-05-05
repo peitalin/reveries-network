@@ -38,7 +38,8 @@ use crate::behaviour::heartbeat_behaviour::{
 use crate::network_events::{NetworkEvents, NodeIdentity};
 use crate::node_client::{NodeClient, ContainerManager};
 use crate::usage_db::init_usage_db;
-use crate::node_client::usage_verification::{load_proxy_key, PROXY_PUBLIC_KEY_PATH};
+use crate::node_client::usage_verification::load_proxy_key;
+use crate::env_var::EnvVars;
 use p256::ecdsa::VerifyingKey as P256VerifyingKey;
 use ed25519_dalek::VerifyingKey as EdDalekVerifyingKey;
 
@@ -50,13 +51,13 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new<'a>(
+pub async fn new(
     secret_key_seed: Option<usize>,
     bootstrap_nodes: Vec<(String, Multiaddr)>,
 ) -> Result<(
-    NodeClient<'a>,
+    NodeClient,
     mpsc::Receiver<NetworkEvent>,
-    NetworkEvents<'a>
+    NetworkEvents
 )> {
     // Create a public/private key pair, either random or based on a seed.
     let (
@@ -174,16 +175,18 @@ pub async fn new<'a>(
     ));
 
     let node_identity = NodeIdentity::new(
-        &node_name,
+        node_name.to_string(),
         peer_id,
         id_keys,
         seed,
         umbral_key.clone(),
     );
 
+    let env_vars = EnvVars::load();
+
     // Initialize Usage Report DB Pool
     let usage_db_pool = init_usage_db()?;
-    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(PROXY_PUBLIC_KEY_PATH, false).await.ok();
+    let proxy_public_key: Option<P256VerifyingKey> = load_proxy_key(&env_vars.PROXY_PUBLIC_KEY_PATH, false).await.ok();
 
     let node_client = NodeClient::new(
         node_identity.clone(),

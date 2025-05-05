@@ -37,7 +37,36 @@ use tokio::time::sleep as tokio_sleep; // Import async sleep
 use std::env; // Add env import
 
 // Type alias for the in-memory API key store
-pub type ApiKeyStore = Arc<RwLock<HashMap<String, String>>>;
+pub type ApiKeyStore = Arc<RwLock<HashMap<ReverieId, ApiKeyPayload>>>;
+
+type ReverieId = String;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ApiKeyPayload {
+    pub reverie_id: ReverieId,
+    pub api_key_type: String, // ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+    pub(crate) api_key: String,
+    pub(crate) spender: String,
+    pub(crate) spender_type: String,
+}
+
+impl ApiKeyPayload {
+    pub fn new(
+        reverie_id: ReverieId,
+        api_key_type: String,
+        api_key: String,
+        spender: String,
+        spender_type: String,
+    ) -> Self {
+        Self {
+            reverie_id,
+            api_key_type,
+            api_key,
+            spender,
+            spender_type,
+        }
+    }
+}
 
 // Structure to hold shared state, including the node's public key
 #[derive(Clone)]
@@ -47,14 +76,8 @@ pub struct ApiState {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct ApiKeyPayload {
-    name: String, // e.g., "ANTHROPIC_API_KEY", "OPENAI_API_KEY"
-    key: String,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
 pub struct ApiKeyIdentifier {
-    name: String,
+    pub reverie_id: ReverieId,
 }
 
 // Function to load the node's public key from PEM
@@ -213,12 +236,12 @@ async fn add_api_key(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<ApiKeyPayload>,
 ) -> impl IntoResponse {
-    info!("Received request to add/update API key: {} from {}", payload.name, addr);
+    info!("Received request to add/update API key: {} from {}", &payload.reverie_id, addr);
 
     match key_store.write() {
         Ok(mut store) => {
-            store.insert(payload.name.clone(), payload.key);
-            info!("Successfully stored API key: {}", payload.name);
+            store.insert(payload.reverie_id.clone(), payload.clone());
+            info!("Successfully stored API key: {}", payload.reverie_id);
             (StatusCode::OK, Json(json!({ "status": "success" })))
         }
         Err(e) => {
@@ -233,15 +256,15 @@ async fn remove_api_key(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<ApiKeyIdentifier>,
 ) -> impl IntoResponse {
-    info!("Received request to remove API key: {} from {}", payload.name, addr);
+    info!("Received request to remove API key: {} from {}", payload.reverie_id, addr);
 
     match key_store.write() {
         Ok(mut store) => {
-            if store.remove(&payload.name).is_some() {
-                info!("Successfully removed API key: {}", payload.name);
+            if store.remove(&payload.reverie_id).is_some() {
+                info!("Successfully removed API key: {}", payload.reverie_id);
                 (StatusCode::OK, Json(json!({ "status": "success" })))
             } else {
-                warn!("Attempted to remove non-existent API key: {}", payload.name);
+                warn!("Attempted to remove non-existent API key: {}", payload.reverie_id);
                 (StatusCode::NOT_FOUND, Json(json!({ "error": "Key not found" })))
             }
         }

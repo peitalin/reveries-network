@@ -1,7 +1,7 @@
 use crate::{short_peer_id, get_node_name};
 use super::NetworkEvents;
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub(super) async fn query_node_state(&mut self) -> serde_json::Value {
 
         let peer_info = self.peer_manager.peer_info

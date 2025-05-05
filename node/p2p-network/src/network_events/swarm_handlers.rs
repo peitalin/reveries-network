@@ -9,7 +9,7 @@ use crate::get_node_name2;
 use super::NetworkEvents;
 
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub(super) async fn handle_swarm_event(&mut self, swarm_event: SwarmEvent<BehaviourEvent>) -> Result<()> {
         match swarm_event {
 

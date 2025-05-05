@@ -22,17 +22,10 @@ const DEFAULT_CA_CERT_PATH_FOR_TESTS: &str = "./llm-proxy/certs/hudsucker.cer";
 // Read base URL from env var, default to localhost for testing
 const PROXY_API_BASE_URL: &str = "https://localhost:7070"; // Keep default for tests
 
-// Payload definitions (mirroring llm-proxy's internal_api.rs)
-#[derive(Deserialize, Serialize, Debug)]
-pub struct ApiKeyPayload {
-    name: String,
-    key: String,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct ApiKeyIdentifier {
-    name: String,
-}
+use llm_proxy::internal_api::{
+    ApiKeyPayload,
+    ApiKeyIdentifier,
+};
 
 fn build_api_client() -> Result<Client> {
     info!("Building standard HTTPS client trusting custom CA...");
@@ -87,15 +80,25 @@ fn create_request_signature(
 }
 
 pub async fn add_proxy_api_key(
-    name: String,
-    key: String,
+    reverie_id: String,
+    api_key_type: String,
+    api_key: String,
+    spenders_address: String,
+    spenders_address_type: String,
     keypair: &IdentityKeypair,
 ) -> Result<()> {
+
     let client = build_api_client()?;
     let url = format!("{}/add_api_key", PROXY_API_BASE_URL);
     let path = "/add_api_key";
     let method = "POST";
-    let payload = ApiKeyPayload { name, key };
+    let payload = ApiKeyPayload::new(
+        reverie_id,
+        api_key_type,
+        api_key,
+        spenders_address,
+        spenders_address_type
+    );
 
     // Serialize body just for signing hash calculation
     let body_bytes_for_sign = serde_json::to_vec(&payload)?;
@@ -132,14 +135,14 @@ pub async fn add_proxy_api_key(
 }
 
 pub async fn remove_proxy_api_key(
-    name: String,
+    reverie_id: String,
     keypair: &IdentityKeypair,
 ) -> Result<()> {
     let client = build_api_client()?;
     let url = format!("{}/remove_api_key", PROXY_API_BASE_URL);
     let path = "/remove_api_key";
     let method = "POST";
-    let payload = ApiKeyIdentifier { name };
+    let payload = ApiKeyIdentifier { reverie_id };
 
     // Serialize body just for signing hash calculation
     let body_bytes_for_sign = serde_json::to_vec(&payload)?;

@@ -17,12 +17,12 @@ use libp2p_identity::Keypair;
 // Alloy imports for signing
 use alloy_primitives::{Address, B256};
 use alloy_signer::Signer;
-use alloy_signer_local::LocalWallet;
+use alloy_signer_local::PrivateKeySigner;
 
 use p2p_network::types::{
     Reverie,
     ReverieType,
-    SignatureType,
+    AccessKey,
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
@@ -38,8 +38,8 @@ use self::test_utils::{
 use self::network_utils::start_test_network;
 
 
-async fn create_signer() -> Result<LocalWallet> {
-    let wallet = LocalWallet::random(); // Generate a random wallet
+async fn create_signer() -> Result<PrivateKeySigner> {
+    let wallet = PrivateKeySigner::random(); // Generate a random wallet
     Ok(wallet)
 }
 
@@ -104,13 +104,15 @@ pub async fn test_memory_reverie() -> Result<()> {
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
     println!("Rust test network started successfully.");
 
-    let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY").ok();
+    // Secret #1: Anthropic API key
+    let api_keys_secrets = json!({
+        "anthropic_api_key": std::env::var("ANTHROPIC_API_KEY").ok(),
+        "deepseek_api_key": std::env::var("DEEPSEEK_API_KEY").ok(),
+    });
 
-    let memory_secrets_and_api_keys = json!({
+    // Secret #2: Memories
+    let memory_secrets = json!({
         "name": "Agent K",
-        "anthropic_api_key": anthropic_api_key, // delegated to llm-proxy
-        "deepseek_api_key": deepseek_api_key,
         "memories": [
             {
                 "name": "First Beach Trip",
@@ -161,37 +163,72 @@ pub async fn test_memory_reverie() -> Result<()> {
     let threshold = 2;
     let total_frags = 3;
 
-    let signer = create_signer().await?;
-    let verifying_public_key: Address = signer.address();
+    // Dev's signer and public key
+    let signer_dev = create_signer().await?;
+    let access_key_dev: Address = signer_dev.address();
+    // User's signer and public key
+    let signer_user = create_signer().await?;
+    let access_key_user: Address = signer_user.address();
 
-    println!("Step 1: Spawning secret memories and delegating API keys...");
-    let reverie_result: Reverie = tokio::time::timeout(
-        Duration::from_secs(10),
+    println!("Step 1: Spawn Reverie with encrypted Anthropic API key...");
+    let api_key_reverie_result: Reverie = tokio::time::timeout(
+        Duration::from_secs(5),
         clients[0].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
-                memory_secrets_and_api_keys.clone(),
+                api_keys_secrets.clone(),
                 threshold,
                 total_frags,
-                verifying_public_key
+                access_key_dev
             ]
         )
     ).await??;
 
-    println!("Memory reverie spawned on vessel: {} {}", reverie_result.id, reverie_result.description);
-    time::sleep(Duration::from_millis(5000)).await;
+    println!("API Key reverie spawned on vessel: {} {}", api_key_reverie_result.id, api_key_reverie_result.description);
+    time::sleep(Duration::from_millis(2000)).await;
 
-    println!("Step 2: Delegated API key LLM calls with memory secrets");
-    let reverie_id = reverie_result.id;
-    println!("Using reverie ID: {}", reverie_id);
+    println!("Step 2: Delegate Anthropic API key to dev's server...");
+    let signature_type_dev = {
+        let digest = Keccak256::digest(api_key_reverie_result.id.clone().as_bytes());
+        let hash = B256::from_slice(digest.as_slice());
+        let signature = signer_dev.sign_hash(&hash).await?;
+        AccessKey::EcdsaSignature(signature.as_bytes().to_vec())
+    };
 
-    let digest = Keccak256::digest(reverie_id.clone().as_bytes());
-    let hash = B256::from_slice(digest.as_slice());
-    let signature = signer.sign_hash(&hash).await?;
-    let signature_bytes = signature.as_bytes().to_vec();
-    let signature_type = SignatureType::Ecdsa(signature_bytes);
+    clients[1].request(
+        "delegate_api_key",
+        jsonrpsee::rpc_params![
+            api_key_reverie_result.id,
+            ReverieType::Memory,
+            signature_type_dev
+        ]
+    ).await?;
 
-    println!("Executing memory reverie (this will trigger LLM calls)...");
+    println!("Step 3: Spawning secret memories...");
+    let memory_reverie_result: Reverie = tokio::time::timeout(
+        Duration::from_secs(10),
+        clients[0].request(
+            "spawn_memory_reverie",
+            jsonrpsee::rpc_params![
+                memory_secrets.clone(),
+                threshold,
+                total_frags,
+                access_key_user
+            ]
+        )
+    ).await??;
+
+    println!("Memory reverie spawned on vessel: {} {}", memory_reverie_result.id, memory_reverie_result.description);
+    time::sleep(Duration::from_millis(2000)).await;
+
+    println!("Step 4: Execute LLM calls with secret memory and delegated API Key");
+
+    let signature_type_user = {
+        let digest = Keccak256::digest(memory_reverie_result.id.clone().as_bytes());
+        let hash = B256::from_slice(digest.as_slice());
+        let signature = signer_user.sign_hash(&hash).await?;
+        AccessKey::EcdsaSignature(signature.as_bytes().to_vec())
+    };
 
     let anthropic_query = AnthropicQuery {
         prompt: String::from("
@@ -225,13 +262,13 @@ pub async fn test_memory_reverie() -> Result<()> {
     };
 
     let rpc_result = tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(10),
         clients[1].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![
-                reverie_id,
+                memory_reverie_result.id,
                 ReverieType::Memory,
-                signature_type,
+                signature_type_user,
                 anthropic_query
             ]
         )
