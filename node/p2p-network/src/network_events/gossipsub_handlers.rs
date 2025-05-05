@@ -5,7 +5,7 @@ use super::NetworkEvents;
 /**
  * Not currently used
  */
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub async fn handle_gossipsub_event(&mut self, gevent: gossipsub::Event) -> Result<()> {
         match gevent {
             gossipsub::Event::Message { ..  } => {}

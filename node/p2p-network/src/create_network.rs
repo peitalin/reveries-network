@@ -51,13 +51,13 @@ thread_local! {
 /// - The network client to interact with the network layer from anywhere within your application.
 /// - The network event stream, e.g. for incoming requests.
 /// - The network task driving the network itself.
-pub async fn new<'a>(
+pub async fn new(
     secret_key_seed: Option<usize>,
     bootstrap_nodes: Vec<(String, Multiaddr)>,
 ) -> Result<(
-    NodeClient<'a>,
+    NodeClient,
     mpsc::Receiver<NetworkEvent>,
-    NetworkEvents<'a>
+    NetworkEvents
 )> {
     // Create a public/private key pair, either random or based on a seed.
     let (
@@ -175,7 +175,7 @@ pub async fn new<'a>(
     ));
 
     let node_identity = NodeIdentity::new(
-        &node_name,
+        node_name.to_string(),
         peer_id,
         id_keys,
         seed,

@@ -1,7 +1,7 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use p2p_network::types::AccessCondition;
+use p2p_network::types::AccessKey;
 
 #[derive(Parser, Serialize, Deserialize, Clone, Debug)]
 #[clap(name = "libp2p-client")]
@@ -74,6 +74,6 @@ pub enum CliArgument {
 
         /// AccessCondition: Signature required to access the memory reverie
         #[clap(long)]
-        signature: AccessCondition,
+        signature: AccessKey,
     },
 }

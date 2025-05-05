@@ -16,7 +16,7 @@ use crate::types::{
 use super::{NodeClient, NodeCommand};
 
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
 
     pub async fn start_listening_to_network(&mut self, listen_address: Option<Multiaddr>) -> Result<()> {
         let (sender, receiver) = oneshot::channel();

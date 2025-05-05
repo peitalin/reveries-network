@@ -63,8 +63,8 @@ use llm_proxy::usage::SignedUsageReport;
 
 
 #[derive(Clone)]
-pub struct NodeClient<'a> {
-    pub node_id: NodeIdentity<'a>,
+pub struct NodeClient {
+    pub node_id: NodeIdentity,
     pub command_sender: mpsc::Sender<NodeCommand>,
     // container app state
     container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
@@ -77,9 +77,9 @@ pub struct NodeClient<'a> {
     pub usage_db_pool: UsageDbPool,
 }
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
     pub fn new(
-        node_id: NodeIdentity<'a>,
+        node_id: NodeIdentity,
         command_sender: mpsc::Sender<NodeCommand>,
         umbral_key: UmbralKey,
         container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,

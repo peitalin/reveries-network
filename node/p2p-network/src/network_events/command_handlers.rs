@@ -26,7 +26,7 @@ use crate::SendError;
 use super::NetworkEvents;
 
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub(crate) async fn handle_command(&mut self, command: NodeCommand) {
         match command {
 

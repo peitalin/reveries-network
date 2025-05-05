@@ -22,7 +22,7 @@ use crate::types::{
 use super::NetworkEvents;
 
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
 
     pub(crate) fn should_dial_peer(&self, peer_id: &PeerId) -> bool {
         // Don't dial:

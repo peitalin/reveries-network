@@ -44,7 +44,7 @@ use tokio::time;
 use time::Duration;
 
 
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
 
     pub(crate) fn mark_pending_respawn_complete(
         &mut self,

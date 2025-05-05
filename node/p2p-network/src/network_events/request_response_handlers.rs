@@ -25,7 +25,7 @@ use super::NetworkEvents;
 type RequestResponseEvent = Event<FragmentRequestEnum, FragmentResponseEnum>;
 
 //// Request Response Protocol
-impl<'a> NetworkEvents<'a> {
+impl NetworkEvents {
     pub(super) async fn handle_request_response(&mut self, rr_event: RequestResponseEvent) -> Result<()> {
         match rr_event {
 

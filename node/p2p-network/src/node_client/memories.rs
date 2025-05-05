@@ -19,7 +19,7 @@ use super::NodeClient;
 
 
 
-impl<'a> NodeClient<'a> {
+impl NodeClient {
 
     /// Client sends some ReverieType over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
