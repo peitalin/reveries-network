@@ -4,7 +4,7 @@ mod commands;
 
 use color_eyre::Result;
 use clap::Parser;
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, multiaddr::Protocol};
 use std::env;
 
 use commands::Opt;
@@ -35,16 +35,13 @@ async fn main() -> Result<()> {
         .filter_map(|addr_str| {
             // Parse multiaddr format: /ip4/node1/tcp/port/p2p/peer_id
             let addr: Multiaddr = addr_str.parse().ok()?;
-
             // Extract peer ID from the multiaddr
-            let peer_id = addr.iter()
-                .find_map(|p| {
-                    if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
-                        Some(peer_id.to_string())
-                    } else {
-                        None
-                    }
-                })?;
+            let peer_id = addr.iter().find_map(|p| {
+                match p {
+                    Protocol::P2p(peer_id) => Some(peer_id.to_string()),
+                    _ => None,
+                }
+            })?;
 
             Some((peer_id, addr))
         })
