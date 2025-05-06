@@ -17,8 +17,6 @@ run-runtime-tee2:
 build-tdx:
     cargo build --features tdx_enabled
 
-run-cait:
-    cargo run --release --bin cait -- 100 300 1000000
 
 
 # Runs node 1
@@ -178,8 +176,3 @@ test-rpc-prod:
         --rpc-server-address 35.198.200.224:8001 \
         get-node-states --ports 8001
 
-
-curl-rpc-prod:
-    curl -X POST -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","method":"get_node_state","params":[],"id":1}' \
-    http://35.198.200.224:8001

@@ -1,6 +1,6 @@
 project_id   = ""
 github_token = ""
-github_repo  = "<username>/1up-network"
+github_repo  = "<username>/reveries-network"
 repo_branch  = "main"
 service_account_email = ""
 app_dir = "/app"

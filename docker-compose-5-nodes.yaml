@@ -1,7 +1,7 @@
 services:
 
   node1:
-    image: 1up
+    image: reveries-network
     expose:
       - "9001"
     ports:
@@ -22,7 +22,7 @@ services:
     ## note bootstrap-peers in docker uses /dns4/node2, not /ip4/127.0.0.1
 
   node2:
-    image: 1up
+    image: reveries-network
     expose:
       - "9002"
     ports:
@@ -43,7 +43,7 @@ services:
 
 
   node3:
-    image: 1up
+    image: reveries-network
     expose:
       - "9003"
     ports:
@@ -64,7 +64,7 @@ services:
 
 
   node4:
-    image: 1up
+    image: reveries-network
     expose:
       - "9004"
     ports:
@@ -85,7 +85,7 @@ services:
 
 
   node5:
-    image: 1up
+    image: reveries-network
     expose:
       - "9005"
     ports:
