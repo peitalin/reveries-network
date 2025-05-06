@@ -13,8 +13,9 @@ pub type UsageDbPool = Arc<Pool<SqliteConnectionManager>>;
 
 const DB_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS usage_reports (
-    request_id TEXT PRIMARY KEY, -- Set as PRIMARY KEY
+    request_id TEXT PRIMARY KEY,
     timestamp INTEGER NOT NULL,
+    received_at TEXT DEFAULT (datetime('now')),
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     cache_creation_tokens INTEGER,
@@ -26,8 +27,7 @@ CREATE TABLE IF NOT EXISTS usage_reports (
     linked_tool_id TEXT,
     reverie_id TEXT,
     spender_address TEXT,
-    spender_type TEXT,
-    received_at INTEGER DEFAULT (strftime('%s', 'now'))
+    spender_type TEXT
 );
 
 -- CREATE INDEX IF NOT EXISTS idx_usage_reports_request_id ON usage_reports(request_id);

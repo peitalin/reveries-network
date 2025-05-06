@@ -83,7 +83,7 @@ pub async fn start_test_network(
 
     // Allow nodes to discover each other
     println!("Waiting longer for peer connections to be established...");
-    time::sleep(Duration::from_secs(7)).await;
+    time::sleep(Duration::from_secs(8)).await;
 
     Ok(clients)
 }

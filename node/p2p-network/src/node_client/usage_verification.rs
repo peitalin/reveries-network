@@ -73,6 +73,17 @@ impl StdError for VerificationError {
     }
 }
 
+impl From<runtime::tee_attestation::DcapError> for VerificationError {
+    fn from(e: runtime::tee_attestation::DcapError) -> Self {
+        match e {
+            runtime::tee_attestation::DcapError::CollateralLoadError(s) => VerificationError::DcapCollateralLoadError(s),
+            runtime::tee_attestation::DcapError::VerificationPanic(s) => VerificationError::DcapVerificationFailed(format!("Panic: {}", s)), // Reuse DcapVerificationFailed
+            runtime::tee_attestation::DcapError::VerificationFailed(s) => VerificationError::DcapVerificationFailed(s),
+            runtime::tee_attestation::DcapError::TcbStatusNotOk(s) => VerificationError::DcapTcbStatusNotOk(s),
+        }
+    }
+}
+
 pub fn verify_usage_report(
     report: &SignedUsageReport,
     key: &VerifyingKey,
@@ -116,8 +127,8 @@ pub fn verify_usage_report(
     // 7. Recalculate Payload Hash using the shared function
     let calculated_report_data = runtime::tee_attestation::hash_payload_for_tdx_report_data(&payload_bytes);
 
-    // 8. Compare Calculated Hash (Padded) with Quote's Report Data
     // --- Only perform binding check if compiled for TDX ---
+    // 8. Compare Calculated Hash (Padded) with Quote's Report Data
     #[cfg(all(target_os = "linux", feature = "tdx_enabled"))]
     {
         let quote_report_data: &[u8; 64] = match &quote.quote_body {
@@ -133,22 +144,10 @@ pub fn verify_usage_report(
         }
         info!("{}", "TDX Quote binding VERIFIED.".green());
     }
-    // --- End conditional binding check ---
-    // --- End TDX Quote Verification ---
-
-    // --- Call the refactored DCAP verification function from runtime ---
-    // The function call itself is implicitly conditional based on the target
+    // Call the DCAP verification function from runtime
     runtime::tee_attestation::perform_dcap_verification(&quote)
-        .map_err(|e| {
-            // Map DcapError to VerificationError
-            match e {
-                runtime::tee_attestation::DcapError::CollateralLoadError(s) => VerificationError::DcapCollateralLoadError(s),
-                runtime::tee_attestation::DcapError::VerificationPanic(s) => VerificationError::DcapVerificationFailed(format!("Panic: {}", s)), // Reuse DcapVerificationFailed
-                runtime::tee_attestation::DcapError::VerificationFailed(s) => VerificationError::DcapVerificationFailed(s),
-                runtime::tee_attestation::DcapError::TcbStatusNotOk(s) => VerificationError::DcapTcbStatusNotOk(s),
-            }
-        })?;
-    // --- End refactored call ---
+        .map_err(VerificationError::from)?;
+    // --- End TDX Quote Verification ---
 
     // Return the deserialized payload data if all verifications succeed
     Ok(payload_data)

@@ -156,8 +156,11 @@ impl AccessKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum AccessCondition {
+    /// Requires a signature matching the Umbral public key
     Umbral(umbral_pre::PublicKey),
+    /// Requires a signature matching the ECDSA address
     Ecdsa(Address),
+    /// Requires a signature matching the ED25519 address
     Ed25519(String),
     /// TODO: Requires valid Contract evaluation (preconditions)
     Contract(Address, ContractCalldata),

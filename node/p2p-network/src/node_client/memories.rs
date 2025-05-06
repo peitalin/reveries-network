@@ -206,7 +206,7 @@ impl NodeClient {
         // };
 
         let usage_report = metrics.generate_report();
-        info!("{}", usage_report);
+        println!("{}", usage_report);
 
         Ok(ExecuteWithMemoryReverieResult {
             claude: claude_result,

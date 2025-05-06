@@ -42,6 +42,7 @@ use crate::internal_api::{run_internal_api_server, ApiKeyStore};
 
 
 static ANTHROPIC_DELEGATE_API_KEY: &str = "sk-ant-delegated-api-key";
+static ANTHROPIC_DELEGATE_API_KEY_VALUE: &str = "sk-ant-delegated-api-key";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct LLMProxyRequestContext {
@@ -108,31 +109,25 @@ impl HttpHandler for LogHandler {
         if let Some(host) = parts.uri.host() {
             if host.contains("anthropic.com") {
                 debug!("Request {}: Detected Anthropic API request.", request_id);
-                let header_api_key = parts.headers.get("x-api-key");
-                println!("\n>>> Request {}: Header API key: {:?}\n", request_id, header_api_key);
+                let x_api_key_header_value = parts.headers.get(HeaderName::from_static("x-api-key"));
 
-                if parts.headers.contains_key(ANTHROPIC_DELEGATE_API_KEY) {
-                    debug!("Request {}: x-api-key header requests delegated API key, attempting injection from store.", request_id);
+                if is_anthropic_delegation_request(x_api_key_header_value) {
                     let store = self.api_key_store.read().expect("API key store lock poisoned");
-                    // 1. Filter for Anthropic keys
                     let anthropic_keys: Vec<_> = store.values()
-                        .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY")) // Use case-insensitive compare
+                        .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY"))
                         .collect();
 
                     if anthropic_keys.is_empty() {
-                        warn!("Request {}: Proxy injection failed: No Anthropic keys found in store.", request_id);
+                        warn!("Request {}: Proxy injection failed: No Anthropic keys found in store for delegation.", request_id);
                     } else {
-                        // 2. Randomly select one
                         if let Some(&selected_payload) = anthropic_keys.choose(&mut thread_rng()) {
                             let api_key = &selected_payload.api_key;
-                            reverie_id_for_context = Some(selected_payload.reverie_id.clone()); // Store reverie_id
-                            spender_for_context = Some(selected_payload.spender.clone()); // Store spender
-                            spender_type_for_context = Some(selected_payload.spender_type.clone()); // Store spender_type
+                            reverie_id_for_context = Some(selected_payload.reverie_id.clone());
+                            spender_for_context = Some(selected_payload.spender.clone());
+                            spender_type_for_context = Some(selected_payload.spender_type.clone());
 
-                            // 3. Inject the header
-                            match HeaderValue::from_str(api_key) { // Use api_key ref here
+                            match HeaderValue::from_str(api_key) {
                                 Ok(header_value) => {
-                                    // Use selected_payload.reverie_id in log
                                     log_api_key_info(&selected_payload.reverie_id, api_key, &request_id);
                                     parts.headers.insert(HeaderName::from_static("x-api-key"), header_value);
                                 }
@@ -141,12 +136,9 @@ impl HttpHandler for LogHandler {
                                 }
                             }
                         } else {
-                            // This case should theoretically not happen if anthropic_keys is not empty
-                            warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found.", request_id);
+                            warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found for delegation.", request_id);
                         }
                     }
-                } else {
-                    debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
                 }
             }
         }
@@ -261,6 +253,21 @@ impl WebSocketHandler for LogHandler {
         info!("WebSocket message: {:?}", msg);
         Some(msg)
     }
+}
+
+fn is_anthropic_delegation_request(option_header_value: Option<&HeaderValue>) -> bool {
+    let mut needs_delegation = false;
+    if let Some(header_api_key_value) = option_header_value {
+        if header_api_key_value == ANTHROPIC_DELEGATE_API_KEY_VALUE {
+            needs_delegation = true;
+            debug!("Request: x-api-key header is the delegation key value, attempting injection from store.");
+        } else {
+            debug!("Request: x-api-key header present but not the delegation key value ('{:?}'), skipping direct injection attempt based on this.", header_api_key_value);
+        }
+    } else {
+        debug!("Request: No x-api-key header found. This request does not use explicit delegation via x-api-key.");
+    };
+    return needs_delegation
 }
 
 fn find_tool_use_id_in_request_body(body_bytes: &[u8]) -> Option<String> {

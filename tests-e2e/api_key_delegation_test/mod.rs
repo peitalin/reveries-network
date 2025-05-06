@@ -185,7 +185,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     ).await??;
 
     println!("API Key reverie spawned on vessel: {} {}", api_key_reverie_result.id, api_key_reverie_result.description);
-    time::sleep(Duration::from_millis(1000)).await;
+    time::sleep(Duration::from_millis(2000)).await;
 
     println!("Step 2: Delegate Anthropic API key to dev's server...");
     let signature_type_dev = {
@@ -262,7 +262,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     };
 
     let rpc_result = tokio::time::timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(20), // Increased timeout to 20 seconds for LLM tool-use calls
         clients[1].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![
