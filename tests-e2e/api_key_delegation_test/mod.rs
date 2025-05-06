@@ -185,7 +185,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     ).await??;
 
     println!("API Key reverie spawned on vessel: {} {}", api_key_reverie_result.id, api_key_reverie_result.description);
-    time::sleep(Duration::from_millis(2000)).await;
+    time::sleep(Duration::from_millis(1000)).await;
 
     println!("Step 2: Delegate Anthropic API key to dev's server...");
     let signature_type_dev = {
@@ -206,7 +206,7 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     println!("Step 3: Spawning secret memories...");
     let memory_reverie_result: Reverie = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(5),
         clients[0].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
@@ -219,7 +219,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     ).await??;
 
     println!("Memory reverie spawned on vessel: {} {}", memory_reverie_result.id, memory_reverie_result.description);
-    time::sleep(Duration::from_millis(2000)).await;
+    time::sleep(Duration::from_millis(1000)).await;
 
     println!("Step 4: Execute LLM calls with secret memory and delegated API Key");
 
@@ -262,7 +262,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     };
 
     let rpc_result = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(5),
         clients[1].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![

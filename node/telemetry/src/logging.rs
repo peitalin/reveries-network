@@ -9,7 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 /// Standard log file name prefix. This will be optionally appended with a timestamp
 /// depending on the rotation strategy.
-const LOG_FILE_NAME_PREFIX: &str = "1up.log";
+const LOG_FILE_NAME_PREFIX: &str = "reveries.log";
 
 pub struct LoggerConfig {
     pub log_level: Level,

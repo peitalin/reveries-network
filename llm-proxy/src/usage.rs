@@ -16,6 +16,9 @@ use base64::{
     engine::general_purpose::STANDARD as base64_standard // For encoding signature
 };
 use once_cell::sync::Lazy;
+use sha2::{Sha256, Digest};
+
+use runtime::tee_attestation::{generate_tee_attestation_with_data, QuoteV4};
 use crate::parser;
 use crate::tee_body::ChannelError;
 
@@ -64,10 +67,11 @@ pub struct ToolUse {
     pub tool_type: String,        // The type of the tool (usually "tool_use")
 }
 
-#[derive(Debug, Deserialize, Serialize)] // Only needs Serialize to send
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SignedUsageReport {
-    pub payload: String, // Base64 encoded JSON of UsageData + Timestamp
-    pub signature: String, // Base64 encoded ECDSA signature
+    pub payload: String,      // Base64 encoded JSON of UsageData + Timestamp
+    pub signature: String,    // Base64 encoded ECDSA signature
+    pub tdx_quote: String,    // Base64 encoded TDX QuoteV4 (attestation)
 }
 
 #[derive(Debug, Deserialize, Serialize)] // Inner payload for signing
@@ -183,9 +187,15 @@ fn process_and_log_regular_body(
     match serde_json::to_vec(&usage_report_payload) {
         Ok(payload_bytes) => {
             let signature: Signature = signing_key.sign(&payload_bytes);
+            let report_data = runtime::tee_attestation::hash_payload_for_tdx_report_data(&payload_bytes);
+
+            let (_quote, quote_bytes) = generate_tee_attestation_with_data(report_data, false)
+                .expect("TEE attestation generation error");
+            let tdx_quote = base64_standard.encode(&quote_bytes);
             let signed_report = SignedUsageReport {
                 payload: base64_standard.encode(&payload_bytes),
                 signature: base64_standard.encode(signature.to_bytes()),
+                tdx_quote,
             };
             // Pass the URL to the submission task
             tokio::spawn(submit_usage_report(signed_report, report_target_url.clone()));
@@ -316,9 +326,15 @@ pub async fn log_sse_response_task(
                     match serde_json::to_vec(&payload) {
                         Ok(payload_bytes) => {
                             let signature: Signature = signing_key.sign(&payload_bytes);
+                            let report_data = runtime::tee_attestation::hash_payload_for_tdx_report_data(&payload_bytes);
+
+                            let (_quote, quote_bytes) = generate_tee_attestation_with_data(report_data, false)
+                                .expect("TEE attestation generation error");
+                            let tdx_quote = base64_standard.encode(&quote_bytes);
                             let signed_report = SignedUsageReport {
                                 payload: base64_standard.encode(&payload_bytes),
                                 signature: base64_standard.encode(signature.to_bytes()),
+                                tdx_quote,
                             };
                             tokio::spawn(submit_usage_report(signed_report, report_target_url.clone()));
                         },

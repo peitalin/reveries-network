@@ -156,7 +156,7 @@ pub async fn new(
                 identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
-                        StreamProtocol::new("/1up-kfrags-reqres/1.0.0"),
+                        StreamProtocol::new("/reverie-kfrags-requests/1.0.0"),
                         libp2p::request_response::ProtocolSupport::Full,
                     )],
                     libp2p::request_response::Config::default()

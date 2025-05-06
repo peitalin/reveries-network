@@ -23,12 +23,13 @@ use hudsucker::{
 use serde::{Deserialize, Serialize};
 use http_body_util::{Full, BodyExt};
 use hyper::header::CONTENT_TYPE;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 use p256::ecdsa::SigningKey;
 use serde_json::Value;
-use rand_core::OsRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use sha2::{Sha256, Digest};
+use base64::{engine::general_purpose::STANDARD as base64_standard};
 
 use crate::config::{
     EnvVars,
@@ -39,6 +40,8 @@ use crate::config::{
 use crate::usage::{log_sse_response_task, log_regular_response_task};
 use crate::internal_api::{run_internal_api_server, ApiKeyStore};
 
+
+static ANTHROPIC_DELEGATE_API_KEY: &str = "sk-ant-delegated-api-key";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct LLMProxyRequestContext {
@@ -82,9 +85,9 @@ impl HttpHandler for LogHandler {
         let mut spender_type_for_context: Option<String> = None;
 
         info!("===== Intercepted Request {}: {} ====", request_id, url);
-        trace!("Request {}: Method: {}", request_id, parts.method);
+        info!("Request {}: Method: {}", request_id, parts.method);
         for (name, value) in &parts.headers {
-            trace!("Request {}: Header: {} = {:?}", request_id, name, value);
+            info!("Request {}: Header: {} = {:?}", request_id, name, value);
         }
 
         let body_bytes = match body.collect().await {
@@ -105,12 +108,12 @@ impl HttpHandler for LogHandler {
         if let Some(host) = parts.uri.host() {
             if host.contains("anthropic.com") {
                 debug!("Request {}: Detected Anthropic API request.", request_id);
-                if parts.headers.contains_key("x-api-key") {
-                    debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
-                } else {
-                    debug!("Request {}: x-api-key header missing, attempting injection from store.", request_id);
-                    let store = self.api_key_store.read().expect("API key store lock poisoned");
+                let header_api_key = parts.headers.get("x-api-key");
+                println!("\n>>> Request {}: Header API key: {:?}\n", request_id, header_api_key);
 
+                if parts.headers.contains_key(ANTHROPIC_DELEGATE_API_KEY) {
+                    debug!("Request {}: x-api-key header requests delegated API key, attempting injection from store.", request_id);
+                    let store = self.api_key_store.read().expect("API key store lock poisoned");
                     // 1. Filter for Anthropic keys
                     let anthropic_keys: Vec<_> = store.values()
                         .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY")) // Use case-insensitive compare
@@ -142,15 +145,17 @@ impl HttpHandler for LogHandler {
                             warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found.", request_id);
                         }
                     }
+                } else {
+                    debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
                 }
             }
         }
         // -- End API Key Injection Logic --
 
         if let Ok(body_str) = std::str::from_utf8(&body_bytes) {
-            trace!("Request {}: Body:\n{}", request_id, body_str);
+            info!("Request {}: Body:\n{}", request_id, body_str);
         } else {
-            trace!("Request {}: Body: <Non-UTF8 data: {} bytes>", request_id, body_bytes.len());
+            info!("Request {}: Body: <Non-UTF8 data: {} bytes>", request_id, body_bytes.len());
         }
 
         let mut request_context = LLMProxyRequestContext {
@@ -253,7 +258,7 @@ impl HttpHandler for LogHandler {
 
 impl WebSocketHandler for LogHandler {
     async fn handle_message(&mut self, _ctx: &WebSocketContext, msg: Message) -> Option<Message> {
-        trace!("WebSocket message: {:?}", msg);
+        info!("WebSocket message: {:?}", msg);
         Some(msg)
     }
 }

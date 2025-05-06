@@ -3,14 +3,19 @@ name = "p2p-network"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+# TDX feature flag
+[features]
+tdx_enabled = ["dep:tdx"]
 
+[dependencies]
 runtime = { path = "../runtime" }
 telemetry = { path = "../telemetry" }
 llm-proxy = { path = "../../llm-proxy" }
+tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
+dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 
-async-channel = { version = "2.3.1" }
 # SQLite DB for Usage Reports
+async-channel = { version = "2.3.1" }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.24.0"
