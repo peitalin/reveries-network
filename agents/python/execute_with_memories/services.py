@@ -6,6 +6,13 @@ import os
 from typing import AsyncGenerator, Optional, List, Dict, Any, Union
 from fastapi import HTTPException
 
+# NEW: Import Anthropic SDK components
+from anthropic import AsyncAnthropic
+from anthropic import APIError, APITimeoutError
+from anthropic.types import Message, TextBlock, ToolUseBlock
+from anthropic.lib.streaming import AsyncMessageStream, MessageStreamEvent
+from anthropic._types import Omit # Import Omit
+
 logger = logging.getLogger("llm-api-gateway")
 
 # Pre-defined tool definitions
@@ -51,107 +58,122 @@ async def call_anthropic(
     tools: Optional[List[Dict[str, Any]]] = None
 ) -> Union[str, Dict[str, Any], AsyncGenerator[bytes, None]]:
     """
-    Makes a request to Anthropic's Claude API, supporting streaming and tool use.
-    Reads ANTHROPIC_API_KEY from environment and adds x-api-key header if found.
-    Uses client.stream() for the streaming case.
-    For non-streaming calls, returns the full response dict if tool use is detected,
-    otherwise returns the extracted text.
+    Makes a request to Anthropic's Claude API using the Anthropic Python SDK,
+    supporting streaming and tool use.
+    Reads ANTHROPIC_API_KEY from environment automatically.
     """
-    logger.info(f"Making request to Anthropic API (stream={stream}, tools={'yes' if tools else 'no'}) with prompt: '{prompt[:30]}...'")
-    url = "https://api.anthropic.com/v1/messages"
-    headers = {
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-        "anthropic-beta": "tools-2024-04-04"
-    }
+    logger.info(f"Making request via Anthropic SDK (stream={stream}, tools={'yes' if tools else 'no'}) with prompt: '{prompt[:30]}...'")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if api_key:
-        logger.debug("Found ANTHROPIC_API_KEY in env, adding x-api-key header.")
-        headers["x-api-key"] = api_key
-    else:
-        logger.warning("ANTHROPIC_API_KEY not found in environment. Request might fail if proxy doesn't inject it.")
+    # Initialize the async client (SDK handles API key from env var ANTHROPIC_API_KEY)
+    # Default timeout is 10 minutes, retries are handled by SDK
+    try:
+        # Initialize Anthropic with NO API key (it will read from env var ANTHROPIC_API_KEY which is set to a dummy variable)
+        # This satisfies the SDK's initial check.
+        # The proxy will inject the correct header via the http_client.
+        client = AsyncAnthropic(
+            # api_key="sk-user-supplied-api-key",
+            ### API key provided, no API Key delegation
+            api_key=None,
+            ### No API key provided, API key will be injected by the proxy
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize Anthropic client: {e}")
+        raise HTTPException(status_code=500, detail=f"Anthropic client initialization error: {e}")
 
     messages = [{
         "role": "user",
         "content": prompt
     }]
 
-    payload = {
-        "model": "claude-3-haiku-20240307",
-        "max_tokens": 4096,
+    # Prepare common arguments for the API call
+    api_args = {
+        "model": "claude-3-haiku-20240307", # Or choose another model
+        "max_tokens": 4096, # Adjust as needed
         "messages": messages,
     }
 
     if context:
-        logger.debug("Adding system context to payload.")
-        payload["system"] = f"Use the following JSON data as context for the user's request:\n```json\n{context}\n```"
+        logger.debug("Adding system context to API call.")
+        api_args["system"] = context
     else:
-         logger.debug("No system context provided.")
+        logger.debug("No system context provided.")
 
     if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = {"type": "auto"}
+        logger.debug("Adding tools to API call.")
+        api_args["tools"] = tools
+        # SDK defaults to auto tool choice if tools are provided
 
     if stream:
-        payload["stream"] = True
+        api_args["stream"] = True
         async def stream_generator() -> AsyncGenerator[bytes, None]:
             chunk_logger = logging.getLogger("llm-api-gateway")
             try:
-                async with httpx.AsyncClient(timeout=None) as client:
-                    async with client.stream('POST', url, headers=headers, json=payload) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
-                            try:
-                                log_message = f"Received chunk: {chunk.decode('utf-8')}"
-                                chunk_logger.debug(log_message)
-                            except UnicodeDecodeError:
-                                log_message = f"Received chunk (non-utf8): {chunk!r}"
-                                chunk_logger.debug(log_message)
-                            yield chunk
-            except httpx.HTTPStatusError as e:
-                try:
-                    error_detail = f"Anthropic API Error: {await e.response.aread()}".encode('utf-8')
-                    logger.error(f"Anthropic API HTTP error (streaming): {e.response.status_code} - {error_detail.decode()}")
-                    yield error_detail
-                except Exception as inner_e:
-                     logger.error(f"Error reading error response body: {inner_e}")
-                     raise e
+                # Use the async message stream context manager
+                async with client.messages.stream(**api_args) as message_stream:
+                    async for event in message_stream:
+                        # Log the raw event type for debugging
+                        # chunk_logger.debug(f"Stream Event Type: {type(event)}")
+
+                        # Determine what data to yield based on event type
+                        if isinstance(event, MessageStreamEvent) and hasattr(event, 'type'):
+                             # Encode the event data (often a delta) as JSON bytes
+                             # This matches the raw HTTP stream structure more closely
+                             try:
+                                 # Construct a JSON line similar to the HTTP SSE format
+                                 sse_line = f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
+                                 chunk_logger.debug(f"Yielding SSE line: {sse_line.strip()}")
+                                 yield sse_line.encode('utf-8')
+                             except Exception as encode_err:
+                                 chunk_logger.error(f"Error encoding stream event {event.type}: {encode_err}")
+
+            except APIError as e:
+                error_detail = f"Anthropic SDK API Error (streaming): {e.status_code} - {e.body}".encode('utf-8')
+                logger.error(f"Anthropic SDK API error (streaming): {e.status_code} - {e.body}")
+                yield error_detail # Yield error detail as bytes
             except Exception as e:
                 error_detail = f"Internal stream error: {e}".encode('utf-8')
-                logger.error(f"Generic error during Anthropic stream: {e}")
-                yield error_detail
+                logger.error(f"Generic error during Anthropic SDK stream: {e}")
+                yield error_detail # Yield error detail as bytes
 
         return stream_generator()
     else:
-        async with httpx.AsyncClient(timeout=None) as client:
-            try:
-                response = await client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                response_data = response.json()
-                logger.info(f"Anthropic raw response body: {response_data}")
+        # Non-streaming call
+        api_args["stream"] = False
+        try:
+            response: Message = await client.messages.create(**api_args)
+            logger.info(f"Anthropic SDK raw response model type: {type(response)}")
+            # logger.info(f"Anthropic SDK response model content: {response}") # Can be verbose
 
-                if response_data.get("stop_reason") == "tool_use":
-                    logger.info("Anthropic response indicates tool use.")
-                    return response_data
-                else:
-                    text = "".join([content["text"] for content in response_data.get("content", [])
-                                   if content.get("type") == "text"])
-                    logger.info(f"Received standard text response from Anthropic API: '{text[:30]}...'")
-                    return text
-            except httpx.HTTPStatusError as e:
-                try:
-                    error_detail_bytes = await e.response.aread()
-                    error_detail = error_detail_bytes.decode('utf-8')
-                    logger.error(f"Anthropic API HTTP error (non-streaming): {e.response.status_code} - {error_detail}")
-                    raise HTTPException(status_code=e.response.status_code, detail=error_detail)
-                except Exception as inner_e:
-                     logger.error(f"Error reading error response body: {inner_e}")
-                     raise HTTPException(status_code=e.response.status_code, detail="Anthropic API Error: Failed to read error details.") from inner_e
-            except Exception as e:
-                 error_detail = f"Internal Error during non-streaming request: {e}"
-                 logger.error(f"Error during Anthropic non-streaming request: {e}")
-                 raise HTTPException(status_code=500, detail=error_detail)
+            # Check for tool use
+            if response.stop_reason == "tool_use":
+                logger.info("Anthropic SDK response indicates tool use.")
+                # Return the Pydantic model converted to a dictionary
+                # Use model_dump for compatibility with newer Pydantic versions
+                response_dict = response.model_dump(mode='json')
+                logger.debug(f"Returning tool use response dict: {response_dict}")
+                return response_dict
+            else:
+                # Extract text content
+                text_parts = []
+                if response.content:
+                     for block in response.content:
+                         if isinstance(block, TextBlock):
+                             text_parts.append(block.text)
+
+                full_text = "".join(text_parts)
+                logger.info(f"Received standard text response via Anthropic SDK: '{full_text[:50]}...'")
+                # Directly return the text string
+                return full_text
+
+        except APIError as e:
+            logger.error(f"Anthropic SDK API error (non-streaming): {e.status_code} - {e.body}")
+            # Try to extract detail, default if extraction fails
+            detail = f"Anthropic SDK API Error: {e.body}" if e.body else f"Anthropic SDK API Error {e.status_code}"
+            raise HTTPException(status_code=e.status_code or 500, detail=detail)
+        except Exception as e:
+            error_detail = f"Internal Error during non-streaming SDK request: {e}"
+            logger.error(f"Error during Anthropic SDK non-streaming request: {e}")
+            raise HTTPException(status_code=500, detail=error_detail)
 
 def call_deepseek(api_key, prompt, context):
     """
@@ -197,3 +219,32 @@ def call_deepseek(api_key, prompt, context):
     except Exception as e:
         logger.error(f"Error during DeepSeek request: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error during DeepSeek request: {e}")
+
+async def test_anthropic_validation():
+    """
+    Test function to determine when the Anthropic SDK validates API keys.
+    This can be called to verify whether validation happens at initialization time
+    or at request time.
+    """
+    logger.info("Testing Anthropic SDK API key validation timing...")
+
+    # Initialize with invalid key
+    http_client = httpx.AsyncClient(timeout=60.0)
+    client = AsyncAnthropic(
+        api_key="sk-invalid-key",
+        http_client=http_client,
+    )
+    logger.info("✓ Initialization with invalid key succeeded")
+
+    # Attempt to make request (should fail if validation happens at request time)
+    try:
+        result = await client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=10,
+            messages=[{"role": "user", "content": "Hello"}]
+        )
+        logger.error("✗ Request with invalid key succeeded unexpectedly!")
+        return "Unexpected success: API key not validated"
+    except Exception as e:
+        logger.info(f"✓ Request failed as expected: {e}")
+        return f"Validation happens at request time: {e}"
