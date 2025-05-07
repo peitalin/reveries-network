@@ -153,14 +153,14 @@ pub fn verify_usage_report(
     Ok(payload_data)
 }
 
-pub async fn load_proxy_key(path: &str, poll: bool) -> Result<VerifyingKey> {
+pub async fn load_llm_proxy_pubkey(path: &str, poll: bool) -> Result<VerifyingKey> {
 
     let key_path = Path::new(path);
-    let max_wait = Duration::from_secs(10);
+    let max_wait = Duration::from_secs(60);
     let poll_interval = Duration::from_secs(1);
     let start_time = std::time::Instant::now();
 
-    info!("Waiting for proxy public key file at {}...", path);
+    info!("Waiting for proxy public key file at {}", path);
     while !key_path.exists() && poll {
         if start_time.elapsed() > max_wait {
             return Err(anyhow!("Timed out waiting for proxy public key file: {}", path));
