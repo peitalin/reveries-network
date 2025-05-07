@@ -1,32 +1,31 @@
-#[path = "../test_utils.rs"]
-mod test_utils;
+#[path = "../utils_docker.rs"]
+mod utils_docker;
 
 use std::env;
-use std::str::FromStr;
 use color_eyre::Result;
 use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use scopeguard::defer;
 use tracing::{info, error};
-use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
-use alloy_signer::Signer;
+use tokio::sync::OnceCell;
 
 use p2p_network::{
-    create_network::{export_libp2p_public_key, generate_peer_keys}, node_client::{add_proxy_api_key, remove_proxy_api_key}, types::{AccessCondition, AccessKey}
+    types::AccessCondition,
+    utils::pubkeys::{generate_peer_keys, export_libp2p_public_key},
+    node_client::{add_proxy_api_key, remove_proxy_api_key},
 };
-use test_utils::{
+use utils_docker::{
     init_test_logger,
     shutdown_docker_environment,
     setup_docker_environment,
 };
 
+// Path to /tests dir
 const DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
-// Path for the test key export relative to /tests dir
 const TEST_NODE_PUBKEY_EXPORT_TARGET: &str = "../llm-proxy/pubkeys/p2p-node/p2p_node_test.pub.pem";
-// Path for test setup relative to tests dir
-const TEST_KEY_SEED: usize = 2; // any seed between 1 and 5
 // Generate a FIXED keypair using seed
+const TEST_KEY_SEED: usize = 2; // hardcode node2 as sender of API Key
 static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     let (
         _peer_id,
@@ -36,39 +35,36 @@ static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     ) = generate_peer_keys(Some(TEST_KEY_SEED));
     id_keys
 });
+
 // Lazy: once-per-module setup for proxy API tests
 static TEST_SETUP: Lazy<()> = Lazy::new(|| {
-    setup();
+    setup_test_environment_once().expect("Setup failed");
 });
 
-fn ensure_setup() {
-    env::set_var("CA_CERT_PATH", "../llm-proxy/certs/hudsucker.cer");
-    // Force initialization of the Lazy static
-    Lazy::force(&TEST_SETUP);
-}
-
-fn setup() {
+fn setup_test_environment_once() -> Result<()> {
     init_test_logger();
-    // 1. Export the test public key
+    env::set_var("CA_CERT_PATH", "../llm-proxy/certs/hudsucker.cer");
+
     info!("Exporting public key for seed {} to {}", TEST_KEY_SEED, TEST_NODE_PUBKEY_EXPORT_TARGET);
     if let Err(e) = export_libp2p_public_key(&TEST_KEYPAIR, TEST_NODE_PUBKEY_EXPORT_TARGET) {
-        panic!("Setup failed: Could not export TEST public key to {}: {}", TEST_NODE_PUBKEY_EXPORT_TARGET, e);
+        error!("Setup failed: Could not export TEST public key to {}: {}", TEST_NODE_PUBKEY_EXPORT_TARGET, e);
+        return Err(e);
     }
     info!("✅ Exported test public key.");
-
-    // 2. Start Docker Compose using the helper
-    if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE) {
-        // Use panic! here because setup is expected to succeed or the tests are invalid
-        panic!("Setup failed: Could not start Docker environment: {}", e);
-    }
-    info!("✅ Setup complete.");
+    Ok(())
 }
 
 
 #[tokio::test]
 #[serial_test::serial]
 async fn test_add_and_remove_api_key_success() -> Result<()> {
-    ensure_setup();
+
+    Lazy::force(&TEST_SETUP);
+
+    // Start Docker Compose using the helper (async)
+    if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE).await {
+        panic!("Setup failed: Could not start Docker environment: {}", e);
+    }
     defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); } // Ensure teardown runs on scope exit
 
     // Test adding key
@@ -101,7 +97,12 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_remove_non_existent_api_key_success() -> Result<()> {
-    ensure_setup();
+
+    Lazy::force(&TEST_SETUP);
+    // Start Docker Compose using the helper (async)
+    if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE).await {
+        panic!("Setup failed: Could not start Docker environment: {}", e);
+    }
     defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); } // Ensure teardown runs on scope exit
 
     // Test removal of non-existent key

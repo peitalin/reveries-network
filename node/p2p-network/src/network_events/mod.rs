@@ -45,7 +45,7 @@ use crate::types::{
     KademliaKeyTrait,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
-use crate::create_network::NODE_SEED_NUM;
+use crate::env_var::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
 use runtime::reencrypt::UmbralKey;
 use peer_manager::PeerManager;
@@ -174,11 +174,12 @@ impl NetworkEvents {
         format!("{}{}", self.node_id.node_name.yellow(), ">".blue())
     }
 
-    pub async fn listen_for_network_events(mut self) {
+    pub async fn init_listen_for_network_events(mut self) {
         // Start listening on specified addresses
         for addr in self.swarm.listeners() {
             info!("{} {}", self.nname(), format!("Listening on {}", addr));
         }
+
         loop {
             tokio::select! {
                 _ = self.peer_heartbeat_checker.tick() => {

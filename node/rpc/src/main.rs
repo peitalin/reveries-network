@@ -2,7 +2,7 @@ mod rpc_server;
 mod rpc_client;
 mod commands;
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use clap::Parser;
 use libp2p::{Multiaddr, multiaddr::Protocol};
 use std::env;
@@ -47,26 +47,14 @@ async fn main() -> Result<()> {
         })
         .collect();
 
-    let (
-        mut node_client,
-        network_events_receiver,
-        network_event_loop,
-    ) = create_network::new(opt.secret_key_seed, bootstrap_nodes).await?;
+    // Create the network and start the node client
+    let node_client = create_network::new(
+        opt.secret_key_seed,
+        opt.listen_address,
+        bootstrap_nodes
+    ).await?;
 
-    // Spawn the network task to listen to incoming commands, run in the background.
-    tokio::task::spawn(network_event_loop.listen_for_network_events());
-    // Tell network to start listening for peers on the network
-    for addr in opt.listen_address {
-        node_client.start_listening_to_network(Some(addr)).await?;
-    }
-
-    let mut nc = node_client.clone();
-    tokio::spawn(async move {
-        nc.listen_to_network_events(network_events_receiver).await.ok();
-    });
-
-    // Run RPC server if provided an RPC port,
-    // so clients can make requests without running a node themselves.
+    // then run an RPC server if provided an RPC port
     if let Some(port) = opt.rpc_port {
         // await to keep the server running
         run_server(port, node_client).await?;

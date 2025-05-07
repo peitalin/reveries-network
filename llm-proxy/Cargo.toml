@@ -3,7 +3,15 @@ name = "llm-proxy"
 version = "0.1.0"
 edition = "2024"
 
+# TDX feature flag
+[features]
+tdx_enabled = ["dep:tdx"]
+
 [dependencies]
+runtime = { path = "../node/runtime" }
+tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
+dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
+
 # Inherited
 anyhow = { workspace = true }
 chrono = { workspace = true }
@@ -49,4 +57,3 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 
 [dev-dependencies]
-# ... dev dependencies

@@ -12,7 +12,7 @@ use axum::{
     extract::{State, ConnectInfo, Request},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json,
     Router,
     middleware::{self, Next},
@@ -110,7 +110,7 @@ async fn load_node_public_key(path: &str) -> Result<EdVerifyingKey> {
     Ok(key)
 }
 
-pub fn generate_canonical_string(
+pub fn generate_digest_hash(
     method: &str,
     path: &str,
     timestamp_str: &str,
@@ -194,7 +194,7 @@ async fn verify_node_request(
         error!("Failed to read request body bytes for signature verification");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let canonical_string = generate_canonical_string(
+    let canonical_string = generate_digest_hash(
         method.as_str(),
         &path,
         timestamp_str,
@@ -275,9 +275,16 @@ async fn remove_api_key(
     }
 }
 
+async fn health(
+    State(_key_store): State<ApiKeyStore>,
+) -> impl IntoResponse {
+    info!("Health check received");
+    (StatusCode::OK, Json(json!({ "status": "ok" })))
+}
+
 pub async fn run_internal_api_server(key_store: ApiKeyStore, env_vars: Arc<EnvVars>) -> Result<()> {
-    let internal_port = env_vars.internal_api_port;
-    let addr = SocketAddr::from(([0, 0, 0, 0], internal_port));
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], env_vars.INTERNAL_API_PORT));
     info!("Internal API server attempting to start on {}", addr);
 
     let (ca_key_pair_for_gen, ca_cert_for_gen) = load_or_generate_ca()
@@ -307,20 +314,29 @@ pub async fn run_internal_api_server(key_store: ApiKeyStore, env_vars: Arc<EnvVa
         load_node_public_key(&node_pubkey_path).await?
     };
 
-    let shared_state = ApiState {
-        key_store: key_store.clone(),
+    let shared_state_for_auth = ApiState { // Renamed for clarity, only for auth middleware
+        key_store: key_store.clone(), // Middleware might not need key_store, adjust if so
         node_public_key: Arc::new(node_pubkey),
     };
 
-    let app = Router::new()
+    // Router for authenticated routes
+    let authed_routes = Router::new()
         .route("/add_api_key", post(add_api_key))
         .route("/remove_api_key", post(remove_api_key))
-        // Apply p2p-node signature verification middleware
-        .layer(middleware::from_fn_with_state(shared_state.clone(), verify_node_request))
-        // Pass only the ApiKeyStore to the route handlers
+        .layer(middleware::from_fn_with_state(shared_state_for_auth, verify_node_request))
+        .with_state(key_store.clone()); // Pass key_store to handlers
+
+    // Router for unauthenticated routes (health check)
+    let unauthed_routes = Router::new()
+        .route("/health", get(health))
         .with_state(key_store);
 
-    info!("Internal API server (Standard TLS + Sig Verification) listening on https://{}", addr);
+    // Merge routers
+    let app = Router::new()
+        .merge(unauthed_routes)
+        .merge(authed_routes);
+
+    info!("Internal API server (Standard TLS) listening on https://{}", addr);
     axum_server::bind_rustls(addr, tls_config)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await

@@ -51,7 +51,7 @@ use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
 use crate::node_client::usage_verification::{
     verify_usage_report,
-    load_proxy_key,
+    load_llm_proxy_pubkey,
 };
 use crate::usage_db::{UsageDbPool, store_usage_payload};
 use crate::env_var::EnvVars;
@@ -60,14 +60,37 @@ use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::AgentSecretsJson;
 use llm_proxy::usage::SignedUsageReport;
 
+// Define a simple error type for NodeClient operations, can be expanded
+#[derive(Debug)]
+pub enum NodeClientError {
+    CommandSendError(String),
+    ResponseReceiveError(String),
+    Other(String), // For miscellaneous errors
+}
 
+impl std::fmt::Display for NodeClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeClientError::CommandSendError(s) => write!(f, "CommandSendError: {}", s),
+            NodeClientError::ResponseReceiveError(s) => write!(f, "ResponseReceiveError: {}", s),
+            NodeClientError::Other(s) => write!(f, "NodeClientError: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for NodeClientError {}
+
+// Helper to convert from SendError (if that's what your other methods might return)
+impl From<SendError> for NodeClientError {
+    fn from(err: SendError) -> Self {
+        NodeClientError::Other(err.to_string())
+    }
+}
 
 #[derive(Clone)]
 pub struct NodeClient {
     pub node_id: NodeIdentity,
     pub command_sender: mpsc::Sender<NodeCommand>,
-    // container app state
-    container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
     // hb subscriptions for rpc clients
     pub heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
     // keep private in TEE
@@ -82,7 +105,6 @@ impl NodeClient {
         node_id: NodeIdentity,
         command_sender: mpsc::Sender<NodeCommand>,
         umbral_key: UmbralKey,
-        container_manager: Arc<tokio::sync::RwLock<ContainerManager>>,
         heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
         proxy_public_key: Option<P256VerifyingKey>,
         usage_db_pool: UsageDbPool,
@@ -90,8 +112,6 @@ impl NodeClient {
         Self {
             node_id: node_id,
             command_sender: command_sender,
-            // manages container reboot
-            container_manager: container_manager,
             // hb subscriptions for rpc clients
             heartbeat_receiver: heartbeat_receiver,
             // keep private in TEE
@@ -518,6 +538,7 @@ impl NodeClient {
     }
 
     /// Verifies and potentially stores a usage report received from a proxy.
+    /// TODO: move to network_events and dispatch on-chain
     pub async fn report_usage(&mut self, signed_usage_report: SignedUsageReport) -> Result<String> {
         info!("Received usage report: Payload(first 50)={:?}, Signature(first 10)={:?}",
               &signed_usage_report.payload[..signed_usage_report.payload.len().min(50)],
@@ -527,7 +548,7 @@ impl NodeClient {
         let public_key = if self.proxy_public_key.is_none() {
             // Await the async load function
             let env_vars = EnvVars::load();
-            let loaded_key = load_proxy_key(&env_vars.PROXY_PUBLIC_KEY_PATH, true).await?;
+            let loaded_key = load_llm_proxy_pubkey(&env_vars.PROXY_PUBLIC_KEY_PATH, true).await?;
             self.proxy_public_key = Some(loaded_key);
             loaded_key
         } else {
@@ -551,6 +572,16 @@ impl NodeClient {
                 Err(anyhow!("Verification failed: {}", verification_error))
             }
         }
+    }
+
+    pub async fn get_connected_peers(&self) -> Result<Vec<PeerId>, NodeClientError> {
+        let (tx, rx) = oneshot::channel();
+        self.command_sender
+            .send(NodeCommand::GetConnectedPeers { responder: tx })
+            .await
+            .map_err(|e| NodeClientError::CommandSendError(e.to_string()))?;
+
+        rx.await.map_err(|e| NodeClientError::ResponseReceiveError(e.to_string()))
     }
 }
 

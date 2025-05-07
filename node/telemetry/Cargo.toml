@@ -5,10 +5,8 @@ edition = "2024"
 
 [dependencies]
 
-prometheus = "0.13"
-prometheus_exporter = "0.8.5"
 tracing-appender = "0.2.3"
-
+tracing-log = "0.2"
 # Inherited from workspace
 lazy_static = { workspace = true }
 chrono = { workspace = true }

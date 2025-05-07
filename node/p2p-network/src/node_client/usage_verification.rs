@@ -20,7 +20,10 @@ use llm_proxy::usage::{
     UsageReportPayload,
 };
 use tokio::time::sleep as tokio_sleep;
-
+use runtime::tee_attestation::{self, QuoteV4, QuoteBody, TcbStatus};
+use sha2::{Sha256, Digest};
+use std::time::{SystemTime, UNIX_EPOCH};
+use dcap_rs::types::VerifiedOutput;
 
 #[derive(Debug)]
 pub enum VerificationError {
@@ -29,6 +32,11 @@ pub enum VerificationError {
     JsonPayload(serde_json::Error),
     SignatureFormat(signature::Error),
     VerificationFailed,
+    DcapTcbStatusNotOk(String),
+    Base64TdxQuote(base64::DecodeError),
+    TdxQuoteBindingMismatch,
+    DcapCollateralLoadError(String),
+    DcapVerificationFailed(String),
 }
 
 impl fmt::Display for VerificationError {
@@ -39,6 +47,11 @@ impl fmt::Display for VerificationError {
             VerificationError::JsonPayload(e) => write!(f, "Payload JSON deserialize error: {}", e),
             VerificationError::SignatureFormat(e) => write!(f, "Signature format error: {}", e),
             VerificationError::VerificationFailed => write!(f, "Signature verification failed"),
+            VerificationError::DcapTcbStatusNotOk(status) => write!(f, "DCAP TCB status check failed: {}.", status),
+            VerificationError::Base64TdxQuote(e) => write!(f, "TDX Quote base64 decode error: {}", e),
+            VerificationError::TdxQuoteBindingMismatch => write!(f, "TDX Quote report_data mismatch"),
+            VerificationError::DcapCollateralLoadError(e) => write!(f, "DCAP collateral load error: {}", e),
+            VerificationError::DcapVerificationFailed(e) => write!(f, "DCAP verification failed: {}", e),
         }
     }
 }
@@ -51,6 +64,22 @@ impl StdError for VerificationError {
             VerificationError::JsonPayload(e) => Some(e),
             VerificationError::SignatureFormat(e) => Some(e),
             VerificationError::VerificationFailed => None,
+            VerificationError::DcapTcbStatusNotOk(_) => None,
+            VerificationError::Base64TdxQuote(e) => Some(e),
+            VerificationError::TdxQuoteBindingMismatch => None,
+            VerificationError::DcapCollateralLoadError(_) => None,
+            VerificationError::DcapVerificationFailed(_) => None,
+        }
+    }
+}
+
+impl From<runtime::tee_attestation::DcapError> for VerificationError {
+    fn from(e: runtime::tee_attestation::DcapError) -> Self {
+        match e {
+            runtime::tee_attestation::DcapError::CollateralLoadError(s) => VerificationError::DcapCollateralLoadError(s),
+            runtime::tee_attestation::DcapError::VerificationPanic(s) => VerificationError::DcapVerificationFailed(format!("Panic: {}", s)), // Reuse DcapVerificationFailed
+            runtime::tee_attestation::DcapError::VerificationFailed(s) => VerificationError::DcapVerificationFailed(s),
+            runtime::tee_attestation::DcapError::TcbStatusNotOk(s) => VerificationError::DcapTcbStatusNotOk(s),
         }
     }
 }
@@ -61,6 +90,10 @@ pub fn verify_usage_report(
 ) -> Result<UsageReportPayload, VerificationError> {
     tracing::debug!("Verifying usage report...");
 
+    ////////////////////////////////////////
+    ///// ECDSA Signature Verification /////
+    ////////////////////////////////////////
+    debug!("Verifying ECDSA signature...");
     // 1. Decode Base64 Payload and Signature
     let payload_bytes = base64_standard.decode(&report.payload)
         .map_err(VerificationError::Base64Payload)?;
@@ -75,33 +108,59 @@ pub fn verify_usage_report(
     let signature = Signature::from_slice(&sig_bytes)
         .map_err(VerificationError::SignatureFormat)?;
 
-    // 4. Verify Signature
-    if let Err(e) = key.verify(&payload_bytes, &signature) {
-        // Log more details about the verification failure
-        warn!("Signature verification failed:");
-        warn!("  - Payload (first 100 chars): {:?}", String::from_utf8_lossy(&payload_bytes[..payload_bytes.len().min(100)]));
-        warn!("  - Signature: {:?}", signature);
-        warn!("  - Key: {:?}", key);
-        return Err(VerificationError::VerificationFailed);
+    // 4. Verify ECDSA Signature
+    key.verify(&payload_bytes, &signature)
+        .map_err(|_| VerificationError::VerificationFailed)?;
+    info!("{}", "ECDSA Signature VERIFIED.".green());
+
+    ////////////////////////////////////////
+    ///// TDX Quote Verification /////
+    ////////////////////////////////////////
+    debug!("Verifying TDX Quote binding...");
+    // 5. Decode Base64 TDX Quote
+    let tdx_quote_bytes = base64_standard.decode(&report.tdx_quote)
+        .map_err(VerificationError::Base64TdxQuote)?;
+
+    // 6. Parse TDX Quote bytes into QuoteV4 struct
+    let quote = QuoteV4::from_bytes(&tdx_quote_bytes);
+
+    // 7. Recalculate Payload Hash using the shared function
+    let calculated_report_data = runtime::tee_attestation::hash_payload_for_tdx_report_data(&payload_bytes);
+
+    // --- Only perform binding check if compiled for TDX ---
+    // 8. Compare Calculated Hash (Padded) with Quote's Report Data
+    #[cfg(all(target_os = "linux", feature = "tdx_enabled"))]
+    {
+        let quote_report_data: &[u8; 64] = match &quote.quote_body {
+            QuoteBody::SGXQuoteBody(report) => &report.report_data,
+            QuoteBody::TD10QuoteBody(report) => &report.report_data,
+        };
+
+        if quote_report_data != &calculated_report_data {
+            warn!("TDX Quote report_data mismatch:");
+            warn!("  - Expected hash (from payload): {}", hex::encode(&calculated_report_data[..32]));
+            warn!("  - Got hash (from quote report_data): {}", hex::encode(&quote_report_data[..32]));
+            return Err(VerificationError::TdxQuoteBindingMismatch);
+        }
+        info!("{}", "TDX Quote binding VERIFIED.".green());
     }
+    // Call the DCAP verification function from runtime
+    runtime::tee_attestation::perform_dcap_verification(&quote)
+        .map_err(VerificationError::from)?;
+    // --- End TDX Quote Verification ---
 
-    info!("{}", format!("Signature VERIFIED for usage report: Input={}, Output={}",
-          payload_data.usage.input_tokens,
-          payload_data.usage.output_tokens
-    ).green());
-
-    // Return the deserialized payload data if verification succeeds
+    // Return the deserialized payload data if all verifications succeed
     Ok(payload_data)
 }
 
-pub async fn load_proxy_key(path: &str, poll: bool) -> Result<VerifyingKey> {
+pub async fn load_llm_proxy_pubkey(path: &str, poll: bool) -> Result<VerifyingKey> {
 
     let key_path = Path::new(path);
-    let max_wait = Duration::from_secs(10);
+    let max_wait = Duration::from_secs(60);
     let poll_interval = Duration::from_secs(1);
     let start_time = std::time::Instant::now();
 
-    info!("Waiting for proxy public key file at {}...", path);
+    info!("Waiting for proxy public key file at {}", path);
     while !key_path.exists() && poll {
         if start_time.elapsed() > max_wait {
             return Err(anyhow!("Timed out waiting for proxy public key file: {}", path));
@@ -131,7 +190,7 @@ mod tests {
     }
 
     /// Create a test usage report and sign it
-    fn create_signed_report(signing_key: &SigningKey) -> (UsageReportPayload, SignedUsageReport) {
+    fn create_mock_signed_report(signing_key: &SigningKey) -> (UsageReportPayload, SignedUsageReport) {
         // Create test usage data
         let usage = UsageData {
             reverie_id: Some(String::from("reverie_123")),
@@ -156,10 +215,24 @@ mod tests {
         let payload_bytes = serde_json::to_vec(&payload).unwrap();
         let signature: Signature = signing_key.sign(&payload_bytes);
 
+        let mock_quote_tuple = if cfg!(test) {
+            // Generate mock quote with correct report_data
+            runtime::tee_attestation::generate_tee_attestation_with_data([0; 64], false)
+                .expect("Mock TEE attestation failed")
+        } else {
+            // This branch should not be hit during tests. Panic if it is.
+            panic!("create_signed_report called outside of test context!");
+            // (QuoteV4::default(), vec![0u8; 100]) // Remove default usage
+        };
+        // --- Use the bytes (.1) from the tuple for encoding ---
+        let tdx_quote_b64 = base64_standard.encode(&mock_quote_tuple.1);
+        // --- End Mock TDX Quote ---
+
         // Create signed report
         let signed_report = SignedUsageReport {
             payload: base64_standard.encode(&payload_bytes),
             signature: base64_standard.encode(signature.to_bytes()),
+            tdx_quote: tdx_quote_b64, // Assign the base64 string
         };
 
         (payload, signed_report)
@@ -171,7 +244,10 @@ mod tests {
         let (signing_key, verifying_key) = generate_test_keypair();
 
         // Create and sign report
-        let (expected_payload, signed_report) = create_signed_report(&signing_key);
+        let (
+            expected_payload,
+            signed_report
+        ) = create_mock_signed_report(&signing_key);
 
         // Verify with correct key
         let result = verify_usage_report(&signed_report, &verifying_key);
@@ -193,7 +269,7 @@ mod tests {
         let (_, wrong_verifying_key) = generate_test_keypair();
 
         // Create and sign report with first key
-        let (_, signed_report) = create_signed_report(&signing_key);
+        let (_, signed_report) = create_mock_signed_report(&signing_key);
 
         // Try to verify with wrong key
         let result = verify_usage_report(&signed_report, &wrong_verifying_key);
@@ -214,7 +290,7 @@ mod tests {
         let (signing_key, verifying_key) = generate_test_keypair();
 
         // Create and sign report
-        let (_, mut signed_report) = create_signed_report(&signing_key);
+        let (_, mut signed_report) = create_mock_signed_report(&signing_key);
 
         // Tamper with the payload
         let mut decoded_payload = base64_standard.decode(&signed_report.payload).unwrap();
@@ -236,7 +312,7 @@ mod tests {
         let (signing_key, verifying_key) = generate_test_keypair();
 
         // Create and sign report
-        let (_, mut signed_report) = create_signed_report(&signing_key);
+        let (_, mut signed_report) = create_mock_signed_report(&signing_key);
 
         // Tamper with the signature
         let mut decoded_sig = base64_standard.decode(&signed_report.signature).unwrap();

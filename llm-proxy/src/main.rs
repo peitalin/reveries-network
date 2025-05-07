@@ -23,12 +23,13 @@ use hudsucker::{
 use serde::{Deserialize, Serialize};
 use http_body_util::{Full, BodyExt};
 use hyper::header::CONTENT_TYPE;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 use p256::ecdsa::SigningKey;
 use serde_json::Value;
-use rand_core::OsRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use sha2::{Sha256, Digest};
+use base64::{engine::general_purpose::STANDARD as base64_standard};
 
 use crate::config::{
     EnvVars,
@@ -39,6 +40,9 @@ use crate::config::{
 use crate::usage::{log_sse_response_task, log_regular_response_task};
 use crate::internal_api::{run_internal_api_server, ApiKeyStore};
 
+
+static ANTHROPIC_DELEGATE_API_KEY: &str = "sk-ant-delegated-api-key";
+static ANTHROPIC_DELEGATE_API_KEY_VALUE: &str = "sk-ant-delegated-api-key";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct LLMProxyRequestContext {
@@ -82,9 +86,9 @@ impl HttpHandler for LogHandler {
         let mut spender_type_for_context: Option<String> = None;
 
         info!("===== Intercepted Request {}: {} ====", request_id, url);
-        trace!("Request {}: Method: {}", request_id, parts.method);
+        info!("Request {}: Method: {}", request_id, parts.method);
         for (name, value) in &parts.headers {
-            trace!("Request {}: Header: {} = {:?}", request_id, name, value);
+            info!("Request {}: Header: {} = {:?}", request_id, name, value);
         }
 
         let body_bytes = match body.collect().await {
@@ -105,31 +109,25 @@ impl HttpHandler for LogHandler {
         if let Some(host) = parts.uri.host() {
             if host.contains("anthropic.com") {
                 debug!("Request {}: Detected Anthropic API request.", request_id);
-                if parts.headers.contains_key("x-api-key") {
-                    debug!("Request {}: x-api-key header already present, skipping injection.", request_id);
-                } else {
-                    debug!("Request {}: x-api-key header missing, attempting injection from store.", request_id);
-                    let store = self.api_key_store.read().expect("API key store lock poisoned");
+                let x_api_key_header_value = parts.headers.get(HeaderName::from_static("x-api-key"));
 
-                    // 1. Filter for Anthropic keys
+                if is_anthropic_delegation_request(x_api_key_header_value) {
+                    let store = self.api_key_store.read().expect("API key store lock poisoned");
                     let anthropic_keys: Vec<_> = store.values()
-                        .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY")) // Use case-insensitive compare
+                        .filter(|payload| payload.api_key_type.eq_ignore_ascii_case("ANTHROPIC_API_KEY"))
                         .collect();
 
                     if anthropic_keys.is_empty() {
-                        warn!("Request {}: Proxy injection failed: No Anthropic keys found in store.", request_id);
+                        warn!("Request {}: Proxy injection failed: No Anthropic keys found in store for delegation.", request_id);
                     } else {
-                        // 2. Randomly select one
                         if let Some(&selected_payload) = anthropic_keys.choose(&mut thread_rng()) {
                             let api_key = &selected_payload.api_key;
-                            reverie_id_for_context = Some(selected_payload.reverie_id.clone()); // Store reverie_id
-                            spender_for_context = Some(selected_payload.spender.clone()); // Store spender
-                            spender_type_for_context = Some(selected_payload.spender_type.clone()); // Store spender_type
+                            reverie_id_for_context = Some(selected_payload.reverie_id.clone());
+                            spender_for_context = Some(selected_payload.spender.clone());
+                            spender_type_for_context = Some(selected_payload.spender_type.clone());
 
-                            // 3. Inject the header
-                            match HeaderValue::from_str(api_key) { // Use api_key ref here
+                            match HeaderValue::from_str(api_key) {
                                 Ok(header_value) => {
-                                    // Use selected_payload.reverie_id in log
                                     log_api_key_info(&selected_payload.reverie_id, api_key, &request_id);
                                     parts.headers.insert(HeaderName::from_static("x-api-key"), header_value);
                                 }
@@ -138,8 +136,7 @@ impl HttpHandler for LogHandler {
                                 }
                             }
                         } else {
-                            // This case should theoretically not happen if anthropic_keys is not empty
-                            warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found.", request_id);
+                            warn!("Request {}: Failed to randomly select an Anthropic key even though keys were found for delegation.", request_id);
                         }
                     }
                 }
@@ -148,9 +145,9 @@ impl HttpHandler for LogHandler {
         // -- End API Key Injection Logic --
 
         if let Ok(body_str) = std::str::from_utf8(&body_bytes) {
-            trace!("Request {}: Body:\n{}", request_id, body_str);
+            info!("Request {}: Body:\n{}", request_id, body_str);
         } else {
-            trace!("Request {}: Body: <Non-UTF8 data: {} bytes>", request_id, body_bytes.len());
+            info!("Request {}: Body: <Non-UTF8 data: {} bytes>", request_id, body_bytes.len());
         }
 
         let mut request_context = LLMProxyRequestContext {
@@ -209,7 +206,7 @@ impl HttpHandler for LogHandler {
         let is_sse = content_type.map_or(false, |ct| ct.starts_with("text/event-stream"));
         let headers_for_log = parts.headers.clone();
         let key_arc = self.signing_key.clone();
-        let report_url = self.env.report_usage_url.clone();
+        let report_url = self.env.REPORT_USAGE_URL.clone();
 
         let response_body;
         if is_sse {
@@ -253,9 +250,24 @@ impl HttpHandler for LogHandler {
 
 impl WebSocketHandler for LogHandler {
     async fn handle_message(&mut self, _ctx: &WebSocketContext, msg: Message) -> Option<Message> {
-        trace!("WebSocket message: {:?}", msg);
+        info!("WebSocket message: {:?}", msg);
         Some(msg)
     }
+}
+
+fn is_anthropic_delegation_request(option_header_value: Option<&HeaderValue>) -> bool {
+    let mut needs_delegation = false;
+    if let Some(header_api_key_value) = option_header_value {
+        if header_api_key_value == ANTHROPIC_DELEGATE_API_KEY_VALUE {
+            needs_delegation = true;
+            debug!("Request: x-api-key header is the delegation key value, attempting injection from store.");
+        } else {
+            debug!("Request: x-api-key header present but not the delegation key value ('{:?}'), skipping direct injection attempt based on this.", header_api_key_value);
+        }
+    } else {
+        debug!("Request: No x-api-key header found. This request does not use explicit delegation via x-api-key.");
+    };
+    return needs_delegation
 }
 
 fn find_tool_use_id_in_request_body(body_bytes: &[u8]) -> Option<String> {

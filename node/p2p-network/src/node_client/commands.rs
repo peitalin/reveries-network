@@ -71,7 +71,7 @@ pub enum NodeCommand {
 
     StartListening {
         addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), Box<dyn std::error::Error + Send>>>,
+        sender: oneshot::Sender<Result<String, Box<dyn std::error::Error + Send>>>,
     },
 
     SimulateNodeFailure {
@@ -81,6 +81,10 @@ pub enum NodeCommand {
 
     GetNodeState {
         sender: oneshot::Sender<serde_json::Value>,
+    },
+
+    GetConnectedPeers {
+        responder: oneshot::Sender<Vec<PeerId>>,
     },
 
     MarkPendingRespawnComplete {

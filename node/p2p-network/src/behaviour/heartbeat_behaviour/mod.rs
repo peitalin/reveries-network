@@ -38,7 +38,7 @@ use runtime::tee_attestation::QuoteV4;
 pub use tee_quote_parser::TeeAttestation;
 
 
-pub const HEARTBEAT_PROTOCOL: &str = "/1up/heartbeat/0.0.1";
+pub const HEARTBEAT_PROTOCOL: &str = "/reveries/heartbeat/0.0.1";
 
 #[derive(Debug, Clone)]
 enum HeartbeatAction {
@@ -227,9 +227,9 @@ impl NetworkBehaviour for HeartbeatBehaviour {
             HeartbeatOutEvent::GenerateTeeAttestation => {
 
                 let (
-                    _tee_quote ,
+                    _tee_quote,
                     tee_quote_bytes
-                ) = tee_attestation::generate_tee_attestation(false)
+                ) = tee_attestation::generate_tee_attestation_with_data([0; 64], false)
                     .expect("TEE attestation generation error");
 
                 self.set_tee_attestation(tee_quote_bytes);

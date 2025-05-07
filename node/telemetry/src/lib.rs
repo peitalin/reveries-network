@@ -1,9 +1,6 @@
 /// The Logging Module
 pub mod logging;
 
-/// Prometheus metrics
-pub mod metrics;
-
 // Re-export inner modules
 pub use logging::*;
 

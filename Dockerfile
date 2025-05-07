@@ -32,8 +32,7 @@ COPY ./agents  ./agents
 COPY ./cmd  ./cmd
 COPY ./llm-proxy  ./llm-proxy
 COPY ./node ./node
-COPY ./telemetry ./telemetry
-COPY ./tests ./tests
+COPY ./tests-e2e ./tests-e2e
 
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./Cargo.lock ./Cargo.lock

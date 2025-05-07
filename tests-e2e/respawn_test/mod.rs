@@ -1,34 +1,68 @@
-#[path = "../test_utils.rs"]
-mod test_utils;
-#[path = "../network_utils.rs"]
-mod network_utils;
+#[path = "../utils_docker.rs"]
+mod utils_docker;
+#[path = "../utils_network.rs"]
+mod utils_network;
 
-use std::{time::Duration, collections::HashSet};
+use std::{
+    time::Duration,
+    collections::{HashSet, HashMap}
+};
 use color_eyre::Result;
 use jsonrpsee::core::{
     client::ClientT,
     params::ArrayParams,
 };
+use jsonrpsee::http_client::HttpClient;
 use tokio::time;
 use serde_json::Value;
 use tracing::{info, warn};
 
-use p2p_network::{
-    types::ReverieNameWithNonce,
-    node_client::RestartReason,
+use p2p_network::types::{
+    ReverieNameWithNonce,
+    NodeKeysWithVesselStatus,
+};
+use p2p_network::node_client::RestartReason;
+use runtime::llm::read_agent_secrets;
+
+use utils_network::{
+    P2PNodeCleanupGuard,
+    start_test_network,
+    Port,
 };
 
-use self::test_utils::P2PNodeCleanupGuard;
-use self::network_utils::{
-    start_test_network,
-    spawn_agent_on_node,
-};
+/// Helper function to spawn an agent on a node and return the result
+pub async fn spawn_agent_on_node(
+    client: &HttpClient,
+    threshold: usize,
+    total_frags: usize,
+    seed: usize
+) -> Result<NodeKeysWithVesselStatus> {
+    let agent_secrets_json = read_agent_secrets(seed);
+
+    let spawn_result: NodeKeysWithVesselStatus = client
+        .request(
+            "spawn_agent",
+            jsonrpsee::rpc_params![
+                agent_secrets_json,
+                threshold,
+                total_frags
+            ],
+        )
+        .await?;
+
+    println!("Agent spawned on node: {:?}", spawn_result);
+
+    // Allow time for fragment distribution
+    time::sleep(Duration::from_millis(2000)).await;
+
+    Ok(spawn_result)
+}
 
 /// Helper function to collect fragments from all nodes
-async fn collect_fragments(clients: &[jsonrpsee::core::client::Client]) -> Result<Vec<Value>> {
+async fn collect_fragments(clients: &HashMap<Port, HttpClient>) -> Result<Vec<Value>> {
     let mut all_cfrags = Vec::new();
 
-    for (i, client) in clients.iter().enumerate() {
+    for (port, client) in clients.iter() {
         let state: Value = client
             .request(
                 "get_node_state",
@@ -36,7 +70,7 @@ async fn collect_fragments(clients: &[jsonrpsee::core::client::Client]) -> Resul
             )
             .await?;
 
-        info!("Node {} state: {}", i + 1, serde_json::to_string_pretty(&state)?);
+        info!("Node(port: {}) state: {}", port, serde_json::to_string_pretty(&state)?);
 
         // Extract cfrags from state
         if let Some(peer_manager) = state.get("peer_manager") {
@@ -56,7 +90,7 @@ async fn collect_fragments(clients: &[jsonrpsee::core::client::Client]) -> Resul
 }
 
 /// Helper function to trigger node failure
-async fn trigger_node_failure(client: &jsonrpsee::core::client::Client) -> Result<RestartReason> {
+async fn trigger_node_failure(client: &HttpClient) -> Result<RestartReason> {
     let result: RestartReason = client
         .request(
             "trigger_node_failure",
@@ -71,7 +105,7 @@ async fn trigger_node_failure(client: &jsonrpsee::core::client::Client) -> Resul
 
 /// Helper function to wait for agent respawning on a node
 async fn wait_for_agent_respawn(
-    client: &jsonrpsee::core::client::Client,
+    client: &HttpClient,
     timeout_secs: u64
 ) -> Result<ReverieNameWithNonce> {
     // Wait for the respawning process to occur
@@ -132,7 +166,12 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
     let threshold = 2;
     let total_frags = 3;
     let secret_key_seed = 1;
-    let _spawn_result = spawn_agent_on_node(&clients[0], threshold, total_frags, secret_key_seed).await?;
+    let _spawn_result = spawn_agent_on_node(
+        &clients[&8001],
+        threshold,
+        total_frags,
+        secret_key_seed
+    ).await?;
 
     // Get node state from all nodes and collect fragments
     let all_cfrags = collect_fragments(&clients).await?;
@@ -140,8 +179,8 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
     let total_cfrags = all_cfrags.len();
     assert!(total_cfrags == 3, "Wrong number of key fragments found");
     info!("\n==> Found {} cfrags for {} nodes\n", total_cfrags, rpc_ports.len());
-    info!("\nAll cfrags:\n{}", serde_json::to_string_pretty(&all_cfrags)?);
-    info!("\nVerifying unique and common fields across cfrags...");
+    info!("All cfrags:\n{}", serde_json::to_string_pretty(&all_cfrags)?);
+    info!("Verifying unique and common fields across cfrags...");
 
     // Verify that all cfrags have the same values for common fields
     if all_cfrags.len() > 1 {
@@ -215,7 +254,7 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     let threshold = 2;
     let total_frags = 3;
     let secret_key_seed = 1;
-    let _spawn_result = spawn_agent_on_node(&clients[0], threshold, total_frags, secret_key_seed).await?;
+    let _spawn_result = spawn_agent_on_node(&clients[&8001], threshold, total_frags, secret_key_seed).await?;
 
     // Verify fragments are distributed properly
     let all_cfrags = collect_fragments(&clients).await?;
@@ -229,12 +268,12 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     println!("[Test] Testing agent respawning after node failure");
 
     // Trigger a simulated node failure on the first node
-    println!("[Test] Triggering simulated failure on node1 (port 8001)");
-    let _failure_result = trigger_node_failure(&clients[0]).await?;
+    println!("[Test] Triggering simulated failure on node1 (port: 8001)");
+    let _failure_result = trigger_node_failure(&clients[&8001]).await?;
 
     // Wait for node2 to respawn the agent (timeout after 30 seconds)
-    let respawned_agent = wait_for_agent_respawn(&clients[1], 30).await?;
-    println!("[Test] Agent respawned: {:?}", respawned_agent);
+    let respawned_agent = wait_for_agent_respawn(&clients[&8002], 30).await?;
+    println!("[Test] Agent respawned on node2 (port: 8002): {:?}", respawned_agent);
 
     // Verify that the agent was successfully respawned
     let expected_agent = ReverieNameWithNonce("auron".to_string(), 1);

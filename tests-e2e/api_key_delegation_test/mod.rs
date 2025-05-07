@@ -1,24 +1,25 @@
-#[path = "../test_utils.rs"]
-mod test_utils;
-#[path = "../network_utils.rs"]
-mod network_utils;
+#[path = "../utils_docker.rs"]
+mod utils_docker;
+#[path = "../utils_network.rs"]
+mod utils_network;
 
-use std::time::Duration;
-use std::env;
-use color_eyre::Result;
-use jsonrpsee::core::client::ClientT;
-use scopeguard::defer;
-use tokio::time;
-use serde_json::json;
-use tracing::info;
-use once_cell::sync::Lazy;
-use libp2p_identity::Keypair;
-
-// Alloy imports for signing
 use alloy_primitives::{Address, B256};
 use alloy_signer::Signer;
 use alloy_signer_local::PrivateKeySigner;
+use color_eyre::Result;
+use jsonrpsee::core::client::ClientT;
+use libp2p_identity::Keypair;
+use once_cell::sync::Lazy;
+use std::time::Duration;
+use std::env;
+use scopeguard::defer;
+use serde_json::json;
+use sha3::{Digest, Keccak256};
+use tokio::time;
+use tracing::{info, error};
+use tokio::sync::OnceCell;
 
+// internal imports
 use p2p_network::types::{
     Reverie,
     ReverieType,
@@ -26,27 +27,25 @@ use p2p_network::types::{
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
-use p2p_network::create_network::{generate_peer_keys, export_libp2p_public_key};
-use sha3::{Digest, Keccak256};
-
-use self::test_utils::{
-    P2PNodeCleanupGuard,
+use p2p_network::utils::pubkeys::{
+    generate_peer_keys,
+    export_libp2p_public_key
+};
+use utils_docker::{
     setup_docker_environment,
     shutdown_docker_environment,
     init_test_logger,
 };
-use self::network_utils::start_test_network;
+use utils_network::{
+    P2PNodeCleanupGuard,
+    start_test_network,
+};
 
-
-async fn create_signer() -> Result<PrivateKeySigner> {
-    let wallet = PrivateKeySigner::random(); // Generate a random wallet
-    Ok(wallet)
-}
-
+// Path to /tests dir
 const DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
 const TEST_NODE_PUBKEY_EXPORT_TARGET: &str = "../llm-proxy/pubkeys/p2p-node/p2p_node_test.pub.pem";
-const TEST_KEY_SEED: usize = 2;
-
+// Generate a FIXED keypair using seed
+const TEST_KEY_SEED: usize = 2; // hardcode node2 as sender of API Key
 static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     let (
         _peer_id,
@@ -57,38 +56,40 @@ static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     id_keys
 });
 
-static TEST_SETUP: Lazy<()> = Lazy::new(|| {
-    setup();
-});
+static TEST_ENV_SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
 
-fn ensure_setup() {
-    // p2p-node is run from root dir's perspective
-    env::set_var("CA_CERT_PATH", "./llm-proxy/certs/hudsucker.cer");
-    Lazy::force(&TEST_SETUP);
+async fn setup_test_environment_once_async() -> Result<()> {
+    TEST_ENV_SETUP_ONCE.get_or_try_init(|| async {
+
+        init_test_logger();
+        env::set_var("CA_CERT_PATH", "./llm-proxy/certs/hudsucker.cer");
+
+        if let Err(e) = export_libp2p_public_key(&TEST_KEYPAIR, TEST_NODE_PUBKEY_EXPORT_TARGET) {
+            error!("Setup panic: Could not export memory_test public key to {}: {}", TEST_NODE_PUBKEY_EXPORT_TARGET, e);
+            return Err(e);
+        }
+        info!("✅ Exported memory_test public key.");
+
+        if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE).await {
+            error!("Setup panic: Could not start Docker environment: {}", e);
+            return Err(e);
+        }
+        Ok(())
+    }).await?;
+    Ok(())
 }
 
-fn setup() {
-    init_test_logger();
-
-    info!("Exporting memory_test public key for seed {} to {}", TEST_KEY_SEED, TEST_NODE_PUBKEY_EXPORT_TARGET);
-    if let Err(e) = export_libp2p_public_key(&TEST_KEYPAIR, TEST_NODE_PUBKEY_EXPORT_TARGET) {
-        panic!("Setup failed: Could not export memory_test public key to {}: {}", TEST_NODE_PUBKEY_EXPORT_TARGET, e);
-    }
-    info!("✅ Exported memory_test public key.");
-
-    if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE) {
-        panic!("Setup failed: Could not start Docker environment: {}", e);
-    }
-
-    info!("✅ Memory test setup complete.");
+async fn create_signer() -> Result<PrivateKeySigner> {
+    let wallet = PrivateKeySigner::random(); // Generate a random wallet
+    Ok(wallet)
 }
 
 
 #[tokio::test]
 #[serial_test::serial]
 pub async fn test_memory_reverie() -> Result<()> {
-    ensure_setup();
 
+    setup_test_environment_once_async().await?;
     let base_rpc_port = 8001;
     let base_listen_port = 9001;
     let num_nodes = 5;
@@ -100,9 +101,9 @@ pub async fn test_memory_reverie() -> Result<()> {
     dotenv::dotenv().ok();
     let _guard = P2PNodeCleanupGuard::with_ports(rust_node_ports);
 
-    println!("Starting Rust test network...");
+    info!("Starting Rust test network...");
     let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
-    println!("Rust test network started successfully.");
+    info!("Rust test network started successfully.");
 
     // Secret #1: Anthropic API key
     let api_keys_secrets = json!({
@@ -173,7 +174,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     println!("Step 1: Spawn Reverie with encrypted Anthropic API key...");
     let api_key_reverie_result: Reverie = tokio::time::timeout(
         Duration::from_secs(5),
-        clients[0].request(
+        clients[&8001].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
                 api_keys_secrets.clone(),
@@ -195,7 +196,7 @@ pub async fn test_memory_reverie() -> Result<()> {
         AccessKey::EcdsaSignature(signature.as_bytes().to_vec())
     };
 
-    clients[1].request(
+    clients[&8002].request(
         "delegate_api_key",
         jsonrpsee::rpc_params![
             api_key_reverie_result.id,
@@ -206,8 +207,8 @@ pub async fn test_memory_reverie() -> Result<()> {
 
     println!("Step 3: Spawning secret memories...");
     let memory_reverie_result: Reverie = tokio::time::timeout(
-        Duration::from_secs(10),
-        clients[0].request(
+        Duration::from_secs(5),
+        clients[&8001].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
                 memory_secrets.clone(),
@@ -219,7 +220,7 @@ pub async fn test_memory_reverie() -> Result<()> {
     ).await??;
 
     println!("Memory reverie spawned on vessel: {} {}", memory_reverie_result.id, memory_reverie_result.description);
-    time::sleep(Duration::from_millis(2000)).await;
+    time::sleep(Duration::from_millis(1000)).await;
 
     println!("Step 4: Execute LLM calls with secret memory and delegated API Key");
 
@@ -262,8 +263,8 @@ pub async fn test_memory_reverie() -> Result<()> {
     };
 
     let rpc_result = tokio::time::timeout(
-        Duration::from_secs(10),
-        clients[1].request::<ExecuteWithMemoryReverieResult, _>(
+        Duration::from_secs(20), // Increased timeout to 20 seconds for LLM tool-use calls
+        clients[&8002].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![
                 memory_reverie_result.id,
@@ -278,9 +279,9 @@ pub async fn test_memory_reverie() -> Result<()> {
     match rpc_result {
         Err(e) => println!("Error:\n{:?}", e),
         Ok(result) => {
-            println!("Claude Result: {:?}", result.claude);
+            println!("\nClaude Result: {:?}", result.claude);
             println!("Deepseek Result: {:?}", result.deepseek);
-            println!("Usage Report: {:?}", result.usage_report);
+            println!("Usage Report: {:?}\n", result.usage_report);
         }
     };
 

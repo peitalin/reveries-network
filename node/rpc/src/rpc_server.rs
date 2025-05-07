@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use alloy_primitives::Address;
+use tracing::{info, warn, error};
+use std::future::Future;
 
 use p2p_network::types::{
     AccessCondition,
@@ -107,6 +109,12 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
     ////////////////////////////////////////////////////
     // RPC Endpoints
     ////////////////////////////////////////////////////
+    rpc_server.add_route_mut(
+        "health",
+        |_, _, _| async move {
+            Ok::<String, RpcError>("ok".to_string())
+        }
+    )?;
 
     rpc_server.add_route_mut(
         "spawn_agent",
@@ -119,10 +127,10 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
             ) = params.parse::<(AgentSecretsJson, usize, usize)>()?;
 
             nc.spawn_agent(
-                    agent_secrets_json,
-                    threshold,
-                    total_frags,
-                ).await.map_err(RpcError::from)
+                agent_secrets_json,
+                threshold,
+                total_frags,
+            ).await.map_err(RpcError::from)
         }
     )?;
 
@@ -219,6 +227,22 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
         }
     )?;
 
+    rpc_server.add_route(
+        "get_connected_peers",
+        |_, nc_arc: Arc<NodeClient>, _| async move {
+            match nc_arc.get_connected_peers().await {
+                Ok(peer_ids) => {
+                    let peer_id_strings: Vec<String> = peer_ids.iter().map(|p| p.to_string()).collect();
+                    Ok(serde_json::json!({ "status": "ok", "connected_peers": peer_id_strings }))
+                }
+                Err(e) => {
+                    error!("RPC Error - get_connected_peers failed: {:?}", e);
+                    Err(RpcError(format!("Failed to get connected peers: {:?}", e)))
+                }
+            }
+        }
+    )?;
+
     ////////////////////////////////////////////////////
     // Subscriptions
     ////////////////////////////////////////////////////
@@ -311,7 +335,7 @@ pub async fn pipe_from_stream_and_drop<T: Serialize>(
 				let msg = SubscriptionMessage::from_json(&item)?;
 				match sink.try_send(msg) {
 					Ok(_) => {},
-					Err(TrySendError::Closed(e)) => {
+					Err(TrySendError::Closed(_e)) => {
                         break Err(RpcError("Subscription closed".to_string()).into())
                     },
 					Err(TrySendError::Full(_)) => {},

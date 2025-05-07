@@ -77,8 +77,8 @@ locals {
     sudo snap install just --classic
 
     # Clone the repository
-    sudo git clone https://${var.github_token}@github.com/${var.github_repo}.git ${var.app_dir}/1up-network
-    cd ${var.app_dir}/1up-network
+    sudo git clone https://${var.github_token}@github.com/${var.github_repo}.git ${var.app_dir}/reveries-network
+    cd ${var.app_dir}/reveries-network
     git checkout ${var.repo_branch}
 
     # # Run the justfile command for this node

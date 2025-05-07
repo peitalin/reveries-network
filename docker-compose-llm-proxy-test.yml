@@ -48,6 +48,8 @@ services:
       - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
       # Set SSL environment variables for Python
       - SSL_CERT_FILE=/certs/hudsucker.cer
+      # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
+      - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
     volumes:
       - ./llm-proxy/certs:/certs:ro
     networks:

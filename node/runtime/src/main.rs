@@ -1,4 +1,3 @@
-
 mod reencrypt;
 mod llm;
 mod tee_attestation;
@@ -26,9 +25,9 @@ async fn main() -> color_eyre::Result<()> {
         }
         CliArgument::TestTee => {
             let (
-                tee_attestation_quote,
-                tee_attestation_bytes
-            ) = tee_attestation::generate_tee_attestation(true)?;
+                _tee_quote,
+                tee_quote_bytes
+            ) = tee_attestation::generate_tee_attestation_with_data([0; 64], false)?;
         }
     }
 

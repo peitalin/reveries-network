@@ -1,2 +1,2 @@
 #!/bin/bash
-docker build -t 1up .
+docker build -t reveries-network .
