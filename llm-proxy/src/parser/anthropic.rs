@@ -2,7 +2,7 @@ use serde_json::Value;
 use crate::usage::{UsageData, ToolUse};
 use crate::parser::parse_sse_data_line;
 use super::{UsageParser, SSEChunk};
-use tracing::{info, debug};
+use tracing::info;
 
 /// Parser implementation for Anthropic API responses
 pub struct AnthropicParser;

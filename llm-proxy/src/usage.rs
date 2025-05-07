@@ -16,9 +16,8 @@ use base64::{
     engine::general_purpose::STANDARD as base64_standard // For encoding signature
 };
 use once_cell::sync::Lazy;
-use sha2::{Sha256, Digest};
 
-use runtime::tee_attestation::{generate_tee_attestation_with_data, QuoteV4};
+use runtime::tee_attestation::generate_tee_attestation_with_data;
 use crate::parser;
 use crate::tee_body::ChannelError;
 

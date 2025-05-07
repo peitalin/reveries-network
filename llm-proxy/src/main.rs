@@ -206,7 +206,7 @@ impl HttpHandler for LogHandler {
         let is_sse = content_type.map_or(false, |ct| ct.starts_with("text/event-stream"));
         let headers_for_log = parts.headers.clone();
         let key_arc = self.signing_key.clone();
-        let report_url = self.env.report_usage_url.clone();
+        let report_url = self.env.REPORT_USAGE_URL.clone();
 
         let response_body;
         if is_sse {

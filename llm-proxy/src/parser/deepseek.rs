@@ -1,5 +1,5 @@
 use serde_json::Value;
-use crate::usage::{UsageData, ToolUse};
+use crate::usage::UsageData;
 use crate::parser::parse_sse_data_line;
 use super::UsageParser;
 use super::SSEChunk;

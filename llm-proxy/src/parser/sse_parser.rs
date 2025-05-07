@@ -127,7 +127,7 @@ pub fn parse_sse_data_line(data_str: &str) -> Vec<SSEChunk> {
         },
         "content_block_start" => {
             // Check if this is a tool_use content block
-            if let Some(index) = json_event.get("index").and_then(|i| i.as_u64()) {
+            if let Some(_index) = json_event.get("index").and_then(|i| i.as_u64()) {
                 if json_event.get("content_block").and_then(|c| c.get("type")).and_then(|t| t.as_str()) == Some("tool_use") {
                     let content_block = json_event.get("content_block").unwrap();
                     // Extract tool use details

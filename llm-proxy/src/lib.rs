@@ -5,4 +5,4 @@ pub mod tee_body_sse;
 pub mod config;
 
 pub mod internal_api;
-pub use internal_api::generate_canonical_string;
+pub use internal_api::generate_digest_hash;
