@@ -96,7 +96,7 @@ pub async fn start_test_network(
         .wait_for_rpc_servers().await?
         .wait_for_network_readiness(
             ready_when_peer_count,
-            60, // poll_timeout_secs
+            20, // poll_timeout_secs
             500 // poll_interval_ms previously 1000
         ).await?;
 
