@@ -1,18 +1,25 @@
 use std::path::PathBuf;
-use colored::Colorize;
 use tracing::Level;
 use tracing_appender::{
     non_blocking::WorkerGuard,
-    rolling::{self, RollingFileAppender, Rotation},
+    rolling,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter,
+    Layer,
+    fmt,
+    registry
+};
+use std::env; // Added for reading TEST_ENV
 
-/// Standard log file name prefix. This will be optionally appended with a timestamp
-/// depending on the rotation strategy.
+// For TestWriter
+use tracing_subscriber::fmt::TestWriter;
+
 const LOG_FILE_NAME_PREFIX: &str = "reveries.log";
 
 pub struct LoggerConfig {
-    pub log_level: Level,
     pub show_log_level: bool,
     pub show_crate_name: bool,
     pub show_time: bool,
@@ -23,7 +30,6 @@ pub struct LoggerConfig {
 impl Default for LoggerConfig {
     fn default() -> Self {
         Self {
-            log_level: Level::INFO,
             show_log_level: true,
             show_crate_name: false,
             show_time: false,
@@ -33,113 +39,75 @@ impl Default for LoggerConfig {
     }
 }
 
-
 /// Logging
 /// Configure logging telemetry with a global handler.
-/// You can use the [crate::telemetry::init] function
-/// to initialize a global logger, passing in `show_crate_name`, `show_time` and `show_path` parameters.
 /// Function returns an error if a logger has already been initialized.
 pub fn init_logger(config: LoggerConfig) -> Vec<WorkerGuard> {
+    let is_test_env = env::var("TEST_ENV").unwrap_or_default().to_lowercase() == "true";
 
-    let LoggerConfig {
-        log_level,
-        show_log_level,
-        show_crate_name,
-        show_time,
-        show_path,
-        logs_dir
-    } = config;
+    let default_filter_str = if is_test_env {
+        "info,cmd=debug,p2p_network=debug,rpc=debug,runtime=debug,telemetry=debug,tests_e2e=debug,llm_proxy=debug"
+    } else {
+        "info,cmd=debug,p2p_network=debug,rpc=debug,runtime=debug,telemetry=debug,llm_proxy=debug"
+    };
 
-    // If a directory is provided, log to file and stdout
-    if let Some(dir) = logs_dir {
-        let directory = PathBuf::from(dir);
-        let rotation = Rotation::DAILY;
-        let appender = match rotation {
-            Rotation::NEVER => rolling::never(directory, LOG_FILE_NAME_PREFIX),
-            Rotation::DAILY => rolling::daily(directory, LOG_FILE_NAME_PREFIX),
-            Rotation::HOURLY => rolling::hourly(directory, LOG_FILE_NAME_PREFIX),
-            Rotation::MINUTELY => rolling::minutely(directory, LOG_FILE_NAME_PREFIX),
-        };
-        return build_subscriber(
-            log_level,
-            show_log_level,
-            show_crate_name,
-            show_time,
-            show_path,
-            Some(appender)
-        );
-    }
-    // If no directory is provided, log to stdout only
-    build_subscriber(
-        log_level,
-        show_log_level,
-        show_crate_name,
-        show_time,
-        show_path,
-        None
-    )
-}
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(default_filter_str));
 
-/// Subscriber Composer
-/// Builds a subscriber with multiple layers into a [tracing](https://crates.io/crates/tracing) subscriber
-/// and initializes it as the global default. This subscriber will log to stdout and optionally to a file.
-pub fn build_subscriber(
-    log_level: Level,
-    show_log_level: bool,
-    show_crate_name: bool,
-    show_time: bool,
-    show_path: bool,
-    appender: Option<RollingFileAppender>
-) -> Vec<WorkerGuard> {
     let mut guards = Vec::new();
 
-    let stdout_env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new(match log_level {
-            Level::ERROR => "cmd=error,p2p_network=error,rpc=error,runtime=error".to_owned(),
-            Level::WARN  => "cmd=warn,p2p_network=warn,rpc=warn,runtime=warn".to_owned(),
-            Level::INFO  => "cmd=info,p2p_network=info,rpc=info,runtime=info".to_owned(),
-            Level::DEBUG => "cmd=debug,p2p_network=debug,rpc=debug,runtime=debug".to_owned(),
-            Level::TRACE => "cmd=trace,p2p_network=trace,rpc=trace,runtime=trace".to_owned(),
-        })
-    });
-    // pub enum Level {
-    //     Error = 1, // least verbose
-    //     Warn = 2,
-    //     Info = 3,
-    //     Debug = 4,
-    //     Trace = 5, // most verbose
-    // }
+    if is_test_env {
+        let subscriber_builder = fmt::Subscriber::builder()
+            .with_max_level(Level::DEBUG)
+            .with_env_filter(env_filter)
+            .with_writer(TestWriter::new())
+            .with_target(config.show_path)
+            .with_level(config.show_log_level)
+            .without_time();
 
-    let stdout_formatting_layer = AnsiTermLayer {
-        show_log_level,
-        show_crate_name,
-        show_time,
-        show_path
-    }.with_filter(stdout_env_filter);
+        let subscriber = subscriber_builder.finish();
 
-    // If a file appender is provided, log to it and stdout, otherwise just log to stdout
-    if let Some(appender) = appender {
-        let (non_blocking, guard) = tracing_appender::non_blocking(appender);
-        guards.push(guard);
+        tracing::subscriber::set_global_default(subscriber)
+            .map_err(|e| eprintln!("Failed to set global default subscriber for tests: {}", e))
+            .ok();
 
-        // Force the file logger to log at `debug` level
-        let file_env_filter = EnvFilter::from("cmd=info,p2p-network=debug,rpc=debug,runtime=debug");
+        tracing::info!("Tracing logger (for tests with TestWriter) initialized");
 
-        tracing_subscriber::registry()
-            .with(stdout_formatting_layer)
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_ansi(false)
-                    .with_writer(non_blocking)
-                    .with_filter(file_env_filter),
-            )
-            .init();
     } else {
-        tracing_subscriber::registry()
-            .with(stdout_formatting_layer)
-            .init();
-    }
+        // --- Non-Test Environment: Use your AnsiTermLayer and optional file logging ---
+        let stdout_layer = AnsiTermLayer {
+            show_log_level: config.show_log_level,
+            show_crate_name: config.show_crate_name,
+            show_time: config.show_time,
+            show_path: config.show_path,
+        }.with_filter(env_filter);
 
+        if let Some(dir) = config.logs_dir {
+            let directory = PathBuf::from(dir);
+            let file_appender = rolling::daily(directory, LOG_FILE_NAME_PREFIX);
+            let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
+            guards.push(guard);
+
+            let file_filter = EnvFilter::try_from_env("RUST_LOG_FILE")
+                .unwrap_or_else(|_| EnvFilter::new("debug"));
+
+            let file_layer = fmt::layer()
+                .with_ansi(false)
+                .with_writer(non_blocking_file)
+                .with_filter(file_filter);
+
+            registry()
+                .with(stdout_layer)
+                .with(file_layer)
+                .init();
+            tracing::info!("Tracing logger (File) initialized with filter by RUST_LOG");
+        } else {
+            registry()
+                .with(stdout_layer)
+                .init();
+            tracing::info!("Tracing logger initialized with filter by RUST_LOG");
+        }
+    }
     guards
 }
 
@@ -202,7 +170,7 @@ impl<S> Layer<S> for AnsiTermLayer
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-
+        use colored::Colorize;
         if self.show_time {
             // Print the timestamp
             let utc: String = chrono::Utc::now().to_rfc3339();
