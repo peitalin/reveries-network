@@ -97,7 +97,12 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_remove_non_existent_api_key_success() -> Result<()> {
+
     Lazy::force(&TEST_SETUP);
+    // Start Docker Compose using the helper (async)
+    if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE).await {
+        panic!("Setup failed: Could not start Docker environment: {}", e);
+    }
     defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); } // Ensure teardown runs on scope exit
 
     // Test removal of non-existent key
