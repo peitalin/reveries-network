@@ -8,6 +8,9 @@
 /target
 
 # node dependencies
+app-monitor/node_modules
+app-monitor/dist
+app-monitor/.vite
 */*/node_modules
 */*/dist
 */*/.vite
