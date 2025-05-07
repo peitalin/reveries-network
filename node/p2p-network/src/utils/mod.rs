@@ -1,5 +1,8 @@
+pub mod pubkeys;
+
 use nanoid::nanoid;
 use crate::types::ReverieId;
+
 
 pub const TOPIC_DELIMITER: &'static str = "/";
 const NANOID_ALPHABET: [char; 16] = [

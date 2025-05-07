@@ -1,7 +1,7 @@
 use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use libp2p::{kad, PeerId};
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 use crate::node_client::NodeCommand;
 use crate::types::{
@@ -272,10 +272,16 @@ impl NetworkEvents {
 
             }
             NodeCommand::StartListening { addr, sender } => {
-                let _ = match self.swarm.listen_on(addr) {
-                    Ok(_) => sender.send(Ok(())),
-                    Err(e) => sender.send(Err(Box::new(e))),
+                match self.swarm.listen_on(addr.clone()) {
+                    Ok(_) => sender.send(Ok(addr.to_string())).ok(),
+                    Err(e) => sender.send(Err(Box::new(e))).ok(),
                 };
+            }
+            NodeCommand::GetConnectedPeers { responder } => {
+                let connected_peers: Vec<PeerId> = self.swarm.connected_peers().cloned().collect();
+                if responder.send(connected_peers.clone()).is_err() {
+                    warn!("Failed to send connected peers response. Receiver likely dropped. Peers: {:?}", connected_peers);
+                }
             }
             NodeCommand::SimulateNodeFailure { sender, reason } => {
                 info!("{}", format!("Simulating network failure: {}", self.nname()).red());

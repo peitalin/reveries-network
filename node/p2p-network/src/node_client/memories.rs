@@ -118,29 +118,31 @@ impl NodeClient {
             access_key
         ).await?;
 
-        if let Some(anthropic_api_key) = api_keys_json["anthropic_api_key"].as_str() {
-            println!("Decrypted Anthropic API key, delegating...");
-            let node_keypair = &self.node_id.id_keys.clone();
+        let anthropic_api_key = match api_keys_json["anthropic_api_key"].as_str() {
+            Some(key) => key,
+            None => {
+                return Err(anyhow!("No Anthropic API key found in decrypted Reverie. Delegation failed."));
+            }
+        };
 
-            add_proxy_api_key(
-                reverie_id.clone(),
-                "ANTHROPIC_API_KEY".to_string(),
-                anthropic_api_key.to_string(),
-                spenders_address.to_string(),
-                spenders_address.get_type(),
-                node_keypair
-            ).await
+        println!("Decrypted Anthropic API key, delegating...");
+        let node_keypair = &self.node_id.id_keys.clone();
 
-        } else {
-            Err(anyhow!("No Anthropic API key found in decrypted Reverie. Delegation failed."))
-        }
+        add_proxy_api_key(
+            reverie_id.clone(),
+            "ANTHROPIC_API_KEY".to_string(),
+            anthropic_api_key.to_string(),
+            spenders_address.to_string(),
+            spenders_address.get_type(),
+            node_keypair
+        ).await
     }
 
     pub async fn execute_with_memory_reverie(
         &mut self,
         reverie_id: ReverieId,
         reverie_type: ReverieType,
-        access_key: AccessKey, // Signature required to access the memory
+        access_key: AccessKey, // Auth required to access the memory
         anthropic_query: AnthropicQuery
     ) -> Result<ExecuteWithMemoryReverieResult> {
 

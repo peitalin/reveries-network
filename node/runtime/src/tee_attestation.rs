@@ -1,20 +1,19 @@
 use hex;
 use color_eyre::Result;
-// re-export dcap_rs types
-pub use dcap_rs::types::quotes::version_4::QuoteV4;
-pub use dcap_rs::types::quotes::body::{QuoteBody, EnclaveReport, TD10ReportBody};
-pub use dcap_rs::utils::quotes::version_4::verify_quote_dcapv4;
-pub use dcap_rs::types::TcbStatus;
 use sha2::{Sha256, Digest};
-use dcap_rs::types::collaterals::IntelCollateral;
 use color_eyre::eyre::anyhow;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
-use crate::tee_mock_attestation::{
-    TEE_MOCK_ATTESTATION_REPORT,
-    TEE_MOCK_ATTESTATION_REPORT2
+// re-export dcap_rs types
+pub use dcap_rs::types::{
+    collaterals::IntelCollateral,
+    quotes::version_4::QuoteV4,
+    quotes::body::{QuoteBody, EnclaveReport, TD10ReportBody},
 };
+pub use dcap_rs::utils::quotes::version_4::verify_quote_dcapv4;
+pub use dcap_rs::types::TcbStatus;
+
+use crate::tee_mock_attestation::TEE_MOCK_ATTESTATION_REPORT;
 
 
 #[cfg(all(target_os = "linux", feature = "tdx_enabled"))]
@@ -227,6 +226,8 @@ impl std::fmt::Display for DcapError {
 mod tests {
     use super::*;
     use dcap_rs::utils::quotes::version_4::verify_quote_dcapv4;
+
+    use crate::tee_mock_attestation::TEE_MOCK_ATTESTATION_REPORT2;
 
     #[test]
     fn test_verify_tee_attestation() -> Result<()> {

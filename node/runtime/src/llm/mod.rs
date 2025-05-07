@@ -52,7 +52,7 @@ pub async fn call_anthropic(
     context: &str,
     tools: Option<serde_json::Value>,
     stream: bool,
-    metrics: &mut MCPToolUsageMetrics
+    _metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
     call_python_llm_server("anthropic", prompt, context, tools, stream).await
 }
@@ -62,7 +62,7 @@ pub async fn call_deepseek(
     context: &str,
     tools: Option<serde_json::Value>,
     stream: bool,
-    metrics: &mut MCPToolUsageMetrics
+    _metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
     call_python_llm_server("deepseek", prompt, context, tools, stream).await
 }

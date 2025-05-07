@@ -8,7 +8,7 @@ use runtime::llm::AgentSecretsJson;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-use crate::create_network::NODE_SEED_NUM;
+use crate::env_var::NODE_SEED_NUM;
 use crate::types::ReverieIdToNameKey;
 
 pub type FragmentNumber = usize;

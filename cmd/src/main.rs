@@ -23,7 +23,11 @@ use libp2p::PeerId;
 use serde_json::Value;
 use tracing::{info, warn, error};
 
-use rpc::rpc_client::{parse_ws_url, create_rpc_client};
+use rpc::rpc_client::{
+    parse_ws_url,
+    create_ws_rpc_client,
+    create_http_rpc_client
+};
 use p2p_network::{
     node_client::RestartReason,
     types::{
@@ -57,7 +61,7 @@ async fn main() -> Result<()> {
     match cmd.argument {
 
         CliArgument::GetKfragProviders { agent_name, agent_nonce } => {
-            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+            let client = create_http_rpc_client(&cmd.rpc_server_address).await?;
             let response3: HashMap<u32, HashSet<PeerId>> = client.request(
                 "get_kfrag_providers",
                 rpc_params![
@@ -86,11 +90,11 @@ async fn main() -> Result<()> {
             total_frags,
         } => {
 
-            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+            let client = create_http_rpc_client(&cmd.rpc_server_address).await?;
             // Read local AgentSecretJson file and send to node over a secure channel/TLS.
             // TODO: user will send this over a secure channel and commit the hash onchain
             // along with some payment.
-            // TODO: use port as seed for prototyping
+            // TODO: use port as seed for prototyping, replace
             let secret_key_seed = port % 10;
 
             let agent_secrets_json = runtime::llm::read_agent_secrets(
@@ -124,7 +128,7 @@ async fn main() -> Result<()> {
         }
 
         CliArgument::TriggerNodeFailure => {
-            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+            let client = create_http_rpc_client(&cmd.rpc_server_address).await?;
             match client.request::<RestartReason, ArrayParams>(
                 "trigger_node_failure",
                 rpc_params![]
@@ -144,7 +148,7 @@ async fn main() -> Result<()> {
 
             for port_str in ports {
                 let port = port_str.parse::<u16>().unwrap();
-                match create_rpc_client(&cmd.rpc_server_address).await {
+                match create_ws_rpc_client(&cmd.rpc_server_address).await {
                     Ok(c) => clients.push((port, c)),
                     Err(_) => error!("Cannot connect to port {}, skipping.", port_str),
                 }
@@ -223,7 +227,7 @@ async fn main() -> Result<()> {
             total_frags,
             verifying_public_key,
         } => {
-            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+            let client = create_http_rpc_client(&cmd.rpc_server_address).await?;
 
             let NodeKeysWithVesselStatus {
                 peer_id,
@@ -256,7 +260,7 @@ async fn main() -> Result<()> {
             reverie_type,
             signature,
         } => {
-            let client = create_rpc_client(&cmd.rpc_server_address).await?;
+            let client = create_http_rpc_client(&cmd.rpc_server_address).await?;
 
             // Parse reverie_id from string
             let reverie_id = ReverieId::from(reverie_id);

@@ -35,7 +35,7 @@ use crate::types::{
     ReverieType,
 };
 use crate::node_client::container_manager::{ContainerManager, RestartReason};
-use crate::create_network::NODE_SEED_NUM;
+use crate::env_var::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
 use runtime::reencrypt::UmbralKey;
 use super::peer_manager::PeerManager;

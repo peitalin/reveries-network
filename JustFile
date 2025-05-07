@@ -156,12 +156,9 @@ subscribe-heartbeat node_port:
         --rpc-server-address 0.0.0.0:{{node_port}} \
         subscribe-heartbeat
 
-telemetry:
-    cargo run --bin telemetry
-
 
 run-react:
-    cd ./telemetry/heartbeat-monitor && npm run dev
+    cd ./app-monitor && npm run dev
 
 
 
