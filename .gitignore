@@ -37,3 +37,5 @@ temp-data
 # Crash log files
 crash.log
 crash.*.log
+
+roadmap.md

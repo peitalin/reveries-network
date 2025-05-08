@@ -24,26 +24,42 @@ services:
       # Mount p2p-node directory for llm-proxy to read
       - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
     networks:
-      # Network dynamic python servers will join
-      - llm-network
-    # Expose port only if direct external access needed (maybe not)
+      - llm-network  # Connects to python-llm-server
+      - default      # Also connects to the default bridge network (which has external access)
+    # Expose port only if direct external access needed
     ports:
       - "8080:8080"
       - "7070:7070"
+
+  # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
+  caddy:
+    image: caddy:latest # Use official Caddy image
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "8000:80" # Map host 8000 to Caddy's internal port 80 (defined in Caddyfile)
+    volumes:
+      # Mount the Caddyfile (adjust host path as needed)
+      - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
+    networks:
+      - llm-network # Can reach python-llm-server
+      - default     # Can be reached from host
+
+  #########################################################
+  ## Dynamically deployed Python LLM agents
+  #########################################################
 
   # The Python LLM server that makes API calls
   python-llm-server:
     build:
       context: ./agents/python/execute_with_memories
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
     environment:
       # Route all HTTP and HTTPS traffic through our proxy
       - HTTP_PROXY=http://llm-proxy:8080
       - HTTPS_PROXY=http://llm-proxy:8080
       # Don't proxy requests to localhost or the proxy itself
-      - NO_PROXY=localhost,127.0.0.1,llm-proxy
+      - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy
       # Point requests library to the proxy's CA certificate
       - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
       # Set SSL environment variables for Python
@@ -53,9 +69,10 @@ services:
     volumes:
       - ./llm-proxy/certs:/certs:ro
     networks:
-      - llm-network
+      - llm-network  # Connects to llm-proxy only
     depends_on:
       - llm-proxy
+      - caddy
     restart: unless-stopped
     command: >
       sh -c "
@@ -74,4 +91,8 @@ services:
 networks:
   llm-network:
     driver: bridge
-    # Name can be customized if needed
+    internal: true
+    # `internal: true` restricts external network access.
+    # Restriction applies to all IP traffic originating from containers attached
+    # exclusively to this network, regardless of transport protocol (TCP, UDP)
+    # or application protocol (HTTP, HTTPS, gRPC, WebSockets, raw sockets, etc.)
