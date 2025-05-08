@@ -1,0 +1,15 @@
+# ./caddy/Caddyfile
+
+# Define the listening address inside the container (port 80)
+:80 {
+    # Reverse proxy all incoming requests to the python-llm-server service
+    # Caddy will resolve 'python-llm-server' using Docker's internal DNS
+    # on the shared 'llm-network'.
+    reverse_proxy http://python-llm-server:8000
+
+    # Optional: Add logging to stdout within the Caddy container
+    # log {
+    #    output stdout
+    #    format console
+    # }
+}
