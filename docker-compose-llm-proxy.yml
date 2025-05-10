@@ -41,6 +41,31 @@ services:
       - llm-network # Can reach python-llm-server
       - default     # Can be reached from host
 
+  # ### TODO: configure router + port forwarding for
+  # ### NEAR inbound ports 24567
+  # nearcore-arm64:
+  #   # image: nearprotocol/nearcore:latest
+  #   image: nearcore-arm64
+  #   container_name: nearcore-arm64
+  #   build:
+  #     context: . # Build context is the project root
+  #     dockerfile: Dockerfile-neard # Path relative to context
+  #   restart: unless-stopped
+  #   volumes:
+  #     - near_data_volume:/root/.near
+  #   networks:
+  #     - default     # Can be reached from host
+  #   ports:
+  #     - "3030:3030"  # RPC port
+  #     - "24567:24567"  # Network port
+  #   deploy: # Requires Docker Compose V2+
+  #     resources:
+  #       limits:
+  #         memory: 24G # hits 20.5gb of memory
+  #       reservations:
+  #         memory: 8G
+  #   memswap_limit: 28g
+
   #########################################################
   ## Dynamically deployed Python LLM agents
   #########################################################

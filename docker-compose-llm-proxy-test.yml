@@ -45,48 +45,74 @@ services:
       - llm-network # Can reach python-llm-server
       - default     # Can be reached from host
 
+  # ### TODO: configure router + port forwarding for
+  # ### NEAR inbound ports 24567
+  # nearcore-arm64:
+  #   # image: nearprotocol/nearcore:latest
+  #   image: nearcore-arm64
+  #   container_name: nearcore-arm64
+  #   build:
+  #     context: . # Build context is the project root
+  #     dockerfile: Dockerfile-neard # Path relative to context
+  #   restart: unless-stopped
+  #   volumes:
+  #     - near_data_volume:/root/.near
+  #   networks:
+  #     - default     # Can be reached from host
+  #   ports:
+  #     - "3030:3030"  # RPC port
+  #     - "24567:24567"  # Network port
+  #   deploy: # Requires Docker Compose V2+
+  #     resources:
+  #       limits:
+  #         memory: 24G # hits 20.5gb of memory
+  #       reservations:
+  #         memory: 8G
+  #   memswap_limit: 28g
+
   #########################################################
   ## Dynamically deployed Python LLM agents
   #########################################################
 
-  # The Python LLM server that makes API calls
-  python-llm-server:
-    build:
-      context: ./agents/python/execute_with_memories
-      dockerfile: Dockerfile
-    environment:
-      # Route all HTTP and HTTPS traffic through our proxy
-      - HTTP_PROXY=http://llm-proxy:8080
-      - HTTPS_PROXY=http://llm-proxy:8080
-      # Don't proxy requests to localhost or the proxy itself
-      - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy
-      # Point requests library to the proxy's CA certificate
-      - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
-      # Set SSL environment variables for Python
-      - SSL_CERT_FILE=/certs/hudsucker.cer
-      # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
-      - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
-    volumes:
-      - ./llm-proxy/certs:/certs:ro
-    networks:
-      - llm-network  # Connects to llm-proxy only
-    depends_on:
-      - llm-proxy
-      - caddy
-    restart: unless-stopped
-    command: >
-      sh -c "
-        echo 'Waiting for proxy CA certificate...'
-        while [ ! -f /certs/hudsucker.cer ]; do
-          echo 'CA certificate not found, waiting...'
-          sleep 1
-        done
-        echo 'Found CA certificate!'
-        echo 'Certificate details:'
-        openssl x509 -in /certs/hudsucker.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
-        echo 'Starting Python server...'
-        python main.py
-      "
+  # # The Python LLM server that makes API calls
+  # python-llm-server:
+  #   build:
+  #     context: ./agents/python/execute_with_memories
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     # Route all HTTP and HTTPS traffic through our proxy
+  #     - HTTP_PROXY=http://llm-proxy:8080
+  #     - HTTPS_PROXY=http://llm-proxy:8080
+  #     # Don't proxy requests to localhost or the proxy itself
+  #     - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy
+  #     # Point requests library to the proxy's CA certificate
+  #     - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
+  #     # Set SSL environment variables for Python
+  #     - SSL_CERT_FILE=/certs/hudsucker.cer
+  #     # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
+  #     - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
+  #   volumes:
+  #     - ./llm-proxy/certs:/certs:ro
+  #   networks:
+  #     - llm-network  # Connects to llm-proxy only
+  #   depends_on:
+  #     - llm-proxy
+  #     - caddy
+  #   restart: unless-stopped
+  #   command: >
+  #     sh -c "
+  #       echo 'Waiting for proxy CA certificate...'
+  #       while [ ! -f /certs/hudsucker.cer ]; do
+  #         echo 'CA certificate not found, waiting...'
+  #         sleep 1
+  #       done
+  #       echo 'Found CA certificate!'
+  #       echo 'Certificate details:'
+  #       openssl x509 -in /certs/hudsucker.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
+  #       echo 'Starting Python server...'
+  #       python main.py
+  #     "
+
 
 networks:
   llm-network:
@@ -96,3 +122,8 @@ networks:
     # Restriction applies to all IP traffic originating from containers attached
     # exclusively to this network, regardless of transport protocol (TCP, UDP)
     # or application protocol (HTTP, HTTPS, gRPC, WebSockets, raw sockets, etc.)
+
+# Declare the named volume at the top level
+volumes:
+  near_data_volume:
+    driver: local # Optional: specify driver (local is default)
