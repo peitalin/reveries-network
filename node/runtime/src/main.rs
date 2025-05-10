@@ -4,9 +4,14 @@ mod tee_attestation;
 mod tee_mock_attestation;
 mod test_commands;
 
+mod near_runtime;
+mod evm_runtime;
+
 use test_commands::{Cmd, CliArgument};
 use clap::Parser;
 use reencrypt::run_reencrypt_example;
+use near_runtime::near_example;
+use evm_runtime::evm_example;
 
 
 #[tokio::main]
@@ -28,6 +33,12 @@ async fn main() -> color_eyre::Result<()> {
                 _tee_quote,
                 tee_quote_bytes
             ) = tee_attestation::generate_tee_attestation_with_data([0; 64], false)?;
+        }
+        CliArgument::TestNear => {
+            near_example().await?;
+        }
+        CliArgument::TestEvm => {
+            evm_example().await?;
         }
     }
 

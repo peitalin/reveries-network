@@ -11,7 +11,7 @@ tdx_enabled = ["dep:tdx"]
 tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optional = true }
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 
-# Inherited
+# Inherited from workspace
 reqwest = { workspace = true }
 clap = { workspace = true }
 dotenv = { workspace = true }
@@ -24,8 +24,30 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha3 = { workspace = true }
 sha2 = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 umbral-pre = { workspace = true }
+
+# NEAR Dependencies
+near-jsonrpc-client = { workspace = true }
+near-jsonrpc-primitives = { workspace = true }
+near-primitives = { workspace = true }
+near-account-id = { workspace = true }
+near-crypto = { workspace = true }
+borsh = { workspace = true }
+
+# Ethereum Dependencies
+alloy = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rpc-client = { workspace = true }
+# Omni-Transaction Builder
+omni-transaction = "0.2.1"
+
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+color-eyre = { workspace = true }
 
