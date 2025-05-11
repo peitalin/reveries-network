@@ -5,23 +5,36 @@ use std::str::FromStr;
 use dotenv::dotenv;
 
 use alloy::{
-    providers::{
-        Provider,
-        RootProvider,
+    network::{Ethereum, TransactionBuilder},
+    primitives::{address, Address, U256},
+    providers::{Provider, ProviderBuilder, RootProvider},
+    rpc::{
+        client::RpcClient,
+        types::{
+            request::TransactionRequest,
+            TransactionReceipt,
+        },
     },
-    rpc::types::{
-        BlockNumberOrTag,
-        Filter,
-        request::TransactionRequest,
-        TransactionReceipt,
-    },
-    network::{Ethereum}, // Network trait and Ethereum network marker
-    transports::http::reqwest,
+    signers::local::PrivateKeySigner,
+    sol,
 };
-use alloy_primitives::{U256, Address};
-use alloy_rpc_client::RpcClient;
-use alloy_signer_local::PrivateKeySigner;
 
+// ERC20 interface for reading balance
+sol! {
+    #[sol(rpc)]
+    contract ERC20 {
+        function balanceOf(address owner) public view returns (uint256 balance);
+    }
+}
+
+// WETH9 interface for depositing ETH
+sol! {
+    #[sol(rpc)]
+    contract WETH9 {
+        function deposit() public payable;
+        function balanceOf(address owner) public view returns (uint256 balance);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct EvmConfig {
@@ -32,12 +45,14 @@ pub struct EvmConfig {
 impl EvmConfig {
     pub fn new() -> Result<Self> {
         dotenv().ok();
-        // let rpc_url = std::env::var("EVM_RPC_URL")
-        //     .map_err(|_| color_eyre::eyre::eyre!("EVM_RPC_URL not set in environment"))?;
-        // let chain_id_str = std::env::var("EVM_CHAIN_ID").ok();
-
-        let rpc_url = "https://rpc.sepolia.org".to_string();
-        let chain_id = Some(11155111);
+        let rpc_url = std::env::var("BASE_SEPOLIA_RPC_URL").unwrap_or_else(|_| {
+            warn!("BASE_SEPOLIA_RPC_URL not set, using default https://base-sepolia.gateway.tenderly.co");
+            "https://base-sepolia.gateway.tenderly.co".to_string()
+        });
+        let chain_id = std::env::var("EVM_CHAIN_ID")
+            .ok()
+            .and_then(|id_str| id_str.parse::<u64>().ok())
+            .or(Some(84532));
 
         Ok(Self {
             rpc_url,
@@ -51,8 +66,8 @@ impl Default for EvmConfig {
         EvmConfig::new().unwrap_or_else(|e| {
             warn!("Failed to load EvmConfig from env, using defaults: {}", e);
             Self {
-                rpc_url: "https://rpc.sepolia.org".to_string(),
-                chain_id: Some(11155111),
+                rpc_url: "https://base-sepolia.gateway.tenderly.co".to_string(),
+                chain_id: Some(84532),
             }
         })
     }
@@ -88,6 +103,74 @@ impl EvmRuntime {
         info!("Fetching EVM balance for address: {:?}", address);
         let balance = self.provider.get_balance(address).await?;
         Ok(balance)
+    }
+
+    /// Reads the ERC20 token balance for a given owner address from a specified contract.
+    pub async fn get_erc20_balance(&self, contract_address: Address, owner_address: Address) -> Result<U256> {
+        info!("Reading ERC20 balance from contract: {:?} for owner: {:?}", contract_address, owner_address);
+        let erc20_contract = ERC20::new(contract_address, self.provider.clone());
+        let result = erc20_contract.balanceOf(owner_address).call().await?;
+        Ok(result)
+    }
+
+    /// Deposits ETH to the WETH9 contract and returns the transaction receipt.
+    /// The signer_hex_key is the private key in hex format.
+    pub async fn deposit_weth(
+        &self,
+        signer_hex_key: &str,
+        weth_contract_address: Address,
+        amount: U256,
+    ) -> Result<TransactionReceipt> {
+        info!("Depositing {} WEI to WETH contract: {:?}", amount, weth_contract_address);
+        let signer: PrivateKeySigner = signer_hex_key.parse()?;
+        info!("Using signer address: {:?}", signer.address());
+
+        let provider_with_signer = ProviderBuilder::new()
+            .wallet(signer.clone())
+            .connect_client(RpcClient::new_http(self.config.rpc_url.parse()?));
+
+        let weth_contract = WETH9::new(weth_contract_address, provider_with_signer);
+        let tx_builder = weth_contract.deposit().value(amount);
+
+        info!("Sending WETH deposit transaction...");
+        let pending_tx = tx_builder.send().await?;
+        info!("WETH deposit transaction sent, hash: {:?}", pending_tx.tx_hash());
+        let receipt = pending_tx.get_receipt().await?;
+        info!("WETH deposit transaction confirmed, receipt: {:?}", receipt);
+        Ok(receipt)
+    }
+
+    /// Sends an ETH transfer and returns the transaction receipt.
+    /// The signer_hex_key is the private key in hex format.
+    pub async fn send_eth_transfer(
+        &self,
+        signer_hex_key: &str,
+        to: Address,
+        value: U256,
+    ) -> Result<TransactionReceipt> {
+        info!("Sending {} WEI to address: {:?}", value, to);
+        let signer: PrivateKeySigner = signer_hex_key.parse()?;
+        info!("Using signer address: {:?}", signer.address());
+
+        let provider_with_signer = ProviderBuilder::new()
+            .wallet(signer.clone())
+            .connect_client(RpcClient::new_http(self.config.rpc_url.parse()?));
+
+        let mut tx = TransactionRequest::default()
+            .with_to(to)
+            .value(value);
+
+        if let Some(chain_id_val) = self.config.chain_id {
+            tx.chain_id = Some(chain_id_val);
+        }
+        // Nonce and gas are typically filled by the provider or its fillers.
+
+        info!("Sending ETH transfer transaction: {:?}", tx);
+        let pending_tx = provider_with_signer.send_transaction(tx).await?;
+        info!("ETH transfer transaction sent, hash: {:?}", pending_tx.tx_hash());
+        let receipt = pending_tx.get_receipt().await?;
+        info!("ETH transfer transaction confirmed, receipt: {:?}", receipt);
+        Ok(receipt)
     }
 
 //     pub async fn send_transaction(
@@ -149,5 +232,110 @@ pub async fn evm_example() -> Result<()> {
     let eth_balance = runtime.get_balance(eth_address_str).await?;
     info!("EVM balance for {}: {}", eth_address_str, eth_balance);
 
+    // Example for get_erc20_balance (requires a known ERC20 token on Sepolia)
+    // You'll need to replace with an actual token and owner address.
+    // let weth_on_sepolia = address!("0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"); // Example WETH on Sepolia
+    // let some_owner = address!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"); // Vitalik's address for example
+    // match runtime.get_erc20_balance(weth_on_sepolia, some_owner).await {
+    //     Ok(balance) => info!("WETH balance for {}: {}", some_owner, balance),
+    //     Err(e) => error!("Failed to get WETH balance: {}", e),
+    // }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::utils::{parse_ether, format_ether};
+    use std::env;
+
+    fn setup_test_logger() {
+        // Ensure logs are visible during tests.
+        // Allow `RUST_LOG=info` or similar to override.
+        let _ = tracing_subscriber::fmt().with_env_filter("info,alloy_rpc_client=off").try_init();
+    }
+
+    fn get_mandatory_env_var(var_name: &str) -> Result<String> {
+        env::var(var_name).map_err(|_| color_eyre::eyre::eyre!("Mandatory environment variable {} not set", var_name))
+    }
+
+    #[tokio::test]
+    async fn test_get_erc20_balance_of_weth() -> Result<()> {
+        setup_test_logger();
+        dotenv().ok();
+        let config = EvmConfig::default(); // Uses BASE_SEPOLIA_RPC_URL or default Base Sepolia
+        let runtime = EvmRuntime::new(config).await?;
+
+        let weth_contract_address_str = get_mandatory_env_var("BASE_SEPOLIA_WETH_ADDRESS")
+            .unwrap_or_else(|_| "0x4200000000000000000000000000000000000006".to_string()); // Default Base Sepolia WETH
+        let weth_contract_address = Address::from_str(&weth_contract_address_str)?;
+
+        // Using a known address that might have WETH or a burn address.
+        // For a real test, you'd use an address you control and have deposited WETH to.
+        let owner_address_str = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"; // Vitalik's address
+        let owner_address = Address::from_str(owner_address_str)?;
+
+        info!("Testing get_erc20_balance for WETH: {:?} on owner: {:?}", weth_contract_address, owner_address);
+        let balance = runtime.get_erc20_balance(weth_contract_address, owner_address).await?;
+        info!("WETH balance of {}: {}", owner_address_str, balance);
+        // We can't assert a specific balance easily, so we just check if the call succeeded.
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore] // This test involves state change and requires a funded private key
+    async fn test_deposit_weth_on_sepolia() -> Result<()> {
+        setup_test_logger();
+        dotenv().ok();
+
+        let signer_hex_key = get_mandatory_env_var("BASE_SEPOLIA_PRIVATE_KEY")?;
+        let weth_contract_address_str = get_mandatory_env_var("BASE_SEPOLIA_WETH_ADDRESS")
+            .unwrap_or_else(|_| "0x4200000000000000000000000000000000000006".to_string());
+
+        let config = EvmConfig::default();
+        let runtime = EvmRuntime::new(config).await?;
+
+        let weth_contract_address = Address::from_str(&weth_contract_address_str)?;
+        let deposit_amount = parse_ether("0.0001").unwrap(); // Deposit a very small amount
+
+        info!("Testing WETH deposit of {} to {}", format_ether(deposit_amount), weth_contract_address_str);
+        let receipt = runtime.deposit_weth(
+            &signer_hex_key,
+            weth_contract_address,
+            deposit_amount
+        ).await?;
+
+        assert_eq!(receipt.status(), true, "WETH deposit transaction failed");
+        info!("WETH deposit successful. Transaction hash: {:?}", receipt.transaction_hash);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore] // This test involves state change and requires a funded private key
+    async fn test_send_eth_transfer_on_sepolia() -> Result<()> {
+        setup_test_logger();
+        dotenv().ok();
+
+        let signer_hex_key = get_mandatory_env_var("BASE_SEPOLIA_PRIVATE_KEY")?;
+        let recipient_address_str = get_mandatory_env_var("BASE_SEPOLIA_TEST_RECIPIENT_ADDRESS")
+            .unwrap_or_else(|_| "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()); // Default to a burn address
+
+        let config = EvmConfig::default();
+        let runtime = EvmRuntime::new(config).await?;
+
+        let recipient_address = Address::from_str(&recipient_address_str)?;
+        let transfer_amount = parse_ether("0.00001").unwrap(); // Transfer a very small amount
+
+        info!("Testing ETH transfer of {} to {}", format_ether(transfer_amount), recipient_address_str);
+        let receipt = runtime.send_eth_transfer(
+            &signer_hex_key,
+            recipient_address,
+            transfer_amount
+        ).await?;
+
+        assert_eq!(receipt.status(), true, "ETH transfer transaction failed");
+        info!("ETH transfer successful. Transaction hash: {:?}", receipt.transaction_hash);
+        Ok(())
+    }
 }
