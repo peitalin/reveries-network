@@ -4,7 +4,6 @@ use tracing::{info, warn, error};
 use std::str::FromStr;
 use dotenv::dotenv;
 
-// Attempt to use paths from the top-level `alloy` crate
 use alloy::{
     providers::{
         Provider,
