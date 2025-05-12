@@ -8,7 +8,7 @@ members = [
     "node/runtime",
     "node/telemetry",
     "tests-e2e",
-    "llm-proxy"
+    "llm-proxy",
 ]
 
 
@@ -22,13 +22,12 @@ clap = { version = "4.5.6", features = ["derive"] }
 color-eyre = "0.6.3"
 colored = { version = "3.0.0" }
 dotenv = "0.15.0"
-# DEPRECATED, imports conflicting rustls versions
-ethers = { version = "2.0.14" }
 alloy = { version = "0.15.6", features = ["full"] }
 alloy-signer = { version = "0.15.6" }
 alloy-signer-local = { version = "0.15.6" }
 alloy-consensus = { version = "0.15.6" }
 alloy-primitives = { version = "1.1.0" }
+alloy-rpc-client = { version = "0.15.6" }
 
 futures = "0.3.30"
 hex = "0.4.3"
@@ -84,3 +83,13 @@ reqwest = { version = "0.12.15", features = ["json", "rustls-tls"], default-feat
 rustls = { version = "0.23.26", default-features = false, features = ["std"] }
 rustls-pemfile = "2.2"
 tokio-rustls = "0.26.2"
+
+# Unified NEAR Crate Versions
+# verify these versions are compatible with each other:
+# https://github.com/near/near-jsonrpc-client-rs/blob/master/Cargo.toml
+near-crypto = { version = ">0.22,<0.31" }
+near-primitives = { version = ">0.22,<0.31" }
+near-jsonrpc-primitives = { version = ">0.22,<0.31" }
+near-jsonrpc-client = { version = "0.17.0" }
+near-account-id = { version = "1.1.1", features = ["schemars-stable"] }
+borsh = { version = "1.5.7" }

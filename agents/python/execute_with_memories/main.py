@@ -28,12 +28,11 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 # Determine absolute path for weather_mcp.py (adjust if needed based on container structure)
 WEATHER_MCP_SCRIPT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "weather_mcp.py"))
 
-# --- Add Exception Handler ---
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
     Log detailed validation errors for 422 responses.
@@ -54,7 +53,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": exc.errors()}, # Use exc.errors() for structured detail
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-# --- End Exception Handler ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -104,4 +102,4 @@ if __name__ == "__main__":
     # Run the FastAPI server
     port = int(os.getenv("LLM_API_PORT", "8000"))
     logger.info(f"Starting uvicorn server on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="debug")

@@ -40,6 +40,11 @@ COPY ./Cargo.lock ./Cargo.lock
 COPY ./JustFile ./JustFile
 COPY ./README.md ./README.md
 
+# Install cargo-near
+RUN cargo install cargo-near
+# curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/latest/download/near-cli-rs-installer.sh | sh
+# curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
+
 # Build the project
 RUN cargo build
 # Run the following if building on a TDX enabled Linux VM

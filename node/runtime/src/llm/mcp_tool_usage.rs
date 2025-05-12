@@ -28,9 +28,9 @@ impl MCPToolUsageMetrics {
 
     /// Generate a summary report
     pub fn generate_report(&self) -> String {
-        let separator = "===============================================================";
+        let separator = "=================================";
         let mut report = format!("\n{}\n", separator);
-        report.push_str(&format!("🛠️ MCP TOOL USAGE REPORT 🛠️\n"));
+        report.push_str(&format!("TOOL USAGE REPORT\n"));
         report.push_str(&format!("Total success rate: {}/{} attempts\n", self.successes, self.attempts));
 
         if !self.models_used.is_empty() {

@@ -7,7 +7,6 @@ A simple MCP server that provides weather data tools.
 from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
-
 # Initialize FastMCP server
 mcp = FastMCP("weather")
 

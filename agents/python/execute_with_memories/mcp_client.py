@@ -16,7 +16,7 @@ from fastapi import Request
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 class MCPClient:
     def __init__(self):
