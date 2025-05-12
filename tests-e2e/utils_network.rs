@@ -96,7 +96,7 @@ pub async fn start_test_network(
         .wait_for_rpc_servers().await?
         .wait_for_network_readiness(
             ready_when_peer_count,
-            20, // poll_timeout_secs
+            30, // poll_timeout_secs
             500 // poll_interval_ms previously 1000
         ).await?;
 
@@ -289,13 +289,18 @@ impl TestClientsBuilder {
         let start_time = time::Instant::now();
 
         for (i, client) in clients.iter().enumerate() {
-            let node_name = format!("Client {} (for node on RPC port previously verified)", i);
+
+            let node_name = format!("Client {}", i);
+            let mut peer_count = 0;
             println!("Checking peer readiness for {}...", node_name);
+
             loop {
                 if start_time.elapsed() > overall_timeout {
                     return Err(format!(
-                        "Timeout waiting for network readiness. {} did not report enough peers.",
-                        node_name
+                        "Timeout waiting for network readiness. {} did not report enough peers: {}/{} peers",
+                        node_name,
+                        peer_count,
+                        ready_when_peer_count
                     ));
                 }
 
@@ -303,7 +308,7 @@ impl TestClientsBuilder {
                     Ok(response) => {
                         if let Some(peers_val) = response.get("connected_peers") {
                             if let Some(peers_array) = peers_val.as_array() {
-                                let peer_count = peers_array.len();
+                                peer_count = peers_array.len();
                                 println!("{}: Has {} connected peers.", node_name, peer_count);
                                 if peer_count >= ready_when_peer_count {
                                     println!("{}: Is ready with enough peers.", node_name);

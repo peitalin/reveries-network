@@ -74,50 +74,50 @@ services:
   ## Dynamically deployed Python LLM agents
   #########################################################
 
-  # # The Python LLM server that makes API calls
-  # python-llm-server:
-  #   build:
-  #     context: ./agents/python/execute_with_memories
-  #     dockerfile: Dockerfile
-  #   environment:
-  #     # Route all HTTP and HTTPS traffic through our proxy
-  #     - HTTP_PROXY=http://llm-proxy:8080
-  #     - HTTPS_PROXY=http://llm-proxy:8080
-  #     # Don't proxy requests to localhost or the proxy itself
-  #     - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy
-  #     # Point requests library to the proxy's CA certificate
-  #     - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
-  #     # Set SSL environment variables for Python
-  #     - SSL_CERT_FILE=/certs/hudsucker.cer
-  #     # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
-  #     - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
-  #   volumes:
-  #     - ./llm-proxy/certs:/certs:ro
-  #   networks:
-  #     - llm-network  # Connects to llm-proxy only
-  #   depends_on:
-  #     - llm-proxy
-  #     - caddy
-  #   restart: unless-stopped
-  #   command: >
-  #     sh -c "
-  #       echo 'Waiting for proxy CA certificate...'
-  #       while [ ! -f /certs/hudsucker.cer ]; do
-  #         echo 'CA certificate not found, waiting...'
-  #         sleep 1
-  #       done
-  #       echo 'Found CA certificate!'
-  #       echo 'Certificate details:'
-  #       openssl x509 -in /certs/hudsucker.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
-  #       echo 'Starting Python server...'
-  #       python main.py
-  #     "
+  # The Python LLM server that makes API calls
+  python-llm-server:
+    build:
+      context: ./agents/python/execute_with_memories
+      dockerfile: Dockerfile
+    environment:
+      # Route all HTTP and HTTPS traffic through our proxy
+      - HTTP_PROXY=http://llm-proxy:8080
+      - HTTPS_PROXY=http://llm-proxy:8080
+      # Don't proxy requests to localhost or the proxy itself
+      - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy
+      # Point requests library to the proxy's CA certificate
+      - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
+      # Set SSL environment variables for Python
+      - SSL_CERT_FILE=/certs/hudsucker.cer
+      # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
+      - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
+    volumes:
+      - ./llm-proxy/certs:/certs:ro
+    networks:
+      - llm-network  # Connects to llm-proxy only
+    depends_on:
+      - llm-proxy
+      - caddy
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for proxy CA certificate...'
+        while [ ! -f /certs/hudsucker.cer ]; do
+          echo 'CA certificate not found, waiting...'
+          sleep 1
+        done
+        echo 'Found CA certificate!'
+        echo 'Certificate details:'
+        openssl x509 -in /certs/hudsucker.cer -text -noout | grep -E 'Subject:|DNS:|Issuer:|Validity'
+        echo 'Starting Python server...'
+        python main.py
+      "
 
 
 networks:
   llm-network:
     driver: bridge
-    internal: true
+    internal: false
     # `internal: true` restricts external network access.
     # Restriction applies to all IP traffic originating from containers attached
     # exclusively to this network, regardless of transport protocol (TCP, UDP)

@@ -46,8 +46,8 @@ impl EvmConfig {
     pub fn new() -> Result<Self> {
         dotenv().ok();
         let rpc_url = std::env::var("BASE_SEPOLIA_RPC_URL").unwrap_or_else(|_| {
-            warn!("BASE_SEPOLIA_RPC_URL not set, using default https://base-sepolia.gateway.tenderly.co");
-            "https://base-sepolia.gateway.tenderly.co".to_string()
+            warn!("BASE_SEPOLIA_RPC_URL not set, using default https://sepolia.base.org");
+            "https://sepolia.base.org".to_string()
         });
         let chain_id = std::env::var("EVM_CHAIN_ID")
             .ok()
@@ -66,7 +66,7 @@ impl Default for EvmConfig {
         EvmConfig::new().unwrap_or_else(|e| {
             warn!("Failed to load EvmConfig from env, using defaults: {}", e);
             Self {
-                rpc_url: "https://base-sepolia.gateway.tenderly.co".to_string(),
+                rpc_url: "https://sepolia.base.org".to_string(),
                 chain_id: Some(84532),
             }
         })
@@ -233,7 +233,6 @@ pub async fn evm_example() -> Result<()> {
     info!("EVM balance for {}: {}", eth_address_str, eth_balance);
 
     // Example for get_erc20_balance (requires a known ERC20 token on Sepolia)
-    // You'll need to replace with an actual token and owner address.
     // let weth_on_sepolia = address!("0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"); // Example WETH on Sepolia
     // let some_owner = address!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"); // Vitalik's address for example
     // match runtime.get_erc20_balance(weth_on_sepolia, some_owner).await {
@@ -251,8 +250,6 @@ mod tests {
     use std::env;
 
     fn setup_test_logger() {
-        // Ensure logs are visible during tests.
-        // Allow `RUST_LOG=info` or similar to override.
         let _ = tracing_subscriber::fmt().with_env_filter("info,alloy_rpc_client=off").try_init();
     }
 
@@ -264,7 +261,7 @@ mod tests {
     async fn test_get_erc20_balance_of_weth() -> Result<()> {
         setup_test_logger();
         dotenv().ok();
-        let config = EvmConfig::default(); // Uses BASE_SEPOLIA_RPC_URL or default Base Sepolia
+        let config = EvmConfig::default();
         let runtime = EvmRuntime::new(config).await?;
 
         let weth_contract_address_str = get_mandatory_env_var("BASE_SEPOLIA_WETH_ADDRESS")

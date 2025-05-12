@@ -87,7 +87,7 @@ async fn create_signer() -> Result<PrivateKeySigner> {
 
 #[tokio::test]
 #[serial_test::serial]
-pub async fn test_memory_reverie() -> Result<()> {
+pub async fn test_api_key_delegation_reverie() -> Result<()> {
 
     setup_test_environment_once_async().await?;
     let base_rpc_port = 8001;
