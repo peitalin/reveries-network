@@ -3,20 +3,25 @@ default:
   @just --list
 
 # Run runtime crate
-run-runtime-umbral:
+test-runtime-umbral:
     cargo run --bin runtime -- test-umbral
 
 # Only on TDX-enabled VMs
-run-runtime-tee:
+test-runtime-tee:
     cargo run --bin runtime --features tdx_enabled -- test-tee
 
-run-runtime-tee2:
+test-runtime-tee2:
     cargo build --features tdx_enabled
     sudo ./target/debug/runtime test-tee
 
 build-tdx:
     cargo build --features tdx_enabled
 
+test-near:
+    cargo run --bin runtime -- test-near
+
+test-evm:
+    cargo run --bin runtime -- test-evm
 
 
 # Runs node 1

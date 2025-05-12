@@ -17,15 +17,11 @@ from fastapi import HTTPException
 # Import MCPClient to use it for type hinting
 from mcp_client import MCPClient
 
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 # Define the set of known weather tools handled by MCPClient
 KNOWN_WEATHER_TOOLS = {"get_forecast", "get_alerts"}
 
-# The subprocess execution function is removed
-# async def execute_weather_mcp_tool(...)
-
-# TOOL_EXECUTORS dictionary is removed
 
 async def process_tool_use_response(
     response_data: Dict[str, Any],

@@ -13,7 +13,7 @@ from anthropic.types import Message, TextBlock, ToolUseBlock
 from anthropic.lib.streaming import AsyncMessageStream, MessageStreamEvent
 from anthropic._types import Omit # Import Omit
 
-logger = logging.getLogger("llm-api-gateway")
+logger = logging.getLogger("python-llm-server")
 
 # Pre-defined tool definitions
 WEATHER_TOOLS = [
@@ -106,7 +106,7 @@ async def call_anthropic(
     if stream:
         api_args["stream"] = True
         async def stream_generator() -> AsyncGenerator[bytes, None]:
-            chunk_logger = logging.getLogger("llm-api-gateway")
+            chunk_logger = logging.getLogger("python-llm-server")
             try:
                 # Use the async message stream context manager
                 async with client.messages.stream(**api_args) as message_stream:
