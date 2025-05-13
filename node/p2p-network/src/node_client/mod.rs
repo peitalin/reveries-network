@@ -1,6 +1,6 @@
 mod commands;
 mod network_events_listener;
-mod proxy_api_client;
+mod llm_proxy_client;
 mod reincarnation;
 pub mod usage_verification;
 pub(crate) mod memories;
@@ -8,7 +8,7 @@ pub(crate) mod container_manager;
 
 pub use commands::NodeCommand;
 pub use container_manager::{ContainerManager, RestartReason};
-pub use proxy_api_client::{add_proxy_api_key, remove_proxy_api_key};
+pub use llm_proxy_client::{add_proxy_api_key, remove_proxy_api_key};
 use futures::future::ok;
 
 use std::collections::{HashMap, HashSet};

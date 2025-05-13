@@ -13,7 +13,7 @@ pub struct EnvVars {
     // llm-proxy EnvVars
     pub PROXY_PUBLIC_KEY_PATH: String,
     pub CA_CERT_PATH: String,
-    pub PROXY_API_BASE_URL: String,
+    pub LLM_PROXY_API_URL: String,
 }
 
 // p2p-node EnvVars
@@ -23,7 +23,7 @@ const DEFAULT_P2P_USAGE_DB_PATH: &str = "./p2p-usage.db";
 // llm-proxy EnvVars
 const DEFAULT_PROXY_PUBLIC_KEY_PATH: &str = "./llm-proxy/pubkeys/llm-proxy/llm_proxy.pub.pem";
 const DEFAULT_CA_CERT_PATH_FOR_TESTS: &str = "./llm-proxy/certs/hudsucker.cer";
-const DEFAULT_PROXY_API_BASE_URL: &str = "https://localhost:7070";
+const DEFAULT_LLM_PROXY_API_URL: &str = "https://localhost:7070";
 
 
 thread_local! {
@@ -54,9 +54,9 @@ impl EnvVars {
                 debug!("CA_CERT_PATH env var not set, defaulting to test path: {}", DEFAULT_CA_CERT_PATH_FOR_TESTS);
                 DEFAULT_CA_CERT_PATH_FOR_TESTS.to_string()
             }),
-            PROXY_API_BASE_URL: env::var("PROXY_API_BASE_URL").unwrap_or_else(|_| {
-                debug!("PROXY_API_BASE_URL env var not set, defaulting to: {}", DEFAULT_PROXY_API_BASE_URL);
-                DEFAULT_PROXY_API_BASE_URL.to_string()
+            LLM_PROXY_API_URL: env::var("LLM_PROXY_API_URL").unwrap_or_else(|_| {
+                debug!("LLM_PROXY_API_URL env var not set, defaulting to: {}", DEFAULT_LLM_PROXY_API_URL);
+                DEFAULT_LLM_PROXY_API_URL.to_string()
             }),
         }
     }

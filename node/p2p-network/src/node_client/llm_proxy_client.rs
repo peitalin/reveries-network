@@ -23,7 +23,7 @@ use tokio::sync::OnceCell;
 use tokio::time::sleep;
 
 
-use llm_proxy::internal_api::{
+use llm_proxy::api_key_delegation_server::{
     ApiKeyPayload,
     ApiKeyIdentifier,
 };
@@ -86,7 +86,7 @@ async fn get_proxy_http_client() -> Result<&'static Client> {
 
 fn create_request_signature_headers(node_id_keypair: &IdentityKeypair, method: &str, path: &str, body_bytes: &[u8]) -> Result<HeaderMap> {
     let timestamp = chrono::Utc::now().timestamp();
-    let digest_hash = llm_proxy::internal_api::generate_digest_hash(
+    let digest_hash = llm_proxy::api_key_delegation_server::generate_digest_hash(
         method,
         path,
         &timestamp.to_string(),
@@ -115,7 +115,7 @@ pub async fn add_proxy_api_key(
     let env_vars = EnvVars::load();
     let proxy_internal_api_url = format!(
         "{}{}",
-        env_vars.PROXY_API_BASE_URL,
+        env_vars.LLM_PROXY_API_URL,
         "/add_api_key"
     );
 
@@ -155,7 +155,7 @@ pub async fn remove_proxy_api_key(reverie_id: String, node_id_keypair: &Identity
     let env_vars = EnvVars::load();
     let proxy_internal_api_url = format!(
         "{}{}",
-        env_vars.PROXY_API_BASE_URL,
+        env_vars.LLM_PROXY_API_URL,
         "/remove_api_key"
     );
 
