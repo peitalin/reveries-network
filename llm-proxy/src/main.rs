@@ -3,7 +3,7 @@ mod tee_body_sse;
 mod tee_body;
 mod usage;
 mod config;
-mod internal_api;
+mod api_key_delegation_server;
 
 use std::{
     net::SocketAddr,
@@ -28,8 +28,6 @@ use p256::ecdsa::SigningKey;
 use serde_json::Value;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use sha2::{Sha256, Digest};
-use base64::{engine::general_purpose::STANDARD as base64_standard};
 
 use crate::config::{
     EnvVars,
@@ -38,11 +36,10 @@ use crate::config::{
     ensure_api_server_pem_files
 };
 use crate::usage::{log_sse_response_task, log_regular_response_task};
-use crate::internal_api::{run_internal_api_server, ApiKeyStore};
+use crate::api_key_delegation_server::{run_internal_api_server, ApiKeyStore};
 
 
-static ANTHROPIC_DELEGATE_API_KEY: &str = "sk-ant-delegated-api-key";
-static ANTHROPIC_DELEGATE_API_KEY_VALUE: &str = "sk-ant-delegated-api-key";
+static ANTHROPIC_DELEGATE_API_KEY_FLAG: &str = "sk-ant-delegated-api-key";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct LLMProxyRequestContext {
@@ -258,7 +255,7 @@ impl WebSocketHandler for LogHandler {
 fn is_anthropic_delegation_request(option_header_value: Option<&HeaderValue>) -> bool {
     let mut needs_delegation = false;
     if let Some(header_api_key_value) = option_header_value {
-        if header_api_key_value == ANTHROPIC_DELEGATE_API_KEY_VALUE {
+        if header_api_key_value == ANTHROPIC_DELEGATE_API_KEY_FLAG {
             needs_delegation = true;
             debug!("Request: x-api-key header is the delegation key value, attempting injection from store.");
         } else {
@@ -348,7 +345,7 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
 
     // Adjust LogHandler initialization (no DB needed)
     let proxy = Proxy::builder()
-        .with_addr(SocketAddr::from(([0, 0, 0, 0], 8080)))
+        .with_addr(SocketAddr::from(([0, 0, 0, 0], 7666)))
         .with_ca(hudsucker_ca) // Use the loaded/generated CA
         .with_rustls_client(aws_lc_rs::default_provider())
         .with_http_handler(LogHandler {
@@ -366,7 +363,7 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
         .map_err(|e| format!("Failed to build proxy: {}", e))?;
 
     let db_mode = "memory";
-    info!("llm-proxy listening on 0.0.0.0:8080 (DB mode: {})", db_mode);
+    info!("llm-proxy listening on 0.0.0.0:7666 (DB mode: {})", db_mode);
     proxy.start().await?;
 
     Ok(())

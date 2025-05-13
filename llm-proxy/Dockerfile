@@ -25,7 +25,7 @@ COPY --from=builder /usr/src/llm-proxy/target/release/llm-proxy /usr/local/bin/
 RUN mkdir -p /certs && chmod 777 /certs
 
 # Expose proxy port
-EXPOSE 8080
+EXPOSE 7666
 # Expose internal API port
 EXPOSE 7070
 

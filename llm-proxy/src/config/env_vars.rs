@@ -17,8 +17,8 @@ impl EnvVars {
         // Load REPORT_USAGE_URL with a default
         let REPORT_USAGE_URL = env::var("REPORT_USAGE_URL")
             .unwrap_or_else(|_| {
-                info!("REPORT_USAGE_URL not set, using default: http://localhost:8002/report_usage");
-                "http://localhost:8002/report_usage".to_string()
+                info!("REPORT_USAGE_URL not set, using default: http://localhost:9902/report_usage");
+                "http://localhost:9902/report_usage".to_string()
             });
 
         let INTERNAL_API_HOST = env::var("LLM_PROXY_INTERNAL_API_HOST")

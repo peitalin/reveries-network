@@ -17,7 +17,10 @@ use base64::{
 };
 use once_cell::sync::Lazy;
 
-use runtime::tee_attestation::generate_tee_attestation_with_data;
+use runtime::tee_attestation::{
+    generate_tee_attestation_with_data,
+    hash_payload_for_tdx_report_data,
+};
 use crate::parser;
 use crate::tee_body::ChannelError;
 
@@ -186,7 +189,7 @@ fn process_and_log_regular_body(
     match serde_json::to_vec(&usage_report_payload) {
         Ok(payload_bytes) => {
             let signature: Signature = signing_key.sign(&payload_bytes);
-            let report_data = runtime::tee_attestation::hash_payload_for_tdx_report_data(&payload_bytes);
+            let report_data = hash_payload_for_tdx_report_data(&payload_bytes);
 
             let (_quote, quote_bytes) = generate_tee_attestation_with_data(report_data, false)
                 .expect("TEE attestation generation error");
