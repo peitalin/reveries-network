@@ -4,103 +4,66 @@ use std::{
     error::Error as StdError,
     path::Path,
 };
-use ecdsa::elliptic_curve::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
-use p256::ecdsa::SigningKey;
+use p256::ecdsa::{SigningKey, VerifyingKey as P256VerifyingKey};
 use rand_core::OsRng;
 use rcgen::{KeyPair, CertificateParams, BasicConstraints, Certificate, IsCa, PKCS_ECDSA_P256_SHA256, SanType, Ia5String};
 use tracing::*;
 use color_eyre::eyre::{Result, anyhow};
 
-// For Python LLM server to trust proxy
+// /certs_src is mounted from host into container, and shared with python LLM server
+// for Python LLM server to trust llm-proxy as middleman
 pub const CA_CERT_PATH: &str = "/certs_src/hudsucker.cer";
-pub const CA_KEY_PATH: &str = "/certs_src/hudsucker.key";
-// For SignedUsageReports to p2p-node
-pub const PRIVATE_KEY_PATH: &str = "/data/proxy_private.key";
-pub const PUBLIC_KEY_PATH: &str = "/pubkeys/llm-proxy/llm-proxy.pub.pem";
-// Constants for Internal API Server TLS
-pub const API_SERVER_CERT_PATH: &str = "/certs_src/internal_api.crt";
-pub const API_SERVER_KEY_PATH: &str = "/certs_src/internal_api.key";
+// private (unmounted) filepath for Internal API Server TLS and CA_CERT key
+pub const CA_KEY_PATH: &str = "/certs_internal/hudsucker.key";
+pub const API_SERVER_CERT_PATH: &str = "/certs_internal/internal_api.crt";
+pub const API_SERVER_KEY_PATH: &str = "/certs_internal/internal_api.key";
 
 
-pub fn load_or_generate_signing_key() -> Result<SigningKey, Box<dyn StdError + Send + Sync>> {
-    let private_key_path = Path::new(PRIVATE_KEY_PATH);
-    let public_key_path = Path::new(PUBLIC_KEY_PATH);
-
+pub fn generate_signing_key() -> Result<(SigningKey, P256VerifyingKey), Box<dyn StdError + Send + Sync>> {
     info!("Generating new ECDSA P-256 key pair.");
     let signing_key = SigningKey::random(&mut OsRng);
+    let verifying_key = *signing_key.verifying_key();
 
-    if let Some(parent) = private_key_path.parent() { fs::create_dir_all(parent)?; }
-    if let Some(parent) = public_key_path.parent() { fs::create_dir_all(parent)?; }
-
-    let private_key_pem = signing_key
-        .to_pkcs8_pem(LineEnding::LF)
-        .map_err(UsageKeypairError::from)?;
-
-    let public_key_pem = signing_key.verifying_key()
-        .to_public_key_pem(LineEnding::LF)
-        .map_err(UsageKeypairError::from)?;
-
-    fs::write(private_key_path, private_key_pem.as_bytes()).map_err(UsageKeypairError::from)?;
-    fs::write(public_key_path, public_key_pem.as_bytes()).map_err(UsageKeypairError::from)?;
-
-    info!("Saved new private key to: {}", PRIVATE_KEY_PATH);
-    info!("Saved new public key to: {}", PUBLIC_KEY_PATH);
-    Ok(signing_key)
+    Ok((signing_key, verifying_key))
 }
 
-pub fn load_or_generate_ca() -> Result<(KeyPair, Certificate), Box<dyn StdError + Send + Sync>> {
+pub fn generate_ca() -> Result<(KeyPair, Certificate), Box<dyn StdError + Send + Sync>> {
     let cert_path = Path::new(CA_CERT_PATH);
     let key_path = Path::new(CA_KEY_PATH);
 
-    if cert_path.exists() && key_path.exists() {
-        info!("Loading existing CA certificate and key from files: {}, {}", CA_CERT_PATH, CA_KEY_PATH);
-        let ca_cert_pem = fs::read_to_string(cert_path)
-            .map_err(|e| format!("Failed to read CA cert file {}: {}", CA_CERT_PATH, e))?;
-        let ca_key_pem = fs::read_to_string(key_path)
-            .map_err(|e| format!("Failed to read CA key file {}: {}", CA_KEY_PATH, e))?;
-        let ca_key_pair = KeyPair::from_pem(&ca_key_pem)
-            .map_err(|e| format!("Failed to parse CA private key: {}", e))?;
-        let ca_params = CertificateParams::from_ca_cert_pem(&ca_cert_pem)
-            .map_err(|e| format!("Failed to parse CA certificate parameters: {}", e))?;
-        // Note: self_signed re-signs, but it's okay for loading params.
-        let ca_cert = ca_params.self_signed(&ca_key_pair)
-            .map_err(|e| format!("Failed to process CA certificate: {}", e))?;
-        Ok((ca_key_pair, ca_cert))
-    } else {
-        info!("Generating new CA certificate and key at: {}, {}", CA_CERT_PATH, CA_KEY_PATH);
-        // Ensure parent directory exists
-        if let Some(parent) = cert_path.parent() { fs::create_dir_all(parent)?; }
-        if let Some(parent) = key_path.parent() { fs::create_dir_all(parent)?; }
+    info!("Generating new CA certificate and key at: {}, {}", CA_CERT_PATH, CA_KEY_PATH);
+    // Ensure parent directory exists
+    if let Some(parent) = cert_path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = key_path.parent() { fs::create_dir_all(parent)?; }
 
-        let mut params = CertificateParams::new(vec!["LLM Proxy Generated CA".to_string()])?;
-        params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0)); // Set as CA
-        params.key_usages = vec![
-            rcgen::KeyUsagePurpose::KeyCertSign,
-            rcgen::KeyUsagePurpose::CrlSign,
-        ];
-        // Generate an ECDSA P-256 key pair explicitly
-        let key_pair = KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    let mut params = CertificateParams::new(vec!["LLM Proxy Generated CA".to_string()])?;
+    params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0)); // Set as CA
+    params.key_usages = vec![
+        rcgen::KeyUsagePurpose::KeyCertSign,
+        rcgen::KeyUsagePurpose::CrlSign,
+    ];
+    // Generate an ECDSA P-256 key pair explicitly
+    let key_pair = KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
 
-        // Create the certificate using the params and the generated key pair
-        let ca_cert = params.self_signed(&key_pair)
-             .map_err(|e| format!("Failed to self-sign CA certificate: {}", e))?;
+    // Create the certificate using the params and the generated key pair
+    let ca_cert = params.self_signed(&key_pair)
+         .map_err(|e| format!("Failed to self-sign CA certificate: {}", e))?;
 
-        // Save the generated key and certificate
-        let key_pem = key_pair.serialize_pem(); // Serialize the generated key pair
-        let cert_pem = ca_cert.pem();
+    // Save the generated key and certificate
+    let key_pem = key_pair.serialize_pem(); // Serialize the generated key pair
+    let cert_pem = ca_cert.pem();
 
-        fs::write(key_path, key_pem)
-            .map_err(|e| format!("Failed to write CA key: {}", e))?;
+    fs::write(key_path, key_pem)
+        .map_err(|e| format!("Failed to write CA key: {}", e))?;
 
-        fs::write(cert_path, cert_pem)
-            .map_err(|e| format!("Failed to write CA certificate: {}", e))?;
+    fs::write(cert_path, cert_pem)
+        .map_err(|e| format!("Failed to write CA certificate: {}", e))?;
 
-        info!("Saved new CA key and certificate.");
-        Ok((key_pair, ca_cert))
-    }
+    info!("Saved new CA key and certificate.");
+    Ok((key_pair, ca_cert))
 }
 
-pub fn ensure_api_server_pem_files(
+pub fn write_api_server_pem_files(
     ca_cert: &Certificate,
     ca_key_pair: &KeyPair,
 ) -> Result<()> {
@@ -112,7 +75,6 @@ pub fn ensure_api_server_pem_files(
         // TODO: Optionally add validation that the existing cert matches expected SANs/issuer?
         return Ok(());
     }
-
     info!("Generating new API server PEM certificate and key files, signed by CA...");
 
     // Ensure parent directory exists

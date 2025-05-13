@@ -4766,6 +4766,7 @@ dependencies = [
  "nanoid",
  "once_cell",
  "p256",
+ "pem",
  "pin-project-lite",
  "pkcs8",
  "rand 0.8.5",

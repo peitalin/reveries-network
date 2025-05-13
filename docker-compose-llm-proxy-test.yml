@@ -11,19 +11,19 @@ services:
       - RUST_LOG=info,llm_proxy=debug
       ### NOTE: hardcoded to node2's port:
       - REPORT_USAGE_URL=http://host.docker.internal:9902
-      - LLM_PROXY_INTERNAL_PORT=7070 # Set the internal API port
+      - INTERNAL_API_KEY_SERVER_PORT=7070 # Set the internal API port
       - CA_CERT_PATH=/certs_src/hudsucker.cer
       ## API key server
       - TEST_API=true
-      - P2P_NODE_TEST_PUBKEY_PATH=/pubkeys/p2p-node/p2p_node_test.pub.pem
-      - P2P_NODE_PUBKEY_PATH=/pubkeys/p2p-node/p2p_node.pub.pem
+      - P2P_NODE_PUBKEY=${P2P_NODE_PUBKEY} # Injected by p2p-node start command
+      - P2P_NODE_RPC_URL=${P2P_NODE_RPC_URL} # Needs to be set in p2p-node's env or passed
     volumes:
       # Mount host CA certs for runtime reading/writing of hudsucker certs
       - ./llm-proxy/certs:/certs_src
       # Mount llm-proxy directory for receiving p2p-node public key
-      - ./llm-proxy/pubkeys/llm-proxy:/pubkeys/llm-proxy # Needs RW
-      # Mount p2p-node directory for llm-proxy to read
-      - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
+      # - ./llm-proxy/pubkeys/llm-proxy:/pubkeys/llm-proxy # Needs RW
+      # # Mount p2p-node directory for llm-proxy to read
+      # - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
     networks:
       - llm-network  # Connects to python-llm-server
       - default      # Also connects to the default bridge network (which has external access)
@@ -32,19 +32,19 @@ services:
       - "7666:7666"
       - "7070:7070"
 
-  # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
-  caddy:
-    image: caddy:latest # Use official Caddy image
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "6000:80" # Map host 6000 to Caddy's internal port 80 (defined in Caddyfile)
-    volumes:
-      # Mount the Caddyfile (adjust host path as needed)
-      - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
-    networks:
-      - llm-network # Can reach python-llm-server
-      - default     # Can be reached from host
+  # # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
+  # caddy:
+  #   image: caddy:latest # Use official Caddy image
+  #   container_name: caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6000:80" # Map host 6000 to Caddy's internal port 80 (defined in Caddyfile)
+  #   volumes:
+  #     # Mount the Caddyfile (adjust host path as needed)
+  #     - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
+  #   networks:
+  #     - llm-network # Can reach python-llm-server
+  #     - default     # Can be reached from host
 
   # ### TODO: configure router + port forwarding for
   # ### NEAR inbound ports 24567
@@ -101,7 +101,6 @@ services:
       - llm-network  # Connects to llm-proxy only
     depends_on:
       - llm-proxy
-      - caddy
     restart: unless-stopped
     command: >
       sh -c "
