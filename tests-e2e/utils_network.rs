@@ -309,7 +309,7 @@ impl TestClientsBuilder {
                         if let Some(peers_val) = response.get("connected_peers") {
                             if let Some(peers_array) = peers_val.as_array() {
                                 peer_count = peers_array.len();
-                                println!("{}: Has {} connected peers.", node_name, peer_count);
+                                println!("{}: connected to {}/{} peers", node_name, peer_count, ready_when_peer_count);
                                 if peer_count >= ready_when_peer_count {
                                     println!("{}: Is ready with enough peers.", node_name);
                                     break;

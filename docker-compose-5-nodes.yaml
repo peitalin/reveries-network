@@ -5,7 +5,7 @@ services:
     expose:
       - "9001"
     ports:
-      - "8001:8001"
+      - "9901:9901"
       - "9001:9001"
     stdin_open: true
     tty: true
@@ -15,7 +15,7 @@ services:
     command: >
       sh -c 'ls && cargo run --bin rpc -- \
         --secret-key-seed 1 \
-        --rpc-port 8001 \
+        --rpc-port 9901 \
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
         --bootstrap-peers "/dns4/node2/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
         '
@@ -26,7 +26,7 @@ services:
     expose:
       - "9002"
     ports:
-      - "8002:8002"
+      - "9902:9902"
       - "9002:9002"
     restart: always
     stdin_open: true
@@ -36,7 +36,7 @@ services:
     command: >
       sh -c 'sleep 1 && cargo run --bin rpc -- \
         --secret-key-seed 2 \
-        --rpc-port 8002 \
+        --rpc-port 9902 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
         '
@@ -47,7 +47,7 @@ services:
     expose:
       - "9003"
     ports:
-      - "8003:8003"
+      - "9903:9903"
       - "9003:9003"
     restart: always
     stdin_open: true
@@ -57,7 +57,7 @@ services:
     command: >
       sh -c 'sleep 2 && cargo run --bin rpc -- \
         --secret-key-seed 3 \
-        --rpc-port 8003 \
+        --rpc-port 9903 \
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '
@@ -68,7 +68,7 @@ services:
     expose:
       - "9004"
     ports:
-      - "8004:8004"
+      - "9904:9904"
       - "9004:9004"
     restart: always
     stdin_open: true
@@ -78,7 +78,7 @@ services:
     command: >
       sh -c 'sleep 4 && cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --rpc-port 8004 \
+        --rpc-port 9904 \
         --listen-address "/ip4/0.0.0.0/tcp/9004" \
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '
@@ -89,7 +89,7 @@ services:
     expose:
       - "9005"
     ports:
-      - "8005:8005"
+      - "9905:9905"
       - "9005:9005"
     restart: always
     stdin_open: true
@@ -99,7 +99,7 @@ services:
     command: >
       sh -c 'sleep 6 && cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --rpc-port 8005 \
+        --rpc-port 9905 \
         --listen-address "/ip4/0.0.0.0/tcp/9005" \
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '

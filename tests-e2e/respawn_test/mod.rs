@@ -149,7 +149,7 @@ async fn wait_for_agent_respawn(
 #[serial_test::serial]
 pub async fn test_agent_spawn_and_fragments() -> Result<()> {
 
-    let base_rpc_port = 8001;
+    let base_rpc_port = 9901;
     let base_listen_port = 9001;
     let num_nodes = 5;
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
@@ -167,7 +167,7 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
     let total_frags = 3;
     let secret_key_seed = 1;
     let _spawn_result = spawn_agent_on_node(
-        &clients[&8001],
+        &clients[&9901],
         threshold,
         total_frags,
         secret_key_seed
@@ -237,7 +237,7 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
 #[serial_test::serial]
 pub async fn test_agent_respawn_after_failure() -> Result<()> {
 
-    let base_rpc_port = 8001;
+    let base_rpc_port = 9901;
     let base_listen_port = 9001;
     let num_nodes = 6;
     let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
@@ -254,7 +254,7 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     let threshold = 2;
     let total_frags = 3;
     let secret_key_seed = 1;
-    let _spawn_result = spawn_agent_on_node(&clients[&8001], threshold, total_frags, secret_key_seed).await?;
+    let _spawn_result = spawn_agent_on_node(&clients[&9901], threshold, total_frags, secret_key_seed).await?;
 
     // Verify fragments are distributed properly
     let all_cfrags = collect_fragments(&clients).await?;
@@ -268,12 +268,12 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     println!("[Test] Testing agent respawning after node failure");
 
     // Trigger a simulated node failure on the first node
-    println!("[Test] Triggering simulated failure on node1 (port: 8001)");
-    let _failure_result = trigger_node_failure(&clients[&8001]).await?;
+    println!("[Test] Triggering simulated failure on node1 (port: 9901)");
+    let _failure_result = trigger_node_failure(&clients[&9901]).await?;
 
     // Wait for node2 to respawn the agent (timeout after 30 seconds)
-    let respawned_agent = wait_for_agent_respawn(&clients[&8002], 30).await?;
-    println!("[Test] Agent respawned on node2 (port: 8002): {:?}", respawned_agent);
+    let respawned_agent = wait_for_agent_respawn(&clients[&9902], 30).await?;
+    println!("[Test] Agent respawned on node2 (port: 9902): {:?}", respawned_agent);
 
     // Verify that the agent was successfully respawned
     let expected_agent = ReverieNameWithNonce("auron".to_string(), 1);

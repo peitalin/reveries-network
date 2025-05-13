@@ -120,12 +120,12 @@ resource "google_compute_firewall" "allow_rpc_ports" {
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "80", "8000-9999"]  # port 22 for SSH
+    ports    = ["22", "80", "5000-9999"]  # port 22 for SSH
   }
 
   allow {
     protocol = "udp"
-    ports    = ["22", "80", "8000-9999"]
+    ports    = ["22", "80", "5000-9999"]
   }
 
   source_ranges = ["0.0.0.0/0"]

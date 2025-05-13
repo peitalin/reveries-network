@@ -168,7 +168,7 @@ const HeartbeatMonitor: React.FC = () => {
       const portParam = params.get('port');
       const defaultPorts = portParam ?
         portParam.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)) :
-        [8001, 8002];
+        [9901, 9902];
 
       for (const port of defaultPorts) {
         if (port > 0 && port < 65536) {

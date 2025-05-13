@@ -90,7 +90,7 @@ async fn create_signer() -> Result<PrivateKeySigner> {
 pub async fn test_api_key_delegation_reverie() -> Result<()> {
 
     setup_test_environment_once_async().await?;
-    let base_rpc_port = 8001;
+    let base_rpc_port = 9901;
     let base_listen_port = 9001;
     let num_nodes = 5;
 
@@ -174,7 +174,7 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     println!("Step 1: Spawn Reverie with encrypted Anthropic API key...");
     let api_key_reverie_result: Reverie = tokio::time::timeout(
         Duration::from_secs(5),
-        clients[&8001].request(
+        clients[&9901].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
                 api_keys_secrets.clone(),
@@ -196,7 +196,7 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
         AccessKey::EcdsaSignature(signature.as_bytes().to_vec())
     };
 
-    clients[&8002].request(
+    clients[&9902].request(
         "delegate_api_key",
         jsonrpsee::rpc_params![
             api_key_reverie_result.id,
@@ -208,7 +208,7 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     println!("Step 3: Spawning secret memories...");
     let memory_reverie_result: Reverie = tokio::time::timeout(
         Duration::from_secs(5),
-        clients[&8001].request(
+        clients[&9901].request(
             "spawn_memory_reverie",
             jsonrpsee::rpc_params![
                 memory_secrets.clone(),
@@ -263,8 +263,8 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     };
 
     let rpc_result = tokio::time::timeout(
-        Duration::from_secs(20), // Increased timeout to 20 seconds for LLM tool-use calls
-        clients[&8002].request::<ExecuteWithMemoryReverieResult, _>(
+        Duration::from_secs(20), // Increased timeout for LLM tool-use calls
+        clients[&9902].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![
                 memory_reverie_result.id,

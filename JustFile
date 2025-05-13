@@ -28,7 +28,7 @@ test-evm:
 node1:
     cargo run --bin rpc -- \
         --secret-key-seed 1 \
-        --rpc-port 8001 \
+        --rpc-port 9901 \
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
 
@@ -37,7 +37,7 @@ node1-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 1 \
-        --rpc-port 8001 \
+        --rpc-port 9901 \
         --listen-address "/ip4/0.0.0.0/tcp/9001" \
         --bootstrap-peers "/ip4/35.240.229.229/tcp/9002/p2p/12D3KooWH3uVF6wv47WnArKHk5p6cvgCJEb74UTmxztmQDc298L3"
 
@@ -46,7 +46,7 @@ node1-prod:
 node2:
     cargo run --bin rpc -- \
         --secret-key-seed 2 \
-        --rpc-port 8002 \
+        --rpc-port 9902 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -55,7 +55,7 @@ node2-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 2 \
-        --rpc-port 8002 \
+        --rpc-port 9902 \
         --listen-address "/ip4/0.0.0.0/tcp/9002" \
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -64,7 +64,7 @@ node2-prod:
 node3:
     cargo run --bin rpc -- \
         --secret-key-seed 3 \
-        --rpc-port 8003 \
+        --rpc-port 9903 \
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -72,7 +72,7 @@ node3-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 3 \
-        --rpc-port 8003 \
+        --rpc-port 9903 \
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -81,7 +81,7 @@ node3-prod:
 node4:
     cargo run --bin rpc -- \
         --secret-key-seed 4 \
-        --rpc-port 8004 \
+        --rpc-port 9904 \
         --listen-address "/ip4/0.0.0.0/tcp/9004" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -89,7 +89,7 @@ node4-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 4 \
-        --rpc-port 8004 \
+        --rpc-port 9904 \
         --listen-address "/ip4/0.0.0.0/tcp/9004" \
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -97,7 +97,7 @@ node4-prod:
 node5:
     cargo run --bin rpc -- \
         --secret-key-seed 5 \
-        --rpc-port 8005 \
+        --rpc-port 9905 \
         --listen-address "/ip4/0.0.0.0/tcp/9005" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -105,7 +105,7 @@ node5-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 5 \
-        --rpc-port 8005 \
+        --rpc-port 9905 \
         --listen-address "/ip4/0.0.0.0/tcp/9005" \
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -114,7 +114,7 @@ node5-prod:
 node6:
     cargo run --bin rpc -- \
         --secret-key-seed 6 \
-        --rpc-port 8006 \
+        --rpc-port 9906 \
         --listen-address "/ip4/0.0.0.0/tcp/9006" \
         --bootstrap-peers "/ip4/127.0.0.1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -122,7 +122,7 @@ node6-prod:
     sudo cargo build --features tdx_enabled
     sudo ./target/debug/rpc \
         --secret-key-seed 6 \
-        --rpc-port 8006 \
+        --rpc-port 9906 \
         --listen-address "/ip4/0.0.0.0/tcp/9006" \
         --bootstrap-peers "/ip4/35.198.200.224/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
 
@@ -137,7 +137,7 @@ spawn-agent node_port:
 
 spawn-agent-prod:
     cargo run --bin cmd -- \
-        --rpc-server-address 35.198.200.224:8001 \
+        --rpc-server-address 35.198.200.224:9901 \
         spawn-agent \
         --threshold 2 \
         --total-frags 3
@@ -151,9 +151,9 @@ trigger-node-failure node_port:
 
 get-node-states:
     cargo run --bin cmd -- \
-        --rpc-server-address 0.0.0.0:8001 \
+        --rpc-server-address 0.0.0.0:9901 \
         get-node-states \
-        --ports 8001,8002,8003,8004
+        --ports 9901,9902,9903,9904
 
 
 subscribe-heartbeat node_port:
@@ -175,6 +175,6 @@ terraform-destroy:
 
 test-rpc-prod:
     cargo run --bin cmd -- \
-        --rpc-server-address 35.198.200.224:8001 \
-        get-node-states --ports 8001
+        --rpc-server-address 35.198.200.224:9901 \
+        get-node-states --ports 9901
 

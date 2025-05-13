@@ -14,7 +14,7 @@ docker compose up
 ```
 
 Edit the `docker-compose.yml` file to add nodes.
-I've hardcoded nodes to rpc ports (8001-8005) for local development purposes.
+I've hardcoded nodes to rpc ports (9901-9905) for local development purposes.
 
 #### Node heartbeat monitor dashboard
 
@@ -30,8 +30,8 @@ pnpm install
 npm run dev
 ```
 
-Navigate to `http://localhost:4000/?port=8001` to observe the node's state.
-You can open multiple browser tabs and change the `port=8002` to observe node1 to node5's state.
+Navigate to `http://localhost:4000/?port=9901` to observe the node's state.
+You can open multiple browser tabs and change the `port=9902` to observe node1 to node5's state.
 
 Then you can interact with the nodes: spawn agents and trigger node failures.
 
@@ -47,19 +47,19 @@ npm:
 npm install -g rust-just
 ```
 
-Once the nodes are running and you have installed `just`, spawn an agent on node1 (on port 8001) with:
+Once the nodes are running and you have installed `just`, spawn an agent on node1 (on port 9901) with:
 ```
-just spawn-agent 8001
+just spawn-agent 9901
 ```
 The node will generate re-encryption fragments and broadcast them to peers.
 It will also select a node to be the next vessel to reincarnate the agent in, once it fails.
 
 Then trigger a network failure for node1 (triggering agent reincarnation in the new vessel node):
 ```
-just trigger-node-failure 8001
+just trigger-node-failure 9901
 ```
 
-Node1 running on port 8001 will go offline, and the next vessel node will detect node failure and begin the agent reincarnation protocol.
+Node1 running on port 9901 will go offline, and the next vessel node will detect node failure and begin the agent reincarnation protocol.
 
 If you watch the Node heartbeat-monitor react app, you will see the "Agent in Vessel" move from node1 to the next node.
 
@@ -108,7 +108,7 @@ sh watch_nodes.sh 3
 
 Once deployed, you can interact with the node via RPC:
 ```
-curl -X POST http://<TEE_IP_ADDRESS>:8001 \
+curl -X POST http://<TEE_IP_ADDRESS>:9901 \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"get_node_state","id":1}'
 ```
@@ -118,7 +118,7 @@ I will later put this RPC interface behind a proper HTTP API (caddy) on port 80.
 Test websocket heartbeat monitor with `websocat`:
 ```
 cargo install websocat
-websocat ws://34.143.238.248:8001
+websocat ws://34.143.238.248:9901
 
 # then paste in JSOn input
 {"jsonrpc":"2.0","method":"subscribe_hb","params":[0],"id":1}
@@ -160,4 +160,4 @@ gcloud compute instances create tee09-instance-20250221-042942 \
 ```
 
 
-kill -9 $(lsof -ti:8001)
+kill -9 $(lsof -ti:9901)
