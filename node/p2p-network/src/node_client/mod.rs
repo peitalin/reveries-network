@@ -8,10 +8,10 @@ pub(crate) mod container_manager;
 
 pub use commands::NodeCommand;
 pub use container_manager::{ContainerManager, RestartReason};
-pub use llm_proxy_client::{add_proxy_api_key, remove_proxy_api_key};
 use futures::future::ok;
 
 use std::collections::{HashMap, HashSet};
+use std::str::Split;
 use std::sync::Arc;
 use std::fs;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
@@ -20,14 +20,19 @@ use futures::FutureExt;
 use hex;
 use libp2p::{core::Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
+use tokio::sync::RwLock;
 use tracing::{info, debug, error, warn};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use sha3::{Digest, Keccak256};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use p256::ecdsa::VerifyingKey as P256VerifyingKey;
+use p256::ecdsa::{
+    VerifyingKey as P256VerifyingKey,
+    Signature as P256Signature
+};
 use ecdsa::signature::Verifier;
 use elliptic_curve::pkcs8::DecodePublicKey;
+use base64::{Engine as _, engine::general_purpose::STANDARD as base64_standard};
 
 use crate::{get_node_name, short_peer_id, TryPeerId};
 use crate::network_events::NodeIdentity;
@@ -49,16 +54,21 @@ use crate::types::{
 };
 use crate::SendError;
 use crate::behaviour::heartbeat_behaviour::TeePayloadOutEvent;
-use crate::node_client::usage_verification::{
-    verify_usage_report,
-    load_llm_proxy_pubkey,
-};
+use crate::node_client::usage_verification::verify_usage_report;
 use crate::usage_db::{UsageDbPool, store_usage_payload};
 use crate::env_var::EnvVars;
 
 use runtime::reencrypt::{UmbralKey, VerifiedCapsuleFrag};
 use runtime::llm::AgentSecretsJson;
 use llm_proxy::usage::SignedUsageReport;
+use crate::utils::pubkeys::encode_libp2p_pubkey_to_pem;
+use std::path::Path;
+use std::time::Duration;
+use tokio::time::timeout as tokio_timeout;
+use libp2p::identity::Keypair as IdentityKeypair;
+use nanoid;
+use std::process::Command;
+use regex::Regex;
 
 // Define a simple error type for NodeClient operations, can be expanded
 #[derive(Debug)]
@@ -96,7 +106,9 @@ pub struct NodeClient {
     // keep private in TEE
     umbral_key: UmbralKey,
     // Proxy's public key for verifying usage reports
-    proxy_public_key: Option<P256VerifyingKey>,
+    pub llm_proxy_public_key: Arc<RwLock<Option<P256VerifyingKey>>>,
+    // Proxy's Hudsucker CA certificate PEM for establishing TLS connections with llm-proxy
+    pub llm_proxy_ca_cert: Arc<RwLock<Option<reqwest::Certificate>>>,
     pub usage_db_pool: UsageDbPool,
 }
 
@@ -106,18 +118,15 @@ impl NodeClient {
         command_sender: mpsc::Sender<NodeCommand>,
         umbral_key: UmbralKey,
         heartbeat_receiver: async_channel::Receiver<TeePayloadOutEvent>,
-        proxy_public_key: Option<P256VerifyingKey>,
         usage_db_pool: UsageDbPool,
     ) -> Self {
         Self {
-            node_id: node_id,
-            command_sender: command_sender,
-            // hb subscriptions for rpc clients
-            heartbeat_receiver: heartbeat_receiver,
-            // keep private in TEE
-            umbral_key: umbral_key,
-            // Proxy's public key
-            proxy_public_key,
+            node_id,
+            command_sender,
+            heartbeat_receiver,
+            umbral_key,
+            llm_proxy_public_key: Arc::new(RwLock::new(None)),
+            llm_proxy_ca_cert: Arc::new(RwLock::new(None)),
             usage_db_pool,
         }
     }
@@ -544,32 +553,29 @@ impl NodeClient {
               &signed_usage_report.payload[..signed_usage_report.payload.len().min(50)],
               &signed_usage_report.signature[..signed_usage_report.signature.len().min(10)]);
 
-        // Load the public key if it's not already loaded
-        let public_key = if self.proxy_public_key.is_none() {
-            // Await the async load function
-            let env_vars = EnvVars::load();
-            let loaded_key = load_llm_proxy_pubkey(&env_vars.PROXY_PUBLIC_KEY_PATH, true).await?;
-            self.proxy_public_key = Some(loaded_key);
-            loaded_key
-        } else {
-            self.proxy_public_key.unwrap()
+        // Get the public key from self.proxy_public_key
+        let proxy_public_key = self.llm_proxy_public_key.read().await;
+        let opt_public_key = proxy_public_key.as_ref();
+        let public_key = match opt_public_key {
+            Some(ref key) => key,
+            None => {
+                error!("NodeClient: LLM Proxy public key not available for usage report verification. Has it registered yet?");
+                return Err(anyhow!("LLM Proxy public key not available. Cannot verify usage report."));
+            }
         };
 
-        match verify_usage_report(&signed_usage_report, &public_key) {
-                Ok(payload) => {
+        match verify_usage_report(&signed_usage_report, public_key) { // Pass the borrowed key
+            Ok(payload) => {
+                info!("NodeClient: Usage report verified successfully.");
                 // Verification successful, now store the payload
                 if let Err(db_err) = store_usage_payload(&self.usage_db_pool, &payload) {
-                    // Log error but don't fail the whole operation,
-                    // as verification itself succeeded.
-                    error!("Failed to store verified usage payload in DB: {}", db_err);
+                    error!("NodeClient: Failed to store verified usage payload in DB: {}", db_err);
                 }
-                // TODO: Further processing
-                Ok("Usage report verified and processed.".to_string())
+                Ok("Usage report verified.".to_string())
             }
             Err(verification_error) => {
-                error!("Usage report verification failed: {}", verification_error);
-                // Return a specific error message indicating verification failure
-                Err(anyhow!("Verification failed: {}", verification_error))
+                error!("NodeClient: Usage report verification failed: {}", verification_error);
+                Err(anyhow!("Usage report verification failed: {}", verification_error))
             }
         }
     }
@@ -582,6 +588,280 @@ impl NodeClient {
             .map_err(|e| NodeClientError::CommandSendError(e.to_string()))?;
 
         rx.await.map_err(|e| NodeClientError::ResponseReceiveError(e.to_string()))
+    }
+
+    pub async fn register_llm_proxy_pubkey(
+        &mut self,
+        payload: llm_proxy::types::LlmProxyPublicKeyPayload,
+    ) -> Result<String, Error> {
+        info!("NodeClient: Processing LLM Proxy public key registration...");
+
+        // 1. Parse the PEM public key string to a P256VerifyingKey
+        let llm_proxy_pubkey = P256VerifyingKey::from_public_key_pem(&payload.pubkey_pem)
+            .map_err(|e| anyhow!("Failed to parse LLM Proxy public key PEM: {}", e))?;
+        debug!("NodeClient: Successfully parsed LLM Proxy public key PEM.");
+
+        // 2. Decode the Base64 signature
+        let signature_bytes = base64_standard.decode(&payload.signature_b64)
+            .map_err(|e| anyhow!("Failed to decode Base64 signature for LLM Proxy key: {}", e))?;
+        let signature = P256Signature::from_slice(&signature_bytes)
+            .map_err(|e| anyhow!("Failed to parse signature bytes for LLM Proxy key: {}", e))?;
+        debug!("NodeClient: Successfully decoded and parsed signature.");
+
+        // 3. Verify the signature
+        // The signature was made over the PEM string of the public key itself.
+        llm_proxy_pubkey.verify(payload.pubkey_pem.as_bytes(), &signature)
+            .map_err(|e| anyhow!("LLM Proxy public key signature verification failed: {}", e))?;
+        println!("NodeClient: LLM Proxy public key signature VERIFIED.");
+
+        // 4. Store the verified public key
+        let _ = self.llm_proxy_public_key.write().await.insert(llm_proxy_pubkey);
+
+        // 5. Store the CA certificate PEM string
+        info!("NodeClient: Storing LLM Proxy CA certificate PEM.\nPEM:\n{}", payload.ca_cert_pem);
+        let ca_cert = reqwest::Certificate::from_pem(payload.ca_cert_pem.as_bytes())?;
+        let _ = self.llm_proxy_ca_cert.write().await.insert(ca_cert);
+        info!("NodeClient: Successfully stored LLM Proxy CA certificate PEM.");
+
+        println!("Stored LLM Proxy public key: {:?}", &self.llm_proxy_public_key.read().await);
+        println!("Stored LLM Proxy CA certificate PEM: {:?}", &self.llm_proxy_ca_cert.read().await);
+
+        let pubkey_log = self.llm_proxy_public_key.read().await.clone();
+        let ca_cert_pem_log = self.llm_proxy_ca_cert.read().await.clone(); // Log the PEM string
+        let pubkey_log_str = format!("{:?}", pubkey_log);
+        let ca_cert_pem_log_str = format!("{:?}", ca_cert_pem_log); // Debug format of Option<String>
+
+        Ok(serde_json::json!({
+            "llm_proxy_public_key": pubkey_log_str,
+            "llm_proxy_ca_cert_pem": ca_cert_pem_log_str, // Updated field name in log
+        }).to_string())
+    }
+
+    /// Starts the llm-proxy service using Docker Compose, injecting the p2p-node's public key and RPC URL.
+    pub async fn start_docker_service(
+        &self,
+        p2p_node_rpc_url: String,
+        docker_compose_full_cmd_str: String,
+    ) -> Result<()> {
+        info!("Attempting to start llm-proxy service with command: {}", docker_compose_full_cmd_str);
+
+        // Parse the docker_compose_full_cmd_str to extract file path and additional arguments
+        let (
+            docker_compose_file_path_str,
+            additional_compose_args
+        ) = parse_docker_compose_command(docker_compose_full_cmd_str)?;
+
+        let docker_compose_path = std::path::Path::new(&docker_compose_file_path_str);
+        debug!("Parsed docker compose file path: {:?}", docker_compose_path);
+        debug!("Parsed additional compose args: {:?}", additional_compose_args);
+
+        let p2p_node_pubkey_pem = encode_libp2p_pubkey_to_pem(&self.node_id.id_keys)
+            .map_err(|e| anyhow!("Failed to encode p2p-node pubkey to PEM: {}", e))?;
+        println!("NodeClient: p2p-node's Ed25519 public key PEM generated for llm-proxy.");
+
+        if !docker_compose_path.exists() {
+            return Err(anyhow!("Docker Compose file not found at: {:?}", docker_compose_path));
+        }
+
+        let compose_dir = docker_compose_path.parent().ok_or_else(|| {
+            anyhow!("Could not determine directory of compose file: {:?}", docker_compose_path)
+        })?;
+
+        // Construct the full list of arguments for docker compose
+        let mut final_compose_args: Vec<String> = vec![
+            "compose".to_string(),
+            "-f".to_string(),
+            docker_compose_file_path_str.clone(), // Use the parsed file path
+        ];
+        final_compose_args.extend(additional_compose_args); // Add other parsed args (e.g., "up", "-d")
+
+        info!("Running Docker command in dir {:?}: docker {:?}",
+            compose_dir,
+            final_compose_args,
+        );
+
+        let mut command = Command::new("docker");
+        command
+            .args(&final_compose_args) // Use the constructed arguments
+            .current_dir(compose_dir)
+            .env("P2P_NODE_PUBKEY", p2p_node_pubkey_pem)
+            .env("P2P_NODE_RPC_URL", p2p_node_rpc_url)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        match command.spawn() {
+            Ok(child) => {
+                info!("llm-proxy service starting via docker-compose (PID: {})...", child.id());
+                let output = tokio::task::spawn_blocking(move || {
+                    child.wait_with_output()
+                }).await??;
+
+                 if output.status.success() {
+                     info!("Docker Compose 'up' command completed successfully.");
+                     debug!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+                     debug!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+                     Ok(())
+                 } else {
+                     error!("Docker Compose 'up' command failed with status: {}", output.status);
+                     error!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+                     error!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+                     Err(anyhow!("Docker Compose command failed"))
+                 }
+            }
+            Err(e) => {
+                error!("Failed to execute docker-compose command: {}", e);
+                Err(anyhow!("Failed to run docker-compose: {}. Is Docker running and docker-compose installed?", e))
+            }
+        }
+    }
+
+    pub async fn get_proxy_public_key(&self) -> Result<(Option<String>, Option<String>)> {
+        let proxy_public_key = self.llm_proxy_public_key.read().await;
+        let opt_public_key = proxy_public_key.as_ref();
+        let public_key_str = match opt_public_key {
+            Some(ref key) => Some(format!("{:?}", key)),
+            None => None
+        };
+
+        let ca_cert = self.llm_proxy_ca_cert.read().await;
+        let opt_ca_cert = ca_cert.as_ref();
+        let ca_cert_str = match opt_ca_cert {
+            Some(ref cert) => Some(format!("{:?}", cert)),
+            None => None
+        };
+        Ok((public_key_str, ca_cert_str))
+    }
+}
+
+// Helper function to parse the docker compose command string
+// Expected format: "docker compose -f <file_path> <other_args>"
+fn parse_docker_compose_command(command_str: String) -> Result<(String, Vec<String>), Error> {
+    // Regex to capture:
+    // - <file_path>: one or more non-whitespace characters after "-f "
+    // - <compose_args>: any characters after the file_path, which will be split by whitespace
+    let re = Regex::new(r"^docker\s*(?:-)?compose\s+-f\s+(?P<file_path>\S+)(?P<args_group>\s+.*)?$")
+        .map_err(|e| anyhow!("Failed to compile regex for docker command parsing: {}", e))?;
+
+    if let Some(caps) = re.captures(&command_str) {
+        let file_path = caps.name("file_path")
+            .expect("file_path must be captured if regex matches") // This part is not optional in the regex
+            .as_str()
+            .to_string();
+
+        let compose_args_str = caps.name("args_group") // This group is optional: (?P<args_group>\s+.*)?
+            .map_or("", |m| m.as_str().trim_start()); // If present, trim leading space(s) captured by \s+
+
+        // Split the remaining arguments by whitespace.
+        // Filter out empty strings that might result from multiple spaces (though split_whitespace handles this).
+        let compose_args_vec = compose_args_str
+            .split_whitespace()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        Ok((file_path, compose_args_vec))
+    } else {
+        Err(anyhow!(
+            "Command '{}' does not match expected format 'docker-compose -f <file_path> <args>' or 'docker compose -f <file_path> <args>'",
+            command_str
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_docker_compose_command_valid_simple() {
+        let cmd = "docker compose -f /path/to/docker-compose.yml up -d".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "/path/to/docker-compose.yml");
+        assert_eq!(args, vec!["up".to_string(), "-d".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_valid_simple_hyphenated() {
+        let cmd = "docker-compose -f /path/to/docker-compose.yml up -d".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "/path/to/docker-compose.yml");
+        assert_eq!(args, vec!["up".to_string(), "-d".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_extra_whitespace_around_f() {
+        let cmd = "docker compose   -f   /path/to/docker-compose.yml up -d".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "/path/to/docker-compose.yml");
+        assert_eq!(args, vec!["up".to_string(), "-d".to_string()]);
+
+        let cmd_hyphen = "docker-compose   -f   /path/to/docker-compose.yml up -d".to_string();
+        let (file_path_h, args_h) = parse_docker_compose_command(cmd_hyphen).unwrap();
+        assert_eq!(file_path_h, "/path/to/docker-compose.yml");
+        assert_eq!(args_h, vec!["up".to_string(), "-d".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_extra_whitespace_before_args() {
+        let cmd = "docker compose -f /path/to/docker-compose.yml   up -d".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "/path/to/docker-compose.yml");
+        assert_eq!(args, vec!["up".to_string(), "-d".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_no_compose_args() {
+        let cmd = "docker compose -f /path/to/docker-compose.yml".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "/path/to/docker-compose.yml");
+        assert!(args.is_empty());
+
+        let cmd_trailing_space = "docker compose -f /path/to/docker-compose.yml  ".to_string();
+        let (file_path_ts, args_ts) = parse_docker_compose_command(cmd_trailing_space).unwrap();
+        assert_eq!(file_path_ts, "/path/to/docker-compose.yml");
+        assert!(args_ts.is_empty());
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_single_compose_arg() {
+        let cmd = "docker-compose -f ./file.yml build".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "./file.yml");
+        assert_eq!(args, vec!["build".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_args_with_hyphens_and_paths() {
+        let cmd = "docker compose -f ../relative/path/test.yaml logs -f --tail=100 service_name".to_string();
+        let (file_path, args) = parse_docker_compose_command(cmd).unwrap();
+        assert_eq!(file_path, "../relative/path/test.yaml");
+        assert_eq!(args, vec!["logs".to_string(), "-f".to_string(), "--tail=100".to_string(), "service_name".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_invalid_no_f_flag() {
+        let cmd = "docker compose /path/to/docker-compose.yml up -d".to_string();
+        assert!(parse_docker_compose_command(cmd).is_err());
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_invalid_wrong_prefix() {
+        let cmd = "mydocker compose -f /path/to/docker-compose.yml up -d".to_string();
+        assert!(parse_docker_compose_command(cmd).is_err());
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_empty_string() {
+        let cmd = "".to_string();
+        assert!(parse_docker_compose_command(cmd).is_err());
+    }
+
+    #[test]
+    fn test_parse_docker_compose_command_just_prefix() {
+        let cmd = "docker compose -f".to_string();
+        assert!(parse_docker_compose_command(cmd).is_err());
+
+        let cmd2 = "docker-compose -f ".to_string();
+        assert!(parse_docker_compose_command(cmd2).is_err());
     }
 }
 

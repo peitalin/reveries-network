@@ -153,27 +153,6 @@ pub fn verify_usage_report(
     Ok(payload_data)
 }
 
-pub async fn load_llm_proxy_pubkey(path: &str, poll: bool) -> Result<VerifyingKey> {
-
-    let key_path = Path::new(path);
-    let max_wait = Duration::from_secs(60);
-    let poll_interval = Duration::from_secs(1);
-    let start_time = std::time::Instant::now();
-
-    info!("Waiting for proxy public key file at {}", path);
-    while !key_path.exists() && poll {
-        if start_time.elapsed() > max_wait {
-            return Err(anyhow!("Timed out waiting for proxy public key file: {}", path));
-        }
-        info!("Proxy key file {} not found, waiting {}s...", path, poll_interval.as_secs());
-        tokio_sleep(poll_interval).await;
-    }
-    info!("Found proxy public key file: {}", path);
-
-    VerifyingKey::from_public_key_pem(&tokio::fs::read_to_string(path).await?)
-        .map_err(|e| anyhow!("Failed to load proxy key: {}", e))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
