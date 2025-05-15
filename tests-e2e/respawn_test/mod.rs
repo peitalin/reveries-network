@@ -27,6 +27,7 @@ use runtime::llm::read_agent_secrets;
 use utils_network::{
     P2PNodeCleanupGuard,
     start_test_network,
+    create_test_node_configs,
     Port,
 };
 
@@ -160,7 +161,8 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
     let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
 
     // Start test network and get client connections
-    let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
+    let test_node_configs = create_test_node_configs(num_nodes)?;
+    let clients = start_test_network(test_node_configs.configs).await?;
 
     // Spawn an agent on the first node
     let threshold = 2;
@@ -248,7 +250,8 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
 
     // Start test network and get client connections
-    let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
+    let test_node_configs = create_test_node_configs(num_nodes)?;
+    let clients = start_test_network(test_node_configs.configs).await?;
 
     // Spawn an agent on the first node
     let threshold = 2;

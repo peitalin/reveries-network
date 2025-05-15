@@ -20,62 +20,124 @@ use serde_json::Value;
 
 // Node 1 is the bootstrap node
 static BOOTSTRAP_PEER: &str = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+static BOOTSTRAP_PEER_PORT: Port = 9001;
+static BASE_RPC_PORT: Port = 9901;
+static BASE_LISTEN_PORT: Port = 9001;
 pub type Port = u16;
 
-/// Helper function to start a network of nodes and return clients
-pub async fn start_test_network(
-    num_nodes: usize,
-    base_rpc_port: Port,
-    base_listen_port: Port
-) -> Result<HashMap<Port, HttpClient>> {
 
-    let bootstrap_url = &format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", base_listen_port, BOOTSTRAP_PEER);
-    // Prepare port lists
-    let rpc_ports: Vec<Port> = (0..num_nodes).map(|i| base_rpc_port + i as Port).collect();
-    let listen_ports: Vec<Port> = (0..num_nodes).map(|j| base_listen_port + j as Port).collect();
-    if num_nodes < 5 {
-        return Err(eyre!("num_nodes must be at least 5 for this test. Got {}", num_nodes));
+
+#[derive(Clone, Debug)]
+pub struct AllTestNodesConfig {
+    pub configs: Vec<TestNodeConfig>,
+}
+
+impl AllTestNodesConfig {
+    pub fn add_docker_compose_cmd(&mut self, node_number: usize, docker_compose_cmd: String) {
+        let index = node_number - 1;
+        self.configs[index].docker_compose_cmd = Some(docker_compose_cmd.clone());
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestNodeConfig {
+    pub rpc_port: Port,
+    pub listen_port: Port,
+    pub seed: usize,
+    pub bootstrap_peer: Option<String>,
+    pub docker_compose_cmd: Option<String>,
+}
+
+impl TestNodeConfig {
+    pub fn new(
+        rpc_port: Port,
+        listen_port: Port,
+        seed: usize,
+        bootstrap_peer: Option<String>,
+        docker_compose_cmd: Option<String>
+    ) -> Self {
+        Self {
+            rpc_port,
+            listen_port,
+            seed,
+            bootstrap_peer,
+            docker_compose_cmd
+        }
     }
 
-    // Start nodes (keep process handling for cleanup)
-    let mut node_processes = Vec::with_capacity(num_nodes);
+    pub fn add_docker_compose_cmd(&mut self, docker_compose_cmd: String) {
+        self.docker_compose_cmd = Some(docker_compose_cmd);
+    }
+}
+
+
+pub fn create_test_node_configs(
+    num_nodes: usize,
+) -> Result<AllTestNodesConfig> {
+
+    let bootstrap_url = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", BOOTSTRAP_PEER_PORT, BOOTSTRAP_PEER);
+    let rpc_ports: Vec<Port> = (0..num_nodes).map(|i| BASE_RPC_PORT + i as Port).collect();
+    let listen_ports: Vec<Port> = (0..num_nodes).map(|j| BASE_LISTEN_PORT + j as Port).collect();
+    let mut test_node_configs = Vec::with_capacity(num_nodes);
+
     for i in 0..num_nodes {
         let seed = i + 1; // Seeds start at 1
         let rpc_port = rpc_ports[i];
         let listen_port = listen_ports[i];
-        let bootstrap = if i > 0 { Some(bootstrap_url) } else { None };
+        let bootstrap = if i > 0 { Some(bootstrap_url.clone()) } else { None };
         if num_nodes < 2 {
             return Err(eyre!("num_nodes must be at least 2 for this test. Got {}", num_nodes));
         }
+        test_node_configs.push(TestNodeConfig::new(rpc_port, listen_port, seed, bootstrap, None));
+    }
 
+    info!("Cleaning up any existing processes on ports: {:?} and {:?}", rpc_ports, listen_ports);
+    kill_processes_on_ports(&rpc_ports);
+    kill_processes_on_ports(&listen_ports);
+    info!("Starting Rust test network...");
+
+    Ok(AllTestNodesConfig { configs: test_node_configs })
+}
+
+
+/// Helper function to start a network of nodes and return clients
+pub async fn start_test_network(test_nodes: Vec<TestNodeConfig>) -> Result<HashMap<Port, HttpClient>> {
+
+    let mut node_processes = Vec::with_capacity(test_nodes.len());
+
+    for node in test_nodes.clone() {
         let mut cmd = Command::new("cargo");
         cmd.current_dir("..")
             .args([
                 "run", "--bin", "rpc",
                 "--", // cmd args
-                "--secret-key-seed", &seed.to_string(),
-                "--rpc-port", &rpc_port.to_string(),
-                "--listen-address", &format!("/ip4/0.0.0.0/tcp/{}", listen_port),
+                "--secret-key-seed", &node.seed.to_string(),
+                "--rpc-port", &node.rpc_port.to_string(),
+                "--listen-address", &format!("/ip4/0.0.0.0/tcp/{}", node.listen_port),
             ])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
-        if let Some(bootstrap_peer) = bootstrap {
-            cmd.args(["--bootstrap-peers", bootstrap_peer]);
+        if let Some(bootstrap_peer) = node.bootstrap_peer {
+            cmd.args(["--bootstrap-peers", &bootstrap_peer]);
+        }
+
+        if let Some(docker_compose_cmd) = node.docker_compose_cmd {
+            cmd.args(["--docker-compose-cmd", &docker_compose_cmd]);
         }
 
         match cmd.spawn() {
             Ok(child) => {
-                node_processes.push((rpc_port, child));
-                info!("Started node{} on RPC port {} and listen port {}", seed, rpc_port, listen_port);
+                node_processes.push((node.rpc_port, child));
+                info!("Started node{} on RPC port {} and listen port {}", node.seed, node.rpc_port, node.listen_port);
             }
             Err(e) => {
-                warn!("Failed to spawn node {}: {}", seed, e);
+                warn!("Failed to spawn node {}: {}", node.seed, e);
                 // Attempt basic cleanup before returning
                 for (_, mut child) in node_processes {
                     let _ = child.kill();
                 }
-                return Err(eyre!("Failed to spawn node {}: {}", seed, e));
+                return Err(eyre!("Failed to spawn node {}: {}", node.seed, e));
             }
         }
     }
@@ -86,9 +148,8 @@ pub async fn start_test_network(
     println!("All nodes started and ready for client initialization.");
 
     // Create clients for all spawned nodes.
-    let client_target_ports = rpc_ports.clone();
-    let ready_when_peer_count = (num_nodes - 1).min(4);
-    // Expect to connect to at least 4 nodes.
+    let client_target_ports = test_nodes.iter().map(|node| node.rpc_port).collect();
+    let ready_when_peer_count = test_nodes.len() - 1;
 
     info!("Initializing clients for ports: {:?} using TestClientsBuilder...", client_target_ports);
     info!("Expecting each client's node to have at least {} connected peers.", ready_when_peer_count);
@@ -96,7 +157,7 @@ pub async fn start_test_network(
         .wait_for_rpc_servers().await?
         .wait_for_network_readiness(
             ready_when_peer_count,
-            30, // poll_timeout_secs
+            20, // poll_timeout_secs
             500 // poll_interval_ms previously 1000
         ).await?;
 
@@ -174,8 +235,8 @@ impl Drop for P2PNodeCleanupGuard {
 
 #[derive(Clone, Debug)]
 pub struct TestClientsBuilder {
-    target_rpc_ports: Vec<Port>,
-    active_clients: HashMap<Port, HttpClient>,
+    pub target_rpc_ports: Vec<Port>,
+    pub active_clients: HashMap<Port, HttpClient>,
 }
 
 impl TestClientsBuilder {

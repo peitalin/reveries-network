@@ -328,7 +328,6 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
                 spender_address,
                 spender_address_type
             ) = params.parse::<(String, String, String, String, String)>()?;
-            println!("RPC: add_proxy_api_key parsed params: {:?}", params);
             nc.add_proxy_api_key(
                 reverie_id,
                 api_key_name,
@@ -342,10 +341,7 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
     rpc_server.add_route_mut(
         "remove_proxy_api_key",
         |params, mut nc, _| async move {
-
             let reverie_id = params.one::<String>()?;
-            println!("RPC: remove_proxy_api_key parsed params: {:?}", params);
-
             nc.remove_proxy_api_key(
                 reverie_id,
             ).await.map_err(RpcError::from)

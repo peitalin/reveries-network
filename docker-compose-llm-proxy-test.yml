@@ -32,19 +32,19 @@ services:
       - "7666:7666"
       - "7070:7070"
 
-  # # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
-  # caddy:
-  #   image: caddy:latest # Use official Caddy image
-  #   container_name: caddy
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6000:80" # Map host 6000 to Caddy's internal port 80 (defined in Caddyfile)
-  #   volumes:
-  #     # Mount the Caddyfile (adjust host path as needed)
-  #     - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
-  #   networks:
-  #     - llm-network # Can reach python-llm-server
-  #     - default     # Can be reached from host
+  # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
+  caddy:
+    image: caddy:latest # Use official Caddy image
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "6000:80" # Map host 6000 to Caddy's internal port 80 (defined in Caddyfile)
+    volumes:
+      # Mount the Caddyfile (adjust host path as needed)
+      - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
+    networks:
+      - llm-network # Can reach python-llm-server
+      - default     # Can be reached from host
 
   # ### TODO: configure router + port forwarding for
   # ### NEAR inbound ports 24567
@@ -124,6 +124,7 @@ services:
     restart: always
     networks:
       - llm-network
+      - default
     ports:
       - "8000:8000" # default FastAPI port
     command: python weather.py

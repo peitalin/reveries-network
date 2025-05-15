@@ -394,15 +394,13 @@ async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
         info!("Attempting to send JSON-RPC request for LLM Proxy public key to p2p-node at {}", rpc_endpoint_url);
         let client = ReqwestClient::new();
         match client.post(&rpc_endpoint_url)
-                    .json(&json_rpc_payload) // Send the full JSON-RPC request object
+                    .json(&json_rpc_payload)
                     .send().await {
             Ok(response) => {
                 let status = response.status();
                 match response.text().await {
                     Ok(text) => {
                         if status.is_success() {
-                            // A successful JSON-RPC response should also be JSON and contain either a "result" or an "error" field.
-                            // For simplicity, just logging the text for now.
                             info!("Successfully sent LLM Proxy key registration to p2p-node. Status: {}. Response: {}", status, text);
                         } else {
                             error!("LLM Proxy key registration request to p2p-node failed. Status: {}. Body: {}", status, text);

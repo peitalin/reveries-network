@@ -13,10 +13,12 @@ use futures::future::ok;
 use std::collections::{HashMap, HashSet};
 use std::str::Split;
 use std::sync::Arc;
+use std::pin::Pin;
 use std::fs;
 use color_eyre::{Result, eyre::anyhow, eyre::Error};
 use colored::Colorize;
 use futures::FutureExt;
+use futures::pin_mut;
 use hex;
 use libp2p::{core::Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
@@ -225,7 +227,7 @@ impl NodeClient {
         reverie: &Reverie,
         target_vessel_peer_id: PeerId,
         mut target_kfrag_providers: Vec<NodeKeysWithVesselStatus>
-    ) -> Result<()> {
+    ) -> Result<(), SendError> {
 
         let umbral_ciphertext = reverie.umbral_ciphertext.clone();
 
@@ -233,7 +235,11 @@ impl NodeClient {
         let kfrags = self.create_reverie_keyfrags(&reverie)?;
 
         if target_kfrag_providers.len() < reverie.total_frags {
-            return Err(anyhow!("Not connected to enough peers, need: {}, got: {}", reverie.total_frags + 1, target_kfrag_providers.len() + 1));
+            return Err(SendError(format!(
+                "Not connected to enough peers, need: {}, got: {}",
+                reverie.total_frags + 1,
+                target_kfrag_providers.len() + 1
+            )));
         } else if target_kfrag_providers.len() > reverie.total_frags {
             target_kfrag_providers = target_kfrag_providers
                 .into_iter()
@@ -243,22 +249,23 @@ impl NodeClient {
         info!("Kfrag providers: {}", target_kfrag_providers.len());
         info!("Total frags: {}", reverie.total_frags);
 
-        // Broadcast Kfrags to peer nodes
-        futures::future::try_join_all(
+        // Create futures for broadcasting Kfrags to peer nodes
+        let send_kfrag_futures = futures::future::try_join_all(
             kfrags.into_iter().enumerate().map(|(i, reverie_keyfrag)| {
                 let keyfrag_provider = target_kfrag_providers[i].peer_id;
+                let source_peer_id = self.node_id.peer_id.clone();
                 self.command_sender.send(
                     NodeCommand::SendReverieKeyfrag {
                         keyfrag_provider: keyfrag_provider,
                         reverie_keyfrag_msg: ReverieKeyfragMessage {
                             reverie_keyfrag: reverie_keyfrag,
-                            source_peer_id: self.node_id.peer_id,
+                            source_peer_id: source_peer_id,
                             target_peer_id: target_vessel_peer_id,
                         },
                     }
                 )
             })
-        ).await?;
+        );
 
         // Add Memory trading:
         // make it easy for a user ALICE (not running a node) to
@@ -274,52 +281,61 @@ impl NodeClient {
         match reverie.reverie_type {
             ReverieType::SovereignAgent(..) => {
                 // Send Ciphertext to target vessel if ReverieType::SovereignAgent
-                // These agents live in an isolated TEE instance
-                self.command_sender.send(
-                    NodeCommand::SendReverieToSpecificPeer {
-                        ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
-                        reverie_msg: ReverieMessage {
-                            reverie: reverie.clone(),
-                            source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel_peer_id,
-                            keyfrag_providers: target_kfrag_providers.iter()
-                                .map(|v| v.peer_id).collect(),
-                        },
-                    }
-                ).await?;
+                let (f1, f2) = futures::future::join(
+                    // Send all Kfrags
+                    send_kfrag_futures,
+                    // Send Reverie to the target vessel
+                    self.command_sender.send(
+                        NodeCommand::SendReverieToSpecificPeer {
+                            ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
+                            reverie_msg: ReverieMessage {
+                                reverie: reverie.clone(),
+                                source_peer_id: self.node_id.peer_id,
+                                target_peer_id: target_vessel_peer_id,
+                                keyfrag_providers: target_kfrag_providers.iter()
+                                    .map(|v| v.peer_id).collect(),
+                            },
+                        }
+                    )
+                ).await;
+                // ensure f1, f2 both return Ok(())
+                f1.and(f2).map_err(SendError::from)
             }
             _ => {
-                // Save Reverie on DHT for other ReverieTypes (Agent, Memory, Retrieval, Tools)
-                self.command_sender.send(
-                    NodeCommand::SaveReverieOnNetwork {
-                        reverie_msg: ReverieMessage {
-                            reverie: reverie.clone(),
-                            source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel_peer_id,
-                            keyfrag_providers: target_kfrag_providers.iter()
-                                .map(|v| v.peer_id).collect(),
-                        },
-                    }
-                ).await?;
-
-                // Still need to send to the target vessel for now
-                // so that it can track prev_vessel node for failure/respawning.
-                self.command_sender.send(
-                    NodeCommand::SendReverieToSpecificPeer {
-                        ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
-                        reverie_msg: ReverieMessage {
-                            reverie: reverie.clone(),
-                            source_peer_id: self.node_id.peer_id,
-                            target_peer_id: target_vessel_peer_id,
-                            keyfrag_providers: target_kfrag_providers.iter()
-                                .map(|v| v.peer_id).collect(),
-                        },
-                    }
-                ).await?;
+                let (f1, f2, f3) = futures::future::join3(
+                    // Send all Kfrags
+                    send_kfrag_futures,
+                    // Save Reverie on DHT for other ReverieTypes (Agent, Memory, Retrieval, Tools)
+                    self.command_sender.send(
+                        NodeCommand::SaveReverieOnNetwork {
+                            reverie_msg: ReverieMessage {
+                                reverie: reverie.clone(),
+                                source_peer_id: self.node_id.peer_id,
+                                target_peer_id: target_vessel_peer_id,
+                                keyfrag_providers: target_kfrag_providers.iter()
+                                    .map(|v| v.peer_id).collect(),
+                            },
+                        }
+                    ),
+                    // Still need to send to the target vessel
+                    // so that it can track prev_vessel node for failure/respawning.
+                    self.command_sender.send(
+                        NodeCommand::SendReverieToSpecificPeer {
+                            ciphertext_holder: target_vessel_peer_id, // Ciphertext Holder
+                            reverie_msg: ReverieMessage {
+                                reverie: reverie.clone(),
+                                source_peer_id: self.node_id.peer_id,
+                                target_peer_id: target_vessel_peer_id,
+                                keyfrag_providers: target_kfrag_providers.iter()
+                                    .map(|v| v.peer_id).collect(),
+                            },
+                        }
+                    )
+                ).await;
+                // ensure f1, f2, f3 all return Ok(())
+                f1.and(f2).and(f3).map_err(SendError::from)
             }
         }
-
-        Ok(())
     }
 
     pub async fn get_node_vessels(&self, shuffle: bool) -> Vec<NodeKeysWithVesselStatus> {
@@ -766,6 +782,7 @@ fn parse_docker_compose_command(command_str: String) -> Result<(String, Vec<Stri
         ))
     }
 }
+
 
 #[cfg(test)]
 mod tests {

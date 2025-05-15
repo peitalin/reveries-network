@@ -38,7 +38,7 @@ impl Display for SendError {
 
 impl From<HashSet<PeerId>> for SendError {
     fn from(hset: HashSet<PeerId>) -> Self {
-        SendError(anyhow!("sender.send(providers) err: {:?}", hset).to_string())
+        SendError(format!("sender.send(providers) err: {:?}", hset))
     }
 }
 
@@ -68,6 +68,12 @@ impl From<eyre::Error> for SendError {
 
 impl From<Box<dyn std::error::Error + Send>> for SendError {
     fn from(e: Box<dyn std::error::Error + Send>) -> Self {
+        SendError(e.to_string())
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for SendError {
+    fn from(e: tokio::sync::mpsc::error::SendError<T>) -> Self {
         SendError(e.to_string())
     }
 }

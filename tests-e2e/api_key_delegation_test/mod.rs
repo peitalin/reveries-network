@@ -6,12 +6,9 @@ mod utils_network;
 use alloy_primitives::{Address, B256};
 use alloy_signer::Signer;
 use alloy_signer_local::PrivateKeySigner;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::anyhow};
 use jsonrpsee::core::client::ClientT;
-use libp2p_identity::Keypair;
-use once_cell::sync::Lazy;
 use std::time::Duration;
-use std::env;
 use scopeguard::defer;
 use serde_json::json;
 use sha3::{Digest, Keccak256};
@@ -27,54 +24,31 @@ use p2p_network::types::{
     ExecuteWithMemoryReverieResult,
     AnthropicQuery,
 };
-use p2p_network::utils::pubkeys::{
-    generate_peer_keys,
-    export_libp2p_public_key
-};
 use utils_docker::{
-    setup_docker_environment,
     shutdown_docker_environment,
     init_test_logger,
 };
 use utils_network::{
     P2PNodeCleanupGuard,
+    create_test_node_configs,
     start_test_network,
 };
 
-// Path to /tests dir
-const DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
-const TEST_NODE_PUBKEY_EXPORT_TARGET: &str = "../llm-proxy/pubkeys/p2p-node/p2p_node_test.pub.pem";
+// filepath from the perspective of tests-e2e tests
+const RELATIVE_DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
+/// filepath from the perspective of the root of the repo
+const ROOT_DOCKER_COMPOSE_TEST_FILE: &str = "./docker-compose-llm-proxy-test.yml";
 // Generate a FIXED keypair using seed
-const TEST_KEY_SEED: usize = 2; // hardcode node2 as sender of API Key
-static TEST_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
-    let (
-        _peer_id,
-        id_keys,
-        _node_name,
-        _umbral_key
-    ) = generate_peer_keys(Some(TEST_KEY_SEED));
-    id_keys
-});
+const TARGET_NODE_2: usize = 2; // hardcode node2 as sender of API Key
+
 
 static TEST_ENV_SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
 
 async fn setup_test_environment_once_async() -> Result<()> {
     TEST_ENV_SETUP_ONCE.get_or_try_init(|| async {
-
         init_test_logger();
-        env::set_var("CA_CERT_PATH", "./llm-proxy/certs/hudsucker.cer");
-
-        if let Err(e) = export_libp2p_public_key(&TEST_KEYPAIR, TEST_NODE_PUBKEY_EXPORT_TARGET) {
-            error!("Setup panic: Could not export memory_test public key to {}: {}", TEST_NODE_PUBKEY_EXPORT_TARGET, e);
-            return Err(e);
-        }
-        info!("✅ Exported memory_test public key.");
-
-        if let Err(e) = setup_docker_environment(DOCKER_COMPOSE_TEST_FILE).await {
-            error!("Setup panic: Could not start Docker environment: {}", e);
-            return Err(e);
-        }
-        Ok(())
+        // env::set_var("CA_CERT_PATH", "./llm-proxy/certs/hudsucker.cer");
+        Ok::<(), color_eyre::eyre::Error>(())
     }).await?;
     Ok(())
 }
@@ -90,28 +64,59 @@ async fn create_signer() -> Result<PrivateKeySigner> {
 pub async fn test_api_key_delegation_reverie() -> Result<()> {
 
     setup_test_environment_once_async().await?;
-    let base_rpc_port = 9901;
-    let base_listen_port = 9001;
-    let num_nodes = 5;
 
-    let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
-    let listen_ports: Vec<u16> = (0..num_nodes).map(|j| base_listen_port + j as u16).collect();
-    let rust_node_ports = [&rpc_ports[..], &listen_ports[..]].concat();
+    let mut test_node_configs = create_test_node_configs(5)?;
+    let _guard = P2PNodeCleanupGuard::with_ports(
+        test_node_configs.configs.iter().map(|c| c.rpc_port).collect()
+    );
 
-    dotenv::dotenv().ok();
-    let _guard = P2PNodeCleanupGuard::with_ports(rust_node_ports);
+    // 1. Add docker-compose command to node2 to execute
+    test_node_configs.add_docker_compose_cmd(
+        TARGET_NODE_2,
+        format!("docker-compose -f {} up -d",  ROOT_DOCKER_COMPOSE_TEST_FILE),
+        // Spinning up all required docker services
+    );
 
-    info!("Starting Rust test network...");
-    let clients = start_test_network(num_nodes, base_rpc_port, base_listen_port).await?;
-    info!("Rust test network started successfully.");
+    // 2. Start the test network
+    let clients = start_test_network(test_node_configs.configs).await?;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    // Secret #1: Anthropic API key
+    // 3. Wait for llm-proxy to register its pubkey with this p2p-node
+    println!("NodeClient: Waiting for llm-proxy to register its P256 public key...");
+    let wait_duration = std::time::Duration::from_secs(20);
+    let poll_interval = std::time::Duration::from_millis(500);
+    let start_wait = tokio::time::Instant::now();
+    loop {
+        let (
+            proxy_public_key,
+            proxy_ca_cert
+        ): (Option<String>, Option<String>) = clients[&9902].request(
+            "get_proxy_public_key",
+            jsonrpsee::rpc_params![]
+        ).await?;
+
+        if proxy_public_key.is_some() && proxy_ca_cert.is_some() {
+            println!("NodeClient: LLM Proxy's P256 public key and CA certificate have been registered.");
+            break;
+        }
+        println!("still waiting for proxy_public_key: {:?}", proxy_public_key);
+        println!("still waiting for proxy_ca_cert: {:?}", proxy_ca_cert);
+        if start_wait.elapsed() > wait_duration {
+            error!("NodeClient: Timeout waiting for llm-proxy to register its public key.");
+            let _ = std::process::Command::new("docker").args(["logs", "llm-proxy"]).status();
+            return Err(anyhow!("Timeout waiting for llm-proxy key registration"));
+        }
+        tokio::time::sleep(poll_interval).await;
+    }
+    println!("NodeClient: Confirmed LLM Proxy P256 public key and CA certificate are present in NodeClient state.");
+
+    // 3. Encrypt Secret #1: Anthropic API key
     let api_keys_secrets = json!({
         "anthropic_api_key": std::env::var("ANTHROPIC_API_KEY").ok(),
         "deepseek_api_key": std::env::var("DEEPSEEK_API_KEY").ok(),
     });
 
-    // Secret #2: Memories
+    // 4. Encrypt Secret #2: Memories
     let memory_secrets = json!({
         "name": "Agent K",
         "memories": [
@@ -286,6 +291,6 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     };
 
     time::sleep(Duration::from_secs(3)).await;
-    defer! { shutdown_docker_environment(DOCKER_COMPOSE_TEST_FILE); }
+    defer! { shutdown_docker_environment(RELATIVE_DOCKER_COMPOSE_TEST_FILE); }
     Ok(())
 }

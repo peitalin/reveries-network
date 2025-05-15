@@ -7,12 +7,8 @@ Manages connection to an MCP server (like weather_mcp.py) via stdio.
 
 import asyncio
 import logging
-import httpx
-import time
 from typing import Optional, Dict, Any
 from contextlib import AsyncExitStack
-
-# Import Request for the dependency getter
 from fastapi import Request
 
 from mcp.client.session import ClientSession

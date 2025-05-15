@@ -90,18 +90,35 @@ pub async fn setup_docker_environment(docker_compose_file: &str) -> Result<()> {
 }
 
 pub fn shutdown_docker_environment(docker_compose_file: &str) {
-    match Command::new("docker-compose")
-        .args(["-f", docker_compose_file, "down", "-v"])
-        .stdout(Stdio::inherit())
+    info!("Attempting to shutdown Docker environment with: docker-compose -f {} down -v", docker_compose_file);
+
+    let ttl = "3"; // time before force killing docker-compose containers
+
+    let result = Command::new("docker-compose")
+        .args(["-f", docker_compose_file, "down", "-v", "-t", ttl])
+        .stdout(Stdio::inherit()) // Keep stdout/stderr for direct visibility if preferred
         .stderr(Stdio::inherit())
-        // .spawn() // don't wait for docker-compose down to complete
-        .output() // wait for docker-compose down to complete
-    {
-        Ok(_) => {
-            println!("✅ 'docker-compose down -v' completed successfully.");
+        .output(); // Capture output to log it
+
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                info!("✅ 'docker-compose -f {} down -v -t {} ' executed successfully.", docker_compose_file, ttl);
+                debug!("docker-compose down stdout: {}", String::from_utf8_lossy(&output.stdout));
+                debug!("docker-compose down stderr: {}", String::from_utf8_lossy(&output.stderr));
+            } else {
+                error!(
+                    "❌ 'docker-compose -f {} down -v -t {} ' command failed with status: {}.",
+                    docker_compose_file,
+                    ttl,
+                    output.status
+                );
+                error!("docker-compose down stdout: {}", String::from_utf8_lossy(&output.stdout));
+                error!("docker-compose down stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
         }
         Err(e) => {
-            println!("❌ 'docker-compose down -v' failed: {}", e);
+            error!("❌ Failed to even execute 'docker-compose -f {} down -v -t {}': {}", docker_compose_file, ttl, e);
         }
     }
 }
