@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::os::fd::OwnedFd;
 use color_eyre::eyre::{Result, Error, ErrReport};
 use futures::{Stream, StreamExt, pin_mut};
 use hex;
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use alloy_primitives::Address;
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use std::future::Future;
 
 use p2p_network::types::{
@@ -34,6 +35,9 @@ use p2p_network::get_node_name;
 use runtime::llm::AgentSecretsJson;
 use runtime::QuoteBody;
 use llm_proxy::usage::SignedUsageReport;
+use libp2p::identity::Keypair as IdentityKeypair;
+use p2p_network::env_var::EnvVars;
+use p2p_network::utils::pubkeys::generate_peer_keys;
 
 pub struct RpcServer {
     pub server: Server,
@@ -93,8 +97,12 @@ impl RpcServer {
         tokio::spawn(
             self.server
                 .start(self.rpc_module)
-                .stopped() // keep the server running, wait until stopped
-        ).await?;
+                .stopped() // This future resolves when the server is stopped.
+        );
+        info!("RPC Server task spawned, attempting to listen on {}", addr);
+        // It might take a brief moment for the OS to actually bind the port.
+        // A very short delay or a loop checking port availability could be added here if needed,
+        // but typically, the subsequent operations in main.rs allow enough time.
         Ok(addr)
     }
 }
@@ -109,10 +117,25 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
     ////////////////////////////////////////////////////
     // RPC Endpoints
     ////////////////////////////////////////////////////
-    rpc_server.add_route_mut(
+    rpc_server.add_route(
         "health",
         |_, _, _| async move {
-            Ok::<String, RpcError>("ok".to_string())
+            Ok::<_, RpcError>(serde_json::json!({ "status": "ok" }))
+        }
+    )?;
+
+     rpc_server.add_route_mut(
+        "get_proxy_public_key",
+        |_, mut nc, _| async move {
+
+            let (
+                proxy_public_key,
+                ca_cert
+            ) = nc.get_proxy_public_key().await.map_err(RpcError::from)?;
+
+            Ok::<(Option<String>, Option<String>), RpcError>(
+                (proxy_public_key, ca_cert)
+            )
         }
     )?;
 
@@ -240,6 +263,88 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
                     Err(RpcError(format!("Failed to get connected peers: {:?}", e)))
                 }
             }
+        }
+    )?;
+
+    // Add the new endpoint for registering LLM Proxy key
+    rpc_server.add_route_mut(
+        "register_llm_proxy_key",
+        |params, mut nc, _| async move {
+            match params.parse::<llm_proxy::types::LlmProxyPublicKeyPayload>() {
+                Ok(payload) => {
+                    debug!("RPC: Parsed LlmProxyPublicKeyPayload: pubkey_pem (len {}), signature_b64 (len {}).",
+                        payload.pubkey_pem.len(), payload.signature_b64.len()
+                    );
+                    match nc.register_llm_proxy_pubkey(payload).await {
+                        Ok(key_info) => {
+                            info!("RPC: Successfully processed and stored LLM Proxy public key: {}", key_info);
+                            Ok(serde_json::json!({ "status": "success", "message": "LLM Proxy public key registered.", "key_info": key_info }))
+                        }
+                        Err(e) => {
+                            error!("RPC: Error processing LLM Proxy public key: {}", e);
+                            Err(RpcError(format!("Failed to process LLM Proxy key: {}", e)))
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("RPC: Failed to parse LlmProxyPublicKeyPayload: {}", e);
+                    Err(RpcError(format!("Invalid parameters for register_llm_proxy_key: {}", e)))
+                }
+            }
+        }
+    )?;
+
+    // Updated mock_api_key_test endpoint
+    rpc_server.add_route_mut(
+        "start_docker_service",
+        move |params: Params, nc: NodeClient, _| async move {
+            info!("RPC: Received start_docker_service request.");
+
+            let (
+                p2p_node_rpc_url,
+                docker_compose_file,
+            ) = params.parse::<(String, String)>()?;
+
+            match nc.start_docker_service(p2p_node_rpc_url, docker_compose_file).await {
+                Ok(_) => {
+                    info!("RPC: start_docker_service executed successfully.");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("RPC: Error executing start_docker_service: {}", e);
+                    Err(RpcError(format!("Failed to execute start_docker_service: {}", e)))
+                }
+            }
+        }
+    )?;
+
+    rpc_server.add_route_mut(
+        "add_proxy_api_key",
+        |params, mut nc, _| async move {
+            let (
+                reverie_id,
+                api_key_name,
+                api_key,
+                spender_address,
+                spender_address_type
+            ) = params.parse::<(String, String, String, String, String)>()?;
+            nc.add_proxy_api_key(
+                reverie_id,
+                api_key_name,
+                api_key,
+                spender_address,
+                spender_address_type
+            ).await.map_err(RpcError::from)
+        }
+    )?;
+
+    rpc_server.add_route_mut(
+        "remove_proxy_api_key",
+        |params, mut nc, _| async move {
+            let reverie_id = params.one::<String>()?;
+            nc.remove_proxy_api_key(
+                reverie_id,
+            ).await.map_err(RpcError::from)
         }
     )?;
 

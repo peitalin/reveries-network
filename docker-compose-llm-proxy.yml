@@ -2,38 +2,41 @@ services:
   # The proxy service intercepts and logs all LLM API calls
   llm-proxy:
     container_name: llm-proxy
-    # build:
-    #   context: . # Build context is the project root
-    #   dockerfile: llm-proxy/Dockerfile # Path relative to context
+    build:
+      context: . # Build context is the project root
+      dockerfile: llm-proxy/Dockerfile # Path relative to context
     image: llm-proxy-local # Optional: name the image
     restart: unless-stopped
     environment:
       - RUST_LOG=info,llm_proxy=debug
-      - REPORT_USAGE_URL=http://host.docker.internal:8002
-      - LLM_PROXY_INTERNAL_PORT=7070 # Set the internal API port
+      ### NOTE: hardcoded to node2's port:
+      - REPORT_USAGE_URL=http://host.docker.internal:9902
+      - INTERNAL_API_KEY_SERVER_PORT=7070 # Set the internal API port
       - CA_CERT_PATH=/certs_src/hudsucker.cer
+      ## API key server
+      - P2P_NODE_PUBKEY=${P2P_NODE_PUBKEY} # Injected by p2p-node start command
+      - P2P_NODE_RPC_URL=${P2P_NODE_RPC_URL} # Needs to be set in p2p-node's env or passed
     volumes:
       # Mount host CA certs for runtime reading/writing of hudsucker certs
       - ./llm-proxy/certs:/certs_src
       # Mount llm-proxy directory for receiving p2p-node public key
-      - ./llm-proxy/pubkeys/llm-proxy:/pubkeys/llm-proxy # Needs RW
-      # Mount p2p-node directory for llm-proxy to read
-      - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
+      # - ./llm-proxy/pubkeys/llm-proxy:/pubkeys/llm-proxy # Needs RW
+      # # Mount p2p-node directory for llm-proxy to read
+      # - ./llm-proxy/pubkeys/p2p-node:/pubkeys/p2p-node:ro
     networks:
       - llm-network  # Connects to python-llm-server
       - default      # Also connects to the default bridge network (which has external access)
     # Expose port only if direct external access needed
     ports:
-      - "8080:8080"
+      - "7666:7666"
       - "7070:7070"
 
-  # Caddy v2 Reverse proxy forwards inbound requests to python-llm-server
   caddy:
     image: caddy:latest # Use official Caddy image
     container_name: caddy
     restart: unless-stopped
     ports:
-      - "8000:80" # Map host 8000 to Caddy's internal port 80 (defined in Caddyfile)
+      - "6000:80" # Map host 6000 to Caddy's internal port 80 (defined in Caddyfile)
     volumes:
       # Mount the Caddyfile (adjust host path as needed)
       - ./llm-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile
@@ -66,9 +69,9 @@ services:
   #         memory: 8G
   #   memswap_limit: 28g
 
-  #########################################################
-  ## Dynamically deployed Python LLM agents
-  #########################################################
+  # #########################################################
+  # ## Dynamically deployed Python LLM agents
+  # #########################################################
 
   # The Python LLM server that makes API calls
   python-llm-server:
@@ -77,22 +80,25 @@ services:
       dockerfile: Dockerfile
     environment:
       # Route all HTTP and HTTPS traffic through our proxy
-      - HTTP_PROXY=http://llm-proxy:8080
-      - HTTPS_PROXY=http://llm-proxy:8080
+      - HTTP_PROXY=http://llm-proxy:7666
+      - HTTPS_PROXY=http://llm-proxy:7666
       # Don't proxy requests to localhost or the proxy itself
-      - NO_PROXY=localhost,127.0.0.1,llm-proxy
+      - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy,weather-mcp
+      # - NO_PROXY=localhost,127.0.0.1,llm-proxy,reverse-proxy,weather-mcp,weather-mcp:8000,weather-mcp:8000/sse
       # Point requests library to the proxy's CA certificate
       - REQUESTS_CA_BUNDLE=/certs/hudsucker.cer
       # Set SSL environment variables for Python
       - SSL_CERT_FILE=/certs/hudsucker.cer
+      # Dummy API key triggers API Key delegation (Anthropic SDK requires an API key)
+      - ANTHROPIC_API_KEY=sk-ant-delegated-api-key
+      # Weather service configuration - updated with correct SSE path
+      - WEATHER_MCP_URL=http://weather-mcp:8000/sse
     volumes:
       - ./llm-proxy/certs:/certs:ro
     networks:
       - llm-network  # Connects to llm-proxy only
-      - default
     depends_on:
       - llm-proxy
-      - caddy
     restart: unless-stopped
     command: >
       sh -c "
@@ -108,11 +114,29 @@ services:
         python main.py
       "
 
+  weather-mcp:
+    build:
+      context: ./agents/mcp/weather-server-python
+      dockerfile: Dockerfile
+    container_name: weather-mcp
+    restart: always
+    networks:
+      - llm-network
+      - default
+    ports:
+      - "8000:8000" # default FastAPI port
+    command: python weather.py
+
 networks:
   llm-network:
     driver: bridge
-    internal: true
+    internal: false
     # `internal: true` restricts external network access.
     # Restriction applies to all IP traffic originating from containers attached
     # exclusively to this network, regardless of transport protocol (TCP, UDP)
     # or application protocol (HTTP, HTTPS, gRPC, WebSockets, raw sockets, etc.)
+
+# Declare the named volume at the top level
+volumes:
+  near_data_volume:
+    driver: local # Optional: specify driver (local is default)

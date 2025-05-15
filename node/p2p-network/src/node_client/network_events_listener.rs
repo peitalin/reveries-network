@@ -5,7 +5,6 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, error};
 use p256::ecdsa::VerifyingKey as P256VerifyingKey;
 
-use crate::node_client::usage_verification::load_llm_proxy_pubkey;
 use crate::env_var::EnvVars;
 use crate::{short_peer_id, SendError};
 use crate::network_events::NodeIdentity;
@@ -43,13 +42,6 @@ impl NodeClient {
             let res = receiver.await?.map_err(SendError::from)?;
             info!("Listening to network on: {:?}", res);
         };
-        Ok(())
-    }
-
-    pub async fn poll_for_llm_proxy_pubkey(&mut self, env_vars: &EnvVars) -> Result<()> {
-        // Initialize Usage Report DB Pool
-        let proxy_public_key: Option<P256VerifyingKey> = load_llm_proxy_pubkey(&env_vars.PROXY_PUBLIC_KEY_PATH, false).await.ok();
-        self.proxy_public_key = proxy_public_key;
         Ok(())
     }
 

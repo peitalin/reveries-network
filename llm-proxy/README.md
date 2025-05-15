@@ -59,8 +59,8 @@ When running the proxy for the first time, you'll need to:
 ## Usage in Rust Applications
 
 The `call_llm_api` function in `node/runtime/src/llm/mod.rs` doesn't need any modifications.
-It will continue to call the Python server at `http://localhost:8000/`, which in turn routes its
-API requests through the proxy.
+It will continue to call the Python server in docker-compose, which in turn routes its
+API requests through the llm-proxy.
 
 ## Manual Setup
 
@@ -71,8 +71,8 @@ If you need to run the services separately:
 cargo run -p llm-proxy
 
 # In another terminal, set environment variables and start the Python server
-export HTTP_PROXY=http://localhost:8080
-export HTTPS_PROXY=http://localhost:8080
+export HTTP_PROXY=http://localhost:7666
+export HTTPS_PROXY=http://localhost:7666
 export NO_PROXY=localhost,127.0.0.1
 cd agents/python/execute_with_memories
 python main.py

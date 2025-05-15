@@ -12,9 +12,15 @@ pub struct Opt {
     #[clap(long)]
     pub rpc_port: Option<usize>,
 
-    #[clap(long, value_delimiter = ',')]  // Allow comma-separated values
+     // Allow comma-separated values
+    #[clap(long, value_delimiter = ',')]
     pub listen_address: Vec<Multiaddr>,
 
+    // Format: "peer_id@ip:port"
     #[clap(long, value_delimiter = ',')]
-    pub bootstrap_peers: Vec<String>,  // Format: "peer_id@ip:port"
+    pub bootstrap_peers: Vec<String>,
+
+    // Format: "docker compose -f <docker_compose_file_path> <other_args>"
+    #[clap(long)]
+    pub docker_compose_cmd: Option<String>,
 }

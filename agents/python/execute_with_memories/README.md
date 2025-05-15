@@ -22,7 +22,7 @@ pip install mcp-python-sdk httpx
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key
 DEEPSEEK_API_KEY=your_deepseek_api_key
-LLM_API_PORT=8000
+LLM_API_PORT=6000
 ```
 
 ## Running the Server
@@ -33,7 +33,7 @@ Start the server with:
 python main.py
 ```
 
-The server runs on port 8000 by default or the port specified in the `LLM_API_PORT` environment variable.
+The server runs on port 6000 by default or the port specified in the `LLM_API_PORT` environment variable.
 
 ## API Endpoints
 

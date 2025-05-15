@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from services import WEATHER_TOOLS
 
 class QueryRequest(BaseModel):
     prompt: str

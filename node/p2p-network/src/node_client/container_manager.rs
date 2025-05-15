@@ -4,13 +4,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
-
+use std::process::{Command, Stdio};
+use std::path::Path;
+use color_eyre::{Result, eyre::anyhow};
+use tracing::{info, error, debug};
 
 /// Represents different reasons for restart
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum RestartReason {
+    /// Triggered heartbeat failure for tests.
     ScheduledHeartbeatFailure,
+    /// Triggered by network heartbeat failure.
     NetworkHeartbeatFailure,
+    /// Generic error.
     Error(String),
 }
 
@@ -84,8 +90,8 @@ impl ContainerManager {
         // encrypt and save somewhere threshold decryptable by MPC network
         Ok(())
     }
-}
 
+}
 
 #[derive(Clone)]
 pub struct AppState {

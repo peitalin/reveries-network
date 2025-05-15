@@ -25,7 +25,7 @@ pub async fn call_python_llm_server(
 ) -> Result<LlmResult> {
 
     let client = reqwest::Client::new();
-    let api_url = format!("http://localhost:8000/{}", api_type);
+    let api_url = format!("http://localhost:6000/{}", api_type);
     let payload = serde_json::json!({
         "prompt": prompt,
         "context": context,

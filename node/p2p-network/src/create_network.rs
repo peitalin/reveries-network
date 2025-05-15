@@ -39,7 +39,7 @@ use crate::network_events::{NetworkEvents, NodeIdentity};
 use crate::node_client::{NodeClient, ContainerManager};
 use crate::usage_db::init_usage_db;
 use crate::env_var::EnvVars;
-use crate::utils::pubkeys::{generate_peer_keys, export_libp2p_public_key};
+use crate::utils::pubkeys::generate_peer_keys;
 
 /// Creates the network components, namely:
 /// - The network client to interact with the network layer from anywhere within your application.
@@ -60,15 +60,6 @@ pub async fn new(
     ) = generate_peer_keys(secret_key_seed);
 
     let env_vars = EnvVars::load();
-
-    match export_libp2p_public_key(&id_keys, &env_vars.P2P_NODE_PUBKEY_PATH) {
-        Ok(_) => info!("Successfully exported p2p-node public key to {}", env_vars.P2P_NODE_PUBKEY_PATH),
-        Err(e) => {
-            error!("Failed to export p2p-node public key to {}: {}.
-                Signature verification by proxy will fail.", env_vars.P2P_NODE_PUBKEY_PATH, e);
-            return Err(e);
-        }
-    }
 
     // TODO: used for determining which fragment the peer subscribes
     // Replace with NODE_SEED_NUM
@@ -177,7 +168,7 @@ pub async fn new(
             command_receiver,
             network_events_sender,
             heartbeat_failure_receiver,
-            container_manager
+            container_manager.clone()
         ).init_listen_for_network_events()
     );
 
@@ -189,7 +180,6 @@ pub async fn new(
         command_sender,
         umbral_key,
         heartbeat_receiver,
-        None, // llm-proxy's public_key will be polled
         usage_db_pool,
     );
 
@@ -200,12 +190,6 @@ pub async fn new(
     let mut nc = node_client.clone();
     tokio::spawn(async move {
         nc.listen_to_network_events(network_events_receiver).await.ok();
-    });
-
-    // 4. Poll for llm-proxy pubkeys for SignedUsageReport verification
-    let mut nc = node_client.clone();
-    tokio::spawn(async move {
-        nc.poll_for_llm_proxy_pubkey(&env_vars).await.ok();
     });
 
     Ok(node_client)

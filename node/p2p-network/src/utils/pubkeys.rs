@@ -47,33 +47,26 @@ pub fn generate_peer_keys<'a>(secret_key_seed: Option<usize>) -> (
     (peer_id, id_keys, node_name, umbral_key)
 }
 
-
-pub fn export_libp2p_public_key(keypair: &IdentityKeypair, export_path: &str) -> Result<()> {
+/// Encodes the Ed25519 public key from a libp2p Keypair into PEM format.
+pub fn encode_libp2p_pubkey_to_pem(keypair: &IdentityKeypair) -> Result<String> {
     let public_key: PublicKey = keypair.public();
 
     match public_key.try_into_ed25519() {
         Ok(libp2p_ed_pubkey) => {
-            info!("Keypair is Ed25519, exporting public key.");
+            info!("Keypair is Ed25519, encoding public key to PEM.");
 
             let pubkey_bytes = libp2p_ed_pubkey.to_bytes();
             let ed_pubkey_dalek = EdDalekVerifyingKey::from_bytes(&pubkey_bytes)
                 .map_err(|e| anyhow!("Failed to create ed25519_dalek key from bytes: {}", e))?;
 
-            if let Some(parent_dir) = Path::new(export_path).parent() {
-                fs::create_dir_all(parent_dir)
-                    .map_err(|e| anyhow!("Failed to create directory {}: {}", parent_dir.display(), e))?;
-            }
-
+            // Encode directly to PEM string
             let pem_string = ed_pubkey_dalek.to_public_key_pem(LineEnding::LF)
                 .map_err(|e| anyhow!("Failed to encode Ed25519 public key to PEM: {}", e))?;
 
-            fs::write(export_path, pem_string)
-                .map_err(|e| anyhow!("Failed to write public key PEM to {}: {}", export_path, e))?;
-
-            Ok(())
+            Ok(pem_string)
         }
         Err(_) => {
-            Err(anyhow!("Cannot export non-Ed25519 public key to PEM currently."))
+            Err(anyhow!("Cannot encode non-Ed25519 public key to PEM currently."))
         }
     }
 }

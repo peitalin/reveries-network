@@ -30,8 +30,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("python-llm-server")
 
-# Determine absolute path for weather_mcp.py (adjust if needed based on container structure)
-WEATHER_MCP_SCRIPT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "weather_mcp.py"))
+# Weather service configuration - allow complete URL override or construct from host/port
+WEATHER_MCP_URL = os.getenv("WEATHER_MCP_URL")
+if not WEATHER_MCP_URL:
+    WEATHER_MCP_URL = "http://weather-mcp:8000"
+
+logger.info(f"Weather service configured at: {WEATHER_MCP_URL}")
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
@@ -60,12 +64,24 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI startup: Initializing MCP Client...")
     mcp_client = MCPClient()
     try:
-        await mcp_client.connect_to_server(WEATHER_MCP_SCRIPT_PATH)
+        # Connect to the weather service via HTTP with increased retries and delay
+        logger.info(f"Connecting to Weather MCP service at {WEATHER_MCP_URL}")
+
+        # Use longer retry parameters for startup to ensure the service has time to initialize
+        # 10 retries with an initial 5 second delay, with exponential backoff
+        await mcp_client.connect_to_http_server(
+            WEATHER_MCP_URL,
+            max_retries=10,
+            retry_delay=5.0
+        )
+
+        # Store client in app state for use in routes
         app.state.mcp_client = mcp_client
         logger.info("MCP Client connected successfully.")
     except Exception as e:
         logger.error(f"MCP Client connection failed during startup: {e}")
         app.state.mcp_client = None
+        logger.warning("Application will start without Weather MCP functionality")
 
     yield
 
@@ -80,9 +96,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app with lifespan management
 app = FastAPI(title="LLM API Gateway", lifespan=lifespan)
 
-# --- Register Exception Handler ---
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
-# --- End Register Exception Handler ---
 
 # Add CORS middleware
 app.add_middleware(
@@ -100,6 +114,6 @@ app.include_router(health.router)
 
 if __name__ == "__main__":
     # Run the FastAPI server
-    port = int(os.getenv("LLM_API_PORT", "8000"))
+    port = int(os.getenv("LLM_API_PORT", "6000"))
     logger.info(f"Starting uvicorn server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="debug")

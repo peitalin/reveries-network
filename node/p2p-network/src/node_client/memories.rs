@@ -3,13 +3,13 @@ use colored::Colorize;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tracing::{info, debug, error, warn};
 
-use crate::{node_client::add_proxy_api_key, types::{
+use crate::types::{
     Reverie,
     ReverieId,
     ReverieType,
     AccessCondition,
     AccessKey,
-}};
+};
 use runtime::llm::{
     MCPToolUsageMetrics,
     call_anthropic,
@@ -126,16 +126,20 @@ impl NodeClient {
         };
 
         println!("Decrypted Anthropic API key, delegating...");
-        let node_keypair = &self.node_id.id_keys.clone();
+        let opt_ca_cert = self.llm_proxy_ca_cert.read().await.clone();
+        if let Some(ca_cert) = opt_ca_cert {
+            self.add_proxy_api_key(
+                reverie_id.clone(),
+                "ANTHROPIC_API_KEY".to_string(),
+                anthropic_api_key.to_string(),
+                spenders_address.to_string(),
+                spenders_address.get_type(),
+            ).await?;
+        } else {
+            return Err(anyhow!("No CA certificate found. Delegation failed."));
+        }
 
-        add_proxy_api_key(
-            reverie_id.clone(),
-            "ANTHROPIC_API_KEY".to_string(),
-            anthropic_api_key.to_string(),
-            spenders_address.to_string(),
-            spenders_address.get_type(),
-            node_keypair
-        ).await
+        Ok(())
     }
 
     pub async fn execute_with_memory_reverie(
