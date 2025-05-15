@@ -15,6 +15,7 @@ use jsonrpsee::core::{
 use jsonrpsee::http_client::HttpClient;
 use tokio::time;
 use serde_json::Value;
+use scopeguard::defer;
 use tracing::{info, warn};
 
 use p2p_network::types::{
@@ -25,9 +26,7 @@ use p2p_network::node_client::RestartReason;
 use runtime::llm::read_agent_secrets;
 
 use utils_network::{
-    P2PNodeCleanupGuard,
-    start_test_network,
-    create_test_node_configs,
+    TestNodes,
     Port,
 };
 
@@ -146,41 +145,34 @@ async fn wait_for_agent_respawn(
     Err(color_eyre::eyre::eyre!("Agent not respawned within the timeout period"))
 }
 
+
 #[tokio::test]
 #[serial_test::serial]
-pub async fn test_agent_spawn_and_fragments() -> Result<()> {
-
-    let base_rpc_port = 9901;
-    let base_listen_port = 9001;
-    let num_nodes = 5;
-    let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
-    let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
-    let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
-
-    // Create the guard that will clean up ports on instantiation and when it goes out of scope
-    let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
+pub async fn test_agent_spawn_and_sending_fragments() -> Result<()> {
 
     // Start test network and get client connections
-    let test_node_configs = create_test_node_configs(num_nodes)?;
-    let clients = start_test_network(test_node_configs.configs).await?;
+    // 5 nodes: 1 sender, 1 receiver, 3 kfrag providers
+    let test_nodes = TestNodes::new(5)
+        .start_test_network().await?
+        .create_rpc_clients().await?;
 
     // Spawn an agent on the first node
     let threshold = 2;
     let total_frags = 3;
     let secret_key_seed = 1;
     let _spawn_result = spawn_agent_on_node(
-        &clients[&9901],
+        &test_nodes.rpc_clients[&9901],
         threshold,
         total_frags,
         secret_key_seed
     ).await?;
 
     // Get node state from all nodes and collect fragments
-    let all_cfrags = collect_fragments(&clients).await?;
+    let all_cfrags = collect_fragments(&test_nodes.rpc_clients).await?;
 
     let total_cfrags = all_cfrags.len();
     assert!(total_cfrags == 3, "Wrong number of key fragments found");
-    info!("\n==> Found {} cfrags for {} nodes\n", total_cfrags, rpc_ports.len());
+    info!("\n==> Found {} cfrags for {} nodes\n", total_cfrags, test_nodes.rpc_clients.len());
     info!("All cfrags:\n{}", serde_json::to_string_pretty(&all_cfrags)?);
     info!("Verifying unique and common fields across cfrags...");
 
@@ -231,7 +223,7 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
         }
     }
 
-    // Cleanup happens automatically via CleanupGuard drop
+    defer! { test_nodes.cleanup_ports(); }
     Ok(())
 }
 
@@ -239,28 +231,24 @@ pub async fn test_agent_spawn_and_fragments() -> Result<()> {
 #[serial_test::serial]
 pub async fn test_agent_respawn_after_failure() -> Result<()> {
 
-    let base_rpc_port = 9901;
-    let base_listen_port = 9001;
-    let num_nodes = 6;
-    let rpc_ports: Vec<u16> = (0..num_nodes).map(|i| base_rpc_port + i as u16).collect();
-    let listen_ports: Vec<u16> = (0..num_nodes).map(|i| base_listen_port + i as u16).collect();
-    let all_test_ports = [&rpc_ports[..], &listen_ports[..]].concat();
-
-    // Create the guard that will clean up when it goes out of scope
-    let _guard = P2PNodeCleanupGuard::with_ports(all_test_ports);
-
     // Start test network and get client connections
-    let test_node_configs = create_test_node_configs(num_nodes)?;
-    let clients = start_test_network(test_node_configs.configs).await?;
+    // 6 nodes: 1 sender, 2 receivers, 3 kfrag providers
+    let test_nodes = TestNodes::new(6)
+        .start_test_network().await?
+        .create_rpc_clients().await?;
 
-    // Spawn an agent on the first node
     let threshold = 2;
     let total_frags = 3;
-    let secret_key_seed = 1;
-    let _spawn_result = spawn_agent_on_node(&clients[&9901], threshold, total_frags, secret_key_seed).await?;
+    let secret_key_seed = 1; // Spawn an agent on the first node
+    let _spawn_result = spawn_agent_on_node(
+        &test_nodes.rpc_clients[&9901],
+        threshold,
+        total_frags,
+        secret_key_seed
+    ).await?;
 
     // Verify fragments are distributed properly
-    let all_cfrags = collect_fragments(&clients).await?;
+    let all_cfrags = collect_fragments(&test_nodes.rpc_clients).await?;
 
     // Make sure we have the expected number of fragments
     let total_cfrags = all_cfrags.len();
@@ -272,10 +260,10 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
 
     // Trigger a simulated node failure on the first node
     println!("[Test] Triggering simulated failure on node1 (port: 9901)");
-    let _failure_result = trigger_node_failure(&clients[&9901]).await?;
+    let _failure_result = trigger_node_failure(&test_nodes.rpc_clients[&9901]).await?;
 
-    // Wait for node2 to respawn the agent (timeout after 30 seconds)
-    let respawned_agent = wait_for_agent_respawn(&clients[&9902], 30).await?;
+    // Wait for node2 to respawn the agent (timeout after 20 seconds)
+    let respawned_agent = wait_for_agent_respawn(&test_nodes.rpc_clients[&9902], 20).await?;
     println!("[Test] Agent respawned on node2 (port: 9902): {:?}", respawned_agent);
 
     // Verify that the agent was successfully respawned
@@ -285,6 +273,6 @@ pub async fn test_agent_respawn_after_failure() -> Result<()> {
     println!("[Test] {} == {}: {}", respawned_agent, expected_agent, respawned_agent == expected_agent);
     assert_eq!(respawned_agent, expected_agent, "Respawned agent doesn't match expected agent");
 
-    // Cleanup happens automatically via CleanupGuard drop
+    defer! { test_nodes.cleanup_ports(); }
     Ok(())
 }

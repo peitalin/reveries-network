@@ -5,14 +5,15 @@ use std::{
     process::{Command, Stdio},
     sync::Once,
     env,
+    path::PathBuf,
 };
 use reqwest;
 use reqwest::Client as AsyncReqwestClient;
 use tokio::time::sleep as tokio_sleep;
 
+const DOCKER_COMPOSE_TEST_FILE: &str = "docker-compose-llm-proxy-test.yml";
 // Initialize logger only once across test runs
 static LOGGER_INIT: Once = Once::new();
-
 pub fn init_test_logger() {
     if LOGGER_INIT.is_completed() {
         return;
@@ -89,13 +90,18 @@ pub async fn setup_docker_environment(docker_compose_file: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn shutdown_docker_environment(docker_compose_file: &str) {
-    info!("Attempting to shutdown Docker environment with: docker-compose -f {} down -v", docker_compose_file);
+pub fn shutdown_docker_environment(docker_shutdown_timeout: usize) {
+    // path is relative to ./tests-e2e, so go one level up to get the project root
+    let docker_compose_path = PathBuf::from("..").join(DOCKER_COMPOSE_TEST_FILE);
+    let docker_compose_file = docker_compose_path.to_str()
+        .expect("Constructed path to docker-compose file is not valid UTF-8.")
+        .to_string();
 
-    let ttl = "3"; // time before force killing docker-compose containers
+    info!("Attempting to shutdown Docker environment with: docker-compose -f {} down -v", docker_compose_file);
+    let ttl_to_kill = docker_shutdown_timeout.to_string();
 
     let result = Command::new("docker-compose")
-        .args(["-f", docker_compose_file, "down", "-v", "-t", ttl])
+        .args(["-f", &docker_compose_file, "down", "-v", "-t", &ttl_to_kill])
         .stdout(Stdio::inherit()) // Keep stdout/stderr for direct visibility if preferred
         .stderr(Stdio::inherit())
         .output(); // Capture output to log it
@@ -103,14 +109,14 @@ pub fn shutdown_docker_environment(docker_compose_file: &str) {
     match result {
         Ok(output) => {
             if output.status.success() {
-                info!("✅ 'docker-compose -f {} down -v -t {} ' executed successfully.", docker_compose_file, ttl);
+                info!("✅ 'docker-compose -f {} down -v -t {} ' executed successfully.", docker_compose_file, ttl_to_kill);
                 debug!("docker-compose down stdout: {}", String::from_utf8_lossy(&output.stdout));
                 debug!("docker-compose down stderr: {}", String::from_utf8_lossy(&output.stderr));
             } else {
                 error!(
                     "❌ 'docker-compose -f {} down -v -t {} ' command failed with status: {}.",
                     docker_compose_file,
-                    ttl,
+                    ttl_to_kill,
                     output.status
                 );
                 error!("docker-compose down stdout: {}", String::from_utf8_lossy(&output.stdout));
@@ -118,7 +124,7 @@ pub fn shutdown_docker_environment(docker_compose_file: &str) {
             }
         }
         Err(e) => {
-            error!("❌ Failed to even execute 'docker-compose -f {} down -v -t {}': {}", docker_compose_file, ttl, e);
+            error!("❌ Failed to even execute 'docker-compose -f {} down -v -t {}': {}", docker_compose_file, ttl_to_kill, e);
         }
     }
 }

@@ -29,25 +29,19 @@ use utils_docker::{
     init_test_logger,
 };
 use utils_network::{
-    P2PNodeCleanupGuard,
-    create_test_node_configs,
-    start_test_network,
+    TestNodes,
 };
 
-// filepath from the perspective of tests-e2e tests
-const RELATIVE_DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
 /// filepath from the perspective of the root of the repo
-const ROOT_DOCKER_COMPOSE_TEST_FILE: &str = "./docker-compose-llm-proxy-test.yml";
+const DOCKER_COMPOSE_TEST_FILE: &str = "./docker-compose-llm-proxy-test.yml";
 // Generate a FIXED keypair using seed
 const TARGET_NODE_2: usize = 2; // hardcode node2 as sender of API Key
-
 
 static TEST_ENV_SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
 
 async fn setup_test_environment_once_async() -> Result<()> {
     TEST_ENV_SETUP_ONCE.get_or_try_init(|| async {
         init_test_logger();
-        // env::set_var("CA_CERT_PATH", "./llm-proxy/certs/hudsucker.cer");
         Ok::<(), color_eyre::eyre::Error>(())
     }).await?;
     Ok(())
@@ -65,23 +59,18 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
 
     setup_test_environment_once_async().await?;
 
-    let mut test_node_configs = create_test_node_configs(5)?;
-    let _guard = P2PNodeCleanupGuard::with_ports(
-        test_node_configs.configs.iter().map(|c| c.rpc_port).collect()
-    );
+    let test_nodes = TestNodes::new(5)
+        .exec_docker_compose_with_node(
+            TARGET_NODE_2,
+            format!("docker-compose -f {} up -d",  DOCKER_COMPOSE_TEST_FILE)
+        )
+        .start_test_network().await?
+        .create_rpc_clients().await?;
 
-    // 1. Add docker-compose command to node2 to execute
-    test_node_configs.add_docker_compose_cmd(
-        TARGET_NODE_2,
-        format!("docker-compose -f {} up -d",  ROOT_DOCKER_COMPOSE_TEST_FILE),
-        // Spinning up all required docker services
-    );
+    let clients = test_nodes.rpc_clients.clone();
 
-    // 2. Start the test network
-    let clients = start_test_network(test_node_configs.configs).await?;
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-    // 3. Wait for llm-proxy to register its pubkey with this p2p-node
+    // Wait for llm-proxy to register its pubkey with this p2p-node
     println!("NodeClient: Waiting for llm-proxy to register its P256 public key...");
     let wait_duration = std::time::Duration::from_secs(20);
     let poll_interval = std::time::Duration::from_millis(500);
@@ -110,13 +99,13 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     }
     println!("NodeClient: Confirmed LLM Proxy P256 public key and CA certificate are present in NodeClient state.");
 
-    // 3. Encrypt Secret #1: Anthropic API key
+    // Encrypt Secret #1: Anthropic API key
     let api_keys_secrets = json!({
         "anthropic_api_key": std::env::var("ANTHROPIC_API_KEY").ok(),
         "deepseek_api_key": std::env::var("DEEPSEEK_API_KEY").ok(),
     });
 
-    // 4. Encrypt Secret #2: Memories
+    // Encrypt Secret #2: Memories
     let memory_secrets = json!({
         "name": "Agent K",
         "memories": [
@@ -176,7 +165,7 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
     let signer_user = create_signer().await?;
     let access_key_user: Address = signer_user.address();
 
-    println!("Step 1: Spawn Reverie with encrypted Anthropic API key...");
+    println!("Step 1: Spawn API Key Reverie with encrypted Anthropic API key...");
     let api_key_reverie_result: Reverie = tokio::time::timeout(
         Duration::from_secs(5),
         clients[&9901].request(
@@ -210,7 +199,7 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
         ]
     ).await?;
 
-    println!("Step 3: Spawning secret memories...");
+    println!("Step 3: Delegate secret context/memories...");
     let memory_reverie_result: Reverie = tokio::time::timeout(
         Duration::from_secs(5),
         clients[&9901].request(
@@ -290,7 +279,8 @@ pub async fn test_api_key_delegation_reverie() -> Result<()> {
         }
     };
 
-    time::sleep(Duration::from_secs(3)).await;
-    defer! { shutdown_docker_environment(RELATIVE_DOCKER_COMPOSE_TEST_FILE); }
+    time::sleep(Duration::from_secs(1)).await;
+    defer! { test_nodes.cleanup_ports(); }
+    defer! { shutdown_docker_environment(3); }
     Ok(())
 }

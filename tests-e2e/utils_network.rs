@@ -26,19 +26,6 @@ static BASE_LISTEN_PORT: Port = 9001;
 pub type Port = u16;
 
 
-
-#[derive(Clone, Debug)]
-pub struct AllTestNodesConfig {
-    pub configs: Vec<TestNodeConfig>,
-}
-
-impl AllTestNodesConfig {
-    pub fn add_docker_compose_cmd(&mut self, node_number: usize, docker_compose_cmd: String) {
-        let index = node_number - 1;
-        self.configs[index].docker_compose_cmd = Some(docker_compose_cmd.clone());
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct TestNodeConfig {
     pub rpc_port: Port,
@@ -64,195 +51,143 @@ impl TestNodeConfig {
             docker_compose_cmd
         }
     }
-
-    pub fn add_docker_compose_cmd(&mut self, docker_compose_cmd: String) {
-        self.docker_compose_cmd = Some(docker_compose_cmd);
-    }
-}
-
-
-pub fn create_test_node_configs(
-    num_nodes: usize,
-) -> Result<AllTestNodesConfig> {
-
-    let bootstrap_url = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", BOOTSTRAP_PEER_PORT, BOOTSTRAP_PEER);
-    let rpc_ports: Vec<Port> = (0..num_nodes).map(|i| BASE_RPC_PORT + i as Port).collect();
-    let listen_ports: Vec<Port> = (0..num_nodes).map(|j| BASE_LISTEN_PORT + j as Port).collect();
-    let mut test_node_configs = Vec::with_capacity(num_nodes);
-
-    for i in 0..num_nodes {
-        let seed = i + 1; // Seeds start at 1
-        let rpc_port = rpc_ports[i];
-        let listen_port = listen_ports[i];
-        let bootstrap = if i > 0 { Some(bootstrap_url.clone()) } else { None };
-        if num_nodes < 2 {
-            return Err(eyre!("num_nodes must be at least 2 for this test. Got {}", num_nodes));
-        }
-        test_node_configs.push(TestNodeConfig::new(rpc_port, listen_port, seed, bootstrap, None));
-    }
-
-    info!("Cleaning up any existing processes on ports: {:?} and {:?}", rpc_ports, listen_ports);
-    kill_processes_on_ports(&rpc_ports);
-    kill_processes_on_ports(&listen_ports);
-    info!("Starting Rust test network...");
-
-    Ok(AllTestNodesConfig { configs: test_node_configs })
-}
-
-
-/// Helper function to start a network of nodes and return clients
-pub async fn start_test_network(test_nodes: Vec<TestNodeConfig>) -> Result<HashMap<Port, HttpClient>> {
-
-    let mut node_processes = Vec::with_capacity(test_nodes.len());
-
-    for node in test_nodes.clone() {
-        let mut cmd = Command::new("cargo");
-        cmd.current_dir("..")
-            .args([
-                "run", "--bin", "rpc",
-                "--", // cmd args
-                "--secret-key-seed", &node.seed.to_string(),
-                "--rpc-port", &node.rpc_port.to_string(),
-                "--listen-address", &format!("/ip4/0.0.0.0/tcp/{}", node.listen_port),
-            ])
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
-
-        if let Some(bootstrap_peer) = node.bootstrap_peer {
-            cmd.args(["--bootstrap-peers", &bootstrap_peer]);
-        }
-
-        if let Some(docker_compose_cmd) = node.docker_compose_cmd {
-            cmd.args(["--docker-compose-cmd", &docker_compose_cmd]);
-        }
-
-        match cmd.spawn() {
-            Ok(child) => {
-                node_processes.push((node.rpc_port, child));
-                info!("Started node{} on RPC port {} and listen port {}", node.seed, node.rpc_port, node.listen_port);
-            }
-            Err(e) => {
-                warn!("Failed to spawn node {}: {}", node.seed, e);
-                // Attempt basic cleanup before returning
-                for (_, mut child) in node_processes {
-                    let _ = child.kill();
-                }
-                return Err(eyre!("Failed to spawn node {}: {}", node.seed, e));
-            }
-        }
-    }
-
-    // Give nodes time to discover each other
-    println!("Waiting for peer kademlia connections to be established...");
-    time::sleep(Duration::from_secs(1)).await; // Keep a very short initial pause
-    println!("All nodes started and ready for client initialization.");
-
-    // Create clients for all spawned nodes.
-    let client_target_ports = test_nodes.iter().map(|node| node.rpc_port).collect();
-    let ready_when_peer_count = test_nodes.len() - 1;
-
-    info!("Initializing clients for ports: {:?} using TestClientsBuilder...", client_target_ports);
-    info!("Expecting each client's node to have at least {} connected peers.", ready_when_peer_count);
-    let clients = TestClientsBuilder::new(client_target_ports)
-        .wait_for_rpc_servers().await?
-        .wait_for_network_readiness(
-            ready_when_peer_count,
-            20, // poll_timeout_secs
-            500 // poll_interval_ms previously 1000
-        ).await?;
-
-    info!("Successfully prepared {} clients through builder.", clients.len());
-
-    Ok(clients)
-}
-
-
-pub fn kill_processes_on_ports(ports: &[u16]) {
-    // Get our own process ID to avoid killing ourselves
-    let self_pid = std::process::id();
-    // First approach: Use lsof to find processes by port
-    for &port in ports {
-        let find_cmd = format!(
-            "lsof -ti:{} | grep -v {}",
-            port,
-            self_pid
-        );
-
-        // Get PIDs first
-        if let Ok(output) = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&find_cmd)
-            .output()
-        {
-            if !output.stdout.is_empty() {
-                let pids = String::from_utf8_lossy(&output.stdout);
-                // Kill each PID individually
-                for pid in pids.split_whitespace() {
-                    debug!("Killing process {} on port {}", pid, port);
-                    let _ = std::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid)
-                        .status();
-                }
-            } else {
-                debug!("No processes found on port {}", port);
-            }
-        }
-    }
-
-    // Second approach: Use pkill to find processes by name (safer than killall)
-    let _ = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("pkill -9 -f 'cargo run --bin rpc'")
-        .output();
-
-    // Give a longer delay to ensure ports are fully released
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-}
-
-// Define CleanupGuard once at the module level
-pub struct P2PNodeCleanupGuard {
-    ports: Vec<u16>,
-}
-
-impl P2PNodeCleanupGuard {
-    // Constructor with custom ports
-    pub fn with_ports(ports: Vec<u16>) -> Self {
-        info!("Initial cleanup on ports: {:?}...", ports);
-        kill_processes_on_ports(&ports);
-        Self {
-            ports,
-        }
-    }
-}
-
-impl Drop for P2PNodeCleanupGuard {
-    fn drop(&mut self) {
-        info!("Running final cleanup on ports: {:?}...", self.ports);
-        kill_processes_on_ports(&self.ports);
-    }
 }
 
 #[derive(Clone, Debug)]
-pub struct TestClientsBuilder {
-    pub target_rpc_ports: Vec<Port>,
-    pub active_clients: HashMap<Port, HttpClient>,
+pub struct TestNodes {
+    pub node_configs: Vec<TestNodeConfig>,
+    pub rpc_ports: Vec<Port>,
+    pub listen_ports: Vec<Port>,
+    pub rpc_clients: HashMap<Port, HttpClient>,
 }
 
-impl TestClientsBuilder {
-    pub fn new(target_ports: Vec<Port>) -> Self {
-        TestClientsBuilder {
-            target_rpc_ports: target_ports,
-            active_clients: HashMap::new(),
+impl TestNodes {
+    pub fn exec_docker_compose_with_node(mut self, node_number: usize, docker_compose_cmd: String) -> Self {
+        let index = node_number - 1;
+        self.node_configs[index].docker_compose_cmd = Some(docker_compose_cmd.clone());
+        self
+    }
+}
+
+impl TestNodes {
+    pub fn new(num_nodes: usize) -> TestNodes {
+        let bootstrap_url = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", BOOTSTRAP_PEER_PORT, BOOTSTRAP_PEER);
+        let rpc_ports: Vec<Port> = (0..num_nodes).map(|i| BASE_RPC_PORT + i as Port).collect();
+        let listen_ports: Vec<Port> = (0..num_nodes).map(|j| BASE_LISTEN_PORT + j as Port).collect();
+        let all_ports = [&rpc_ports[..], &listen_ports[..]].concat();
+        let mut test_node_configs = Vec::with_capacity(num_nodes);
+
+        for i in 0..num_nodes {
+            let seed = i + 1; // Seeds start at 1
+            let rpc_port = rpc_ports[i];
+            let listen_port = listen_ports[i];
+            let bootstrap = if i > 0 { Some(bootstrap_url.clone()) } else { None };
+            test_node_configs.push(TestNodeConfig::new(
+                rpc_port,
+                listen_port,
+                seed,
+                bootstrap,
+                None
+            ));
+        }
+
+        info!("Initial cleanup on ports: {:?}...", all_ports);
+        kill_processes_on_ports(&all_ports);
+
+        info!("Starting Rust test network...");
+        TestNodes {
+            node_configs: test_node_configs,
+            rpc_ports: rpc_ports,
+            listen_ports: listen_ports,
+            rpc_clients: HashMap::new(),
         }
     }
 
-    pub async fn wait_for_rpc_servers(mut self) -> Result<Self, color_eyre::eyre::Error> {
-        info!("Attempting to connect RPC clients for ports: {:?}", self.target_rpc_ports);
-        for &port in &self.target_rpc_ports {
-            match self.wait_for_rpc_server(port).await {
+    pub fn required_nodes(self, required_num_nodes: usize) -> Result<Self> {
+        let num_nodes = self.node_configs.len();
+        if self.node_configs.len() < required_num_nodes {
+            Err(anyhow!("Test requires {} nodes, only {} provided", required_num_nodes, num_nodes))
+        } else {
+            Ok(self)
+        }
+    }
+
+    pub fn all_ports(&self) -> Vec<Port> {
+        [&self.rpc_ports[..], &self.listen_ports[..]].concat()
+    }
+
+    pub async fn start_test_network(self) -> Result<Self> {
+
+        let test_nodes = &self.node_configs;
+        let mut node_processes = Vec::with_capacity(test_nodes.len());
+
+        for node in test_nodes.clone() {
+            let mut cmd = Command::new("cargo");
+            cmd.current_dir("..")
+                .args([
+                    "run", "--bin", "rpc",
+                    "--", // cmd args
+                    "--secret-key-seed", &node.seed.to_string(),
+                    "--rpc-port", &node.rpc_port.to_string(),
+                    "--listen-address", &format!("/ip4/0.0.0.0/tcp/{}", node.listen_port),
+                ])
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit());
+
+            if let Some(bootstrap_peer) = node.bootstrap_peer {
+                cmd.args(["--bootstrap-peers", &bootstrap_peer]);
+            }
+
+            if let Some(docker_compose_cmd) = node.docker_compose_cmd {
+                cmd.args(["--docker-compose-cmd", &docker_compose_cmd]);
+            }
+
+            match cmd.spawn() {
+                Ok(child) => {
+                    node_processes.push((node.rpc_port, child));
+                    info!("Started node{} on RPC port {} and listen port {}", node.seed, node.rpc_port, node.listen_port);
+                }
+                Err(e) => {
+                    warn!("Failed to spawn node {}: {}", node.seed, e);
+                    // Attempt basic cleanup before returning
+                    for (_, mut child) in node_processes {
+                        let _ = child.kill();
+                    }
+                    return Err(eyre!("Failed to spawn node {}: {}", node.seed, e));
+                }
+            }
+        }
+
+        // Give nodes time to discover each other
+        println!("Waiting for peer kademlia connections to be established...");
+        time::sleep(Duration::from_secs(1)).await; // Keep a very short initial pause
+        println!("All nodes started and ready for client initialization.");
+        Ok(self)
+    }
+
+    pub async fn create_rpc_clients(mut self) -> Result<Self> {
+        // ensure all nodes are connected to each other
+        let ready_when_peer_count = &self.node_configs.len() - 1;
+        println!("Initializing clients for ports: {:?}", &self.rpc_ports);
+        println!("Expecting each client's node to have at least {} connected peers.", ready_when_peer_count);
+        self.rpc_clients = self.clone()
+            .wait_for_rpc_servers().await?
+            .wait_for_network_readiness(
+                ready_when_peer_count,
+                20, // poll_timeout_secs
+                500 // poll_interval_ms previously 1000
+            ).await?;
+
+        println!("Successfully prepared {} clients through builder.", self.rpc_clients.len());
+        Ok(self)
+    }
+
+    async fn wait_for_rpc_servers(mut self) -> Result<Self> {
+        info!("Attempting to connect RPC clients for ports: {:?}", self.rpc_ports);
+        for &port in &self.rpc_ports {
+            match self.internal_wait_for_rpc_server(port).await {
                 Ok(client) => {
-                    self.active_clients.insert(port, client);
+                    self.rpc_clients.insert(port, client);
                     info!("Successfully connected RPC client for port {}", port);
                 }
                 Err(e) => {
@@ -265,11 +200,9 @@ impl TestClientsBuilder {
         Ok(self)
     }
 
-    async fn wait_for_rpc_server(&self, port: u16) -> Result<HttpClient> {
-
+    async fn internal_wait_for_rpc_server(&self, port: u16) -> Result<HttpClient> {
         const RPC_READY_TIMEOUT: Duration = Duration::from_secs(20);
         const RPC_POLL_INTERVAL: Duration = Duration::from_millis(1000);
-
         let rpc_addr = SocketAddr::from(([127, 0, 0, 1], port));
         let start_time = std::time::Instant::now();
 
@@ -306,13 +239,13 @@ impl TestClientsBuilder {
         ready_when_peer_count: usize,
         poll_timeout_secs: u64,
         poll_interval_ms: u64,
-    ) -> Result<HashMap<Port, HttpClient>, color_eyre::eyre::Error> {
-        if self.active_clients.is_empty() {
+    ) -> Result<HashMap<Port, HttpClient>> {
+        if self.rpc_clients.is_empty() {
             warn!("No active RPC clients to check for network readiness. Returning empty map.");
             return Ok(HashMap::new());
         }
-        println!("Checking network readiness for {} active clients...", self.active_clients.len());
-        let clients_to_check: Vec<HttpClient> = self.active_clients.values().cloned().collect();
+        println!("Checking network readiness for {} active clients...", self.rpc_clients.len());
+        let clients_to_check: Vec<HttpClient> = self.rpc_clients.values().cloned().collect();
 
         match self.internal_wait_for_network_readiness(
             &clients_to_check,
@@ -322,7 +255,7 @@ impl TestClientsBuilder {
         ).await {
             Ok(_) => {
                 info!("Network readiness confirmed for active clients.");
-                Ok(self.active_clients)
+                Ok(self.rpc_clients.clone())
             }
             Err(e_str) => {
                 error!("Network readiness check failed: {}", e_str);
@@ -338,7 +271,7 @@ impl TestClientsBuilder {
         ready_when_peer_count: usize,
         poll_timeout_secs: u64,
         poll_interval_ms: u64,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         println!(
             "Waiting for {} active clients to connect to at least {} peers each (timeout: {}s)...",
             clients.len(),
@@ -357,7 +290,7 @@ impl TestClientsBuilder {
 
             loop {
                 if start_time.elapsed() > overall_timeout {
-                    return Err(format!(
+                    return Err(anyhow!(
                         "Timeout waiting for network readiness. {} did not report enough peers: {}/{} peers",
                         node_name,
                         peer_count,
@@ -404,5 +337,52 @@ impl TestClientsBuilder {
         println!("Elapsed time: {:?}", start_time.elapsed());
         Ok(())
     }
+
+    pub fn cleanup_ports(&self) {
+        info!("Running final cleanup on ports: {:?}...", &self.all_ports());
+        kill_processes_on_ports(&self.all_ports());
+    }
 }
-// --- End of TestClientsBuilder struct and impl ---
+
+fn kill_processes_on_ports(ports: &[u16]) {
+    // Get our own process ID to avoid killing ourselves
+    let self_pid = std::process::id();
+    // First approach: Use lsof to find processes by port
+    for &port in ports {
+        let find_cmd = format!(
+            "lsof -ti:{} | grep -v {}",
+            port,
+            self_pid
+        );
+
+        // Get PIDs first
+        if let Ok(output) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&find_cmd)
+            .output()
+        {
+            if !output.stdout.is_empty() {
+                let pids = String::from_utf8_lossy(&output.stdout);
+                // Kill each PID individually
+                for pid in pids.split_whitespace() {
+                    debug!("Killing process {} on port {}", pid, port);
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid)
+                        .status();
+                }
+            } else {
+                debug!("No processes found on port {}", port);
+            }
+        }
+    }
+
+    // Second approach: Use pkill to find processes by name (safer than killall)
+    let _ = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("pkill -9 -f 'cargo run --bin rpc'")
+        .output();
+
+    // delay to ensure ports are fully released
+    // std::thread::sleep(std::time::Duration::from_millis(500));
+}

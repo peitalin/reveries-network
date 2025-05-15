@@ -4,44 +4,26 @@ mod utils_docker;
 #[path = "../utils_network.rs"]
 mod utils_network;
 
-use std::env;
 use color_eyre::{Result, eyre::anyhow};
 use jsonrpsee::core::client::ClientT;
-use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use scopeguard::defer;
 use tracing::{info, error};
-use alloy_signer_local::PrivateKeySigner;
-use tokio::sync::OnceCell;
 
-use p2p_network::{
-    types::AccessCondition,
-    utils::pubkeys::generate_peer_keys,
-};
 use utils_docker::{
     init_test_logger,
     shutdown_docker_environment,
 };
-use utils_network::{
-    start_test_network,
-    create_test_node_configs,
-};
+use utils_network::TestNodes;
 
-// filepath from the perspective of tests-e2e tests
-const RELATIVE_DOCKER_COMPOSE_TEST_FILE: &str = "../docker-compose-llm-proxy-test.yml";
 /// filepath from the perspective of the root of the repo
-const ROOT_DOCKER_COMPOSE_TEST_FILE: &str = "./docker-compose-llm-proxy-test.yml";
+const DOCKER_COMPOSE_TEST_FILE: &str = "./docker-compose-llm-proxy-test.yml";
 // Generate a FIXED keypair using seed
 const TARGET_NODE_2: usize = 2; // hardcode node2 as sender of API Key
 // Lazy: once-per-module setup for proxy API tests
 static SETUP_LOGGER_ONCE: Lazy<()> = Lazy::new(|| {
-    setup_test_environment_once().expect("Setup failed");
-});
-
-fn setup_test_environment_once() -> Result<()> {
     init_test_logger();
-    Ok(())
-}
+});
 
 
 #[tokio::test]
@@ -50,19 +32,18 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
 
     Lazy::force(&SETUP_LOGGER_ONCE);
 
-    let mut test_node_configs = create_test_node_configs(2)?;
-    // 1. Add docker-compose command to node2 to execute
-    test_node_configs.add_docker_compose_cmd(
-        TARGET_NODE_2,
-        format!("docker-compose -f {} up -d llm-proxy",  ROOT_DOCKER_COMPOSE_TEST_FILE),
-        // Only spinning up llm-proxy for this test
-    );
+    let test_nodes = TestNodes::new(2)
+        .exec_docker_compose_with_node(
+            TARGET_NODE_2,
+            format!("docker-compose -f {} up -d llm-proxy", DOCKER_COMPOSE_TEST_FILE)
+            // Only using llm-proxy for this test
+        )
+        .start_test_network().await?
+        .create_rpc_clients().await?;
 
-    // 2. Start the test network
-    let clients = start_test_network(test_node_configs.configs).await?;
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let clients = test_nodes.rpc_clients.clone();
 
-    // 3. Wait for llm-proxy to register its pubkey with this p2p-node
+    // Wait for llm-proxy to register its pubkey with this p2p-node
     println!("NodeClient: Waiting for llm-proxy to register its P256 public key...");
     let wait_duration = std::time::Duration::from_secs(20);
     let poll_interval = std::time::Duration::from_millis(500);
@@ -90,9 +71,8 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
         tokio::time::sleep(poll_interval).await;
     }
     println!("NodeClient: Confirmed LLM Proxy P256 public key and CA certificate are present in NodeClient state.");
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    // 4. Perform the add_proxy_api_key and remove_proxy_api_key calls
+    // Perform the add_proxy_api_key and remove_proxy_api_key calls
     let reverie_id = format!("test_reverie_{}", nanoid::nanoid!(8));
     let api_key_val = format!("test_api_key_{}", nanoid::nanoid!(12));
     let spender_address_str = "0f39d6918c19cba78586732952ead4f1ac038df3".to_string();
@@ -127,6 +107,7 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
     let result_msg = "Mock API key test: llm-proxy started, key registered, API key added and removed successfully.".to_string();
     println!("Test: {}", result_msg);
 
-    defer! { shutdown_docker_environment(RELATIVE_DOCKER_COMPOSE_TEST_FILE); } // Ensure teardown runs on scope exit
+    defer! { test_nodes.cleanup_ports(); }
+    defer! { shutdown_docker_environment(3); }
     Ok(())
 }
