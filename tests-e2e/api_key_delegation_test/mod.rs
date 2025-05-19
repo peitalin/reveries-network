@@ -42,6 +42,7 @@ static TEST_ENV_SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
 async fn setup_test_environment_once_async() -> Result<()> {
     TEST_ENV_SETUP_ONCE.get_or_try_init(|| async {
         init_test_logger();
+        dotenv::dotenv().ok();
         Ok::<(), color_eyre::eyre::Error>(())
     }).await?;
     Ok(())

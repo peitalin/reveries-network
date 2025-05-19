@@ -23,6 +23,7 @@ const TARGET_NODE_2: usize = 2; // hardcode node2 as sender of API Key
 // Lazy: once-per-module setup for proxy API tests
 static SETUP_LOGGER_ONCE: Lazy<()> = Lazy::new(|| {
     init_test_logger();
+    dotenv::dotenv().ok();
 });
 
 
