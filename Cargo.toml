@@ -92,4 +92,5 @@ near-primitives = { version = ">0.22,<0.31" }
 near-jsonrpc-primitives = { version = ">0.22,<0.31" }
 near-jsonrpc-client = { version = "0.17.0" }
 near-account-id = { version = "1.1.1", features = ["schemars-stable"] }
+near-token = { version = "0.3.0", features = ["serde"] }
 borsh = { version = "1.5.7" }

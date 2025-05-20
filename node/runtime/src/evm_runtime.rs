@@ -6,7 +6,7 @@ use dotenv::dotenv;
 
 use alloy::{
     network::{Ethereum, TransactionBuilder},
-    primitives::{address, Address, U256},
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::{
         client::RpcClient,

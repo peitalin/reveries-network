@@ -10,7 +10,6 @@ mod evm_runtime;
 use test_commands::{Cmd, CliArgument};
 use clap::Parser;
 use reencrypt::run_reencrypt_example;
-use near_runtime::near_example;
 use evm_runtime::evm_example;
 
 
@@ -31,11 +30,16 @@ async fn main() -> color_eyre::Result<()> {
         CliArgument::TestTee => {
             let (
                 _tee_quote,
-                tee_quote_bytes
+                _tee_quote_bytes
             ) = tee_attestation::generate_tee_attestation_with_data([0; 64], false)?;
         }
         CliArgument::TestNear => {
-            near_example().await?;
+            use crate::near_runtime::{NearConfig, NearRuntime};
+            let near_account_str = "cyan-loong.testnet";
+            let config = NearConfig::default();
+            let runtime = NearRuntime::new(config).await?;
+            let balance = runtime.get_near_account_balance(near_account_str).await?;
+            tracing::info!("NEAR balance for {}: {}", near_account_str, balance);
         }
         CliArgument::TestEvm => {
             evm_example().await?;

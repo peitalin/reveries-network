@@ -163,7 +163,14 @@ pub enum AccessCondition {
     /// Requires a signature matching the ED25519 address
     Ed25519(String),
     /// TODO: Requires valid Contract evaluation (preconditions)
-    Contract(Address, ContractCalldata),
+    Contract(
+        // contract address
+        Address,
+        // access function name
+        String,
+        // access function args
+        serde_json::Value
+    ),
 }
 
 impl std::fmt::Display for AccessCondition {
@@ -178,7 +185,11 @@ impl std::fmt::Display for AccessCondition {
             AccessCondition::Ed25519(pubkey) => {
                 format!("ed25519:{}", pubkey.to_string())
             }
-            AccessCondition::Contract(address, calldata) => {
+            AccessCondition::Contract(
+                address,
+                access_function_name,
+                access_function_args
+            ) => {
                 format!("contract:{}", address.to_string())
             }
         };
@@ -192,7 +203,7 @@ impl AccessCondition {
             AccessCondition::Umbral(_) => "umbral".to_string(),
             AccessCondition::Ecdsa(_) => "ecdsa".to_string(),
             AccessCondition::Ed25519(_) => "ed25519".to_string(),
-            AccessCondition::Contract(_, _) => "contract".to_string(),
+            AccessCondition::Contract(_, _, _) => "contract".to_string(),
         }
     }
 }
@@ -225,14 +236,16 @@ impl FromStr for AccessCondition {
                     Ok(AccessCondition::Ed25519(value.to_string()))
                 }
                 "contract" => {
-                    // Assuming format contract:address:calldata_hex
-                    if let Some((addr_str, calldata_hex)) = value.split_once(':') {
-                       let addr = Address::from_str(addr_str).map_err(|e| anyhow!("Invalid contract address '{}': {}", addr_str, e))?;
-                       let calldata = hex::decode(calldata_hex).map_err(|e| anyhow!("Invalid hex for calldata '{}': {}", calldata_hex, e))?;
-                       Ok(AccessCondition::Contract(addr, calldata))
-                    } else {
-                       Err(anyhow!("Invalid format for 'contract' AccessCondition, expected 'contract:address:calldata_hex', got '{}'", value))
-                    }
+                    // TODO: implement contract FromStr for AccessCondition
+                    unimplemented!("contract serialization for AccessCondition not implemented yet");
+                    // let args= value.split(':').collect::<Vec<&str>>();
+                    // if args.len() != 3 {
+                    //     return Err(anyhow!("Invalid AccessCondition format: expected 'contract:address:calldata_hex', got '{}'", value));
+                    // }
+                    // let addr = Address::from_str(args[0]).map_err(|e| anyhow!("Invalid contract address '{}': {}", args[0], e))?;
+                    // let access_function_name = String::from(args[1]);
+                    // let access_function_args = serde_json::to_value(args[2]).map_err(|e| anyhow!("Invalid hex for access_function_args '{}': {}", args[2], e))?;
+                    // Ok(AccessCondition::Contract(addr, access_function_name, access_function_args))
                 }
                 _ => Err(anyhow!("Unknown AccessCondition prefix: '{}'", prefix)),
             }
