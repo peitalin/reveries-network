@@ -23,6 +23,7 @@ const TARGET_NODE_2: usize = 2; // hardcode node2 as sender of API Key
 // Lazy: once-per-module setup for proxy API tests
 static SETUP_LOGGER_ONCE: Lazy<()> = Lazy::new(|| {
     init_test_logger();
+    dotenv::dotenv().ok();
 });
 
 
@@ -39,38 +40,10 @@ async fn test_add_and_remove_api_key_success() -> Result<()> {
             // Only using llm-proxy for this test
         )
         .start_test_network().await?
-        .create_rpc_clients().await?;
+        .create_rpc_clients().await?
+        .wait_for_llm_proxy_key_registration(TARGET_NODE_2).await?;
 
     let clients = test_nodes.rpc_clients.clone();
-
-    // Wait for llm-proxy to register its pubkey with this p2p-node
-    println!("NodeClient: Waiting for llm-proxy to register its P256 public key...");
-    let wait_duration = std::time::Duration::from_secs(20);
-    let poll_interval = std::time::Duration::from_millis(500);
-    let start_wait = tokio::time::Instant::now();
-    loop {
-        let (
-            proxy_public_key,
-            proxy_ca_cert
-        ): (Option<String>, Option<String>) = clients[&9902].request(
-            "get_proxy_public_key",
-            jsonrpsee::rpc_params![]
-        ).await?;
-
-        if proxy_public_key.is_some() && proxy_ca_cert.is_some() {
-            println!("NodeClient: LLM Proxy's P256 public key and CA certificate have been registered.");
-            break;
-        }
-        println!("still waiting for proxy_public_key: {:?}", proxy_public_key);
-        println!("still waiting for proxy_ca_cert: {:?}", proxy_ca_cert);
-        if start_wait.elapsed() > wait_duration {
-            error!("NodeClient: Timeout waiting for llm-proxy to register its public key.");
-            let _ = std::process::Command::new("docker").args(["logs", "llm-proxy"]).status();
-            return Err(anyhow!("Timeout waiting for llm-proxy key registration"));
-        }
-        tokio::time::sleep(poll_interval).await;
-    }
-    println!("NodeClient: Confirmed LLM Proxy P256 public key and CA certificate are present in NodeClient state.");
 
     // Perform the add_proxy_api_key and remove_proxy_api_key calls
     let reverie_id = format!("test_reverie_{}", nanoid::nanoid!(8));

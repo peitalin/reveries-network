@@ -126,7 +126,7 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
 
      rpc_server.add_route_mut(
         "get_proxy_public_key",
-        |_, mut nc, _| async move {
+        |_, nc, _| async move {
 
             let (
                 proxy_public_key,
@@ -181,18 +181,14 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
                 memory_secrets_json,
                 threshold,
                 total_frags,
-                access_public_key, // user address allowed to access the memory
-            ) = params.parse::<(serde_json::Value, usize, usize, String)>()?;
-
-            // Parse the string directly into an Address
-            let access_public_key: Address = access_public_key.parse()
-                .map_err(RpcError::from)?;
+                access_condition, // access condition for using the memory
+            ) = params.parse::<(serde_json::Value, usize, usize, AccessCondition)>()?;
 
             nc.spawn_memory_reverie(
                 memory_secrets_json,
                 threshold,
                 total_frags,
-                AccessCondition::Ecdsa(access_public_key)
+                access_condition
             ).await.map_err(RpcError::from)
         }
     )?;

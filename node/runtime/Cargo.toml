@@ -12,14 +12,15 @@ tdx = { git = "https://github.com/automata-network/tdx-attestation-sdk", optiona
 dcap-rs = { git = "https://github.com/automata-network/dcap-rs.git" }
 
 # Inherited from workspace
-reqwest = { workspace = true }
 clap = { workspace = true }
+chrono = { workspace = true }
 dotenv = { workspace = true }
 color-eyre = { workspace = true }
 hex = { workspace = true }
 libp2p = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha3 = { workspace = true }
@@ -35,6 +36,7 @@ near-jsonrpc-primitives = { workspace = true }
 near-primitives = { workspace = true }
 near-account-id = { workspace = true }
 near-crypto = { workspace = true }
+near-token = { workspace = true }
 borsh = { workspace = true }
 
 # Ethereum Dependencies
@@ -50,4 +52,5 @@ omni-transaction = "0.2.1"
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 color-eyre = { workspace = true }
-
+serial_test = { workspace = true }
+scopeguard = { workspace = true }

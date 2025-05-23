@@ -85,10 +85,6 @@ impl NetworkEvents {
                 println!("{}", format!("{} exists in connected_peers but not in peer_info", short_peer_id(peer_id)).white());
             }
         }
-        // let peer_names = connected_peers.iter()
-        //     .map(|p| format!("{}", get_node_name(p)))
-        //     .collect::<Vec<String>>();
-        // info!("{} connected peers: {:?}", self.nname(), connected_peers);
 
         // Check which peers have stopped sending heartbeats
         for (peer_id, peer_info) in peer_info.iter() {

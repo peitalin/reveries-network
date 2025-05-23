@@ -48,6 +48,7 @@ use crate::node_client::container_manager::{ContainerManager, RestartReason};
 use crate::env_var::NODE_SEED_NUM;
 use crate::behaviour::Behaviour;
 use runtime::reencrypt::UmbralKey;
+use runtime::near_runtime::NearRuntime;
 use peer_manager::PeerManager;
 use tokio::time;
 use time::Duration;
@@ -100,7 +101,9 @@ pub struct NetworkEvents {
     // GossipSub topics
     topics: HashMap<String, IdentTopic>,
     // Container Manager
-    container_manager: Arc<RwLock<ContainerManager>>
+    container_manager: Arc<RwLock<ContainerManager>>,
+    // Near Runtime
+    near_runtime: Arc<NearRuntime>
 }
 
 struct PendingRequests {
@@ -152,7 +155,8 @@ impl NetworkEvents {
         command_receiver: mpsc::Receiver<NodeCommand>,
         network_event_sender: mpsc::Sender<NetworkEvent>,
         internal_heartbeat_fail_receiver: mpsc::Receiver<HeartbeatConfig>,
-        container_manager: Arc<RwLock<ContainerManager>>
+        container_manager: Arc<RwLock<ContainerManager>>,
+        near_runtime: Arc<NearRuntime>
     ) -> Self {
         let node_name = node_id.node_name.clone();
         let peer_id = node_id.peer_id.clone();
@@ -167,6 +171,7 @@ impl NetworkEvents {
             pending: PendingRequests::new(),
             topics: HashMap::new(),
             container_manager,
+            near_runtime,
         }
     }
 

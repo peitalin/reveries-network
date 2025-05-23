@@ -2,25 +2,37 @@ use color_eyre::{Result, eyre::anyhow};
 use colored::Colorize;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tracing::{info, debug, error, warn};
+use std::convert::TryFrom;
 
 use crate::types::{
     Reverie,
     ReverieId,
     ReverieType,
-    AccessCondition,
+    AccessCondition as P2PNetworkAccessCondition,
     AccessKey,
 };
 use runtime::llm::{
     MCPToolUsageMetrics,
     call_anthropic,
-    call_deepseek
+    call_deepseek,
 };
+use runtime::near_runtime::{
+    AccessCondition as NearRuntimeAccessCondition,
+    ReverieMetadata as NearReverieMetadata,
+};
+use crate::env_var::EnvVars;
+use hex;
+use alloy_primitives::Address;
+use std::str::FromStr;
+use sha3::{Digest, Keccak256};
+
+// Define constants at the module level, after all imports
+const PLACEHOLDER_COST_PER_LLM_CALL: u128 = 1_000_000_000_000_000_000_000; // 0.001 NEAR in yoctoNEAR (1e21)
+
 use super::NodeClient;
 
 
-
 impl NodeClient {
-
     /// Client sends some ReverieType over TLS or some secure channel.
     /// Node encrypts with PRE and broadcasts fragments to the network
     pub async fn spawn_memory_reverie(
@@ -28,7 +40,7 @@ impl NodeClient {
         memory_secrets: serde_json::Value,
         threshold: usize,
         total_frags: usize,
-        user_public_key: AccessCondition, // access condition for using the memory
+        access_condition: P2PNetworkAccessCondition, // access condition for using the memory
     ) -> Result<Reverie> {
 
         if threshold > total_frags {
@@ -41,7 +53,7 @@ impl NodeClient {
             target_kfrag_providers
         ) = self.get_prospect_vessels(false).await?;
 
-        // Create a "Reverie"––an encrypted memory that alters how a Host behaves
+        // 1. Create a "Reverie"––an encrypted memory or executable
         let reverie = self.create_reverie(
             memory_secrets,
             ReverieType::Memory,
@@ -49,26 +61,67 @@ impl NodeClient {
             total_frags,
             target_vessel.umbral_public_key,
             target_vessel.umbral_verifying_public_key,
-            user_public_key // access_pubkey to be checked against to request cfrags
+            access_condition // access_condition to be checked to request cfrags
         )?;
 
-        self.broadcast_reverie_keyfrags(
+        // 2c. Write Reverie metadata onchain
+        if let P2PNetworkAccessCondition::NearContract(_, _, _) = &reverie.access_condition {
+            let env_vars = EnvVars::load();
+            let near_access_condition = NearRuntimeAccessCondition::try_from(&reverie.access_condition)?;
+
+            println!(
+                "Registering Reverie {} on NEAR contract {} by signer {}",
+                reverie.id.clone(),
+                env_vars.NEAR.NEAR_CONTRACT_ACCOUNT_ID,
+                env_vars.NEAR.NEAR_SIGNER_ACCOUNT_ID
+            );
+
+            let reverie_type = reverie.reverie_type.to_string();
+            let near_runtime = self.near_runtime.clone();
+            let create_reverie_outcome = near_runtime.create_reverie(
+                &env_vars.NEAR.NEAR_CONTRACT_ACCOUNT_ID,
+                &env_vars.NEAR.NEAR_SIGNER_ACCOUNT_ID,
+                &env_vars.NEAR.NEAR_SIGNER_PRIVATE_KEY,
+                &reverie.id, // reverie_id
+                &reverie_type, // reverie_type
+                &reverie.description, // description
+                near_access_condition, // access_condition
+            ).await?;
+
+            println!("create_reverie NEAR Outcome: {:?}", create_reverie_outcome.status);
+            assert!(
+                matches!(create_reverie_outcome.status, near_primitives::views::FinalExecutionStatus::SuccessValue(_)),
+                "create_reverie NEAR transaction failed: {:?}", create_reverie_outcome.status
+            );
+        }
+
+        // 2a. Broadcast Reverie keyfrags to the network
+        let broadcast_keyfrags_outcome = self.broadcast_reverie_keyfrags(
             &reverie,
             target_vessel.peer_id,
             target_kfrag_providers
         ).await?;
 
-        info!("RequestResponse broadcast of kfrags complete.");
+        // let (
+        //     create_reverie_outcome,
+        //     broadcast_reverie_keyfrags_outcome
+        // ) = futures::future::join(
+        //     create_reverie_future,
+        //     broadcast_keyfrags_future
+        // ).await;
+
+        info!("RequestResponse broadcast of kfrags complete: {:?}", broadcast_keyfrags_outcome);
+
         Ok(reverie)
     }
 
     // This needs to happen within the TEE as there is a decryption step, and the original
     // plaintext is revealed within the TEE, before executing with it as context
-    async fn reconstruct_memory_reverie<T: Serialize + DeserializeOwned>(
+    async fn _reconstruct_memory_reverie<T: Serialize + DeserializeOwned>(
         &mut self,
         reverie_id: &ReverieId,
         reverie_type: ReverieType,
-        prev_failed_vessel_peer_id: libp2p::PeerId,
+        _prev_failed_vessel_peer_id: libp2p::PeerId,
         access_key: AccessKey
     ) -> Result<(T, AccessKey)> {
 
@@ -105,13 +158,14 @@ impl NodeClient {
         reverie_id: ReverieId,
         reverie_type: ReverieType,
         access_key: AccessKey,
-        // Dev's signature required to access the delegated API key
+        // Execution node signature required to access the delegated API key
+        // In the future, this will be a TEE Quote/Attestation
     ) -> Result<()> {
 
         let (
             api_keys_json,
             spenders_address // user using the memory
-        ) = self.reconstruct_memory_reverie::<serde_json::Value>(
+        ) = self._reconstruct_memory_reverie::<serde_json::Value>(
             &reverie_id,
             reverie_type,
             self.node_id.peer_id,
@@ -152,12 +206,12 @@ impl NodeClient {
 
         let (
             memory_secrets_json,
-            spenders_address // user using the memory
-        ) = self.reconstruct_memory_reverie::<serde_json::Value>(
+            _spenders_access_key
+        ) = self._reconstruct_memory_reverie::<serde_json::Value>(
             &reverie_id,
             reverie_type,
-            self.node_id.peer_id,
-            access_key
+            self.node_id.peer_id, // prev_failed_vessel_peer_id
+            access_key.clone()
         ).await?;
 
         let mut metrics = MCPToolUsageMetrics::default();

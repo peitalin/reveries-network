@@ -18,8 +18,10 @@ use crate::types::{
     ReverieKeyfragMessage,
     ReverieMessage,
     ReverieType,
+    AccessKey,
 };
 use crate::{short_peer_id, get_node_name, get_node_name2};
+use crate::types::create_digest_hash;
 use super::NetworkEvents;
 
 type RequestResponseEvent = Event<FragmentRequestEnum, FragmentResponseEnum>;
@@ -44,11 +46,11 @@ impl NetworkEvents {
                 match fragment_request {
                     FragmentRequestEnum::GetFragmentRequest(
                         reverie_id,
-                        signature
+                        access_key
                     ) => {
 
                         info!("{}", format!("{} Inbound RequestFragmentRequest {reverie_id}", self.nname()).yellow());
-                        info!("{}", format!("Signature: {signature}").yellow());
+                        info!("{}", format!("Signature: {access_key}").yellow());
 
                         let cfrag = match self.peer_manager.get_cfrags(&reverie_id) {
                             Some(cfrag) => cfrag,
@@ -57,11 +59,55 @@ impl NetworkEvents {
 
                         // TODO: refactor to a AccessCondition / Auth module for generalizing access control and conditions
                         // Verify signature is from intended recipient/target before sending capsule fragment
-                        let digest = Keccak256::digest(reverie_id.clone().as_bytes());
-                        match signature.verify_sig(&cfrag.access_condition, &digest) {
-                            false => return Err(anyhow!("Invalid signature for fragment request for {reverie_id}".to_string())),
-                            true => info!("{}", format!("Signature verified!").green())
-                        }
+                        // TODO: add nonce and timestamp to digest
+                        match &access_key {
+                            AccessKey::NearContract(
+                                contract_account_id,
+                                spender_account_id,
+                                amount
+                            ) => {
+
+                                println!("LLLLLL; reverie_id: {:?}", reverie_id);
+                                println!("KKKKKK; contract_account_id: {:?}", contract_account_id);
+                                println!("MMMMMM; spender_account_id: {:?}", spender_account_id);
+                                println!("JJJJJJ; amount: {:?}", amount);
+
+                                let can_spend = self.near_runtime.can_spend(
+                                    contract_account_id,
+                                    &reverie_id,
+                                    spender_account_id,
+                                    *amount
+                                ).await?;
+
+                                if can_spend {
+                                    info!("{}", format!("Near Contract Access granted!").green());
+                                } else {
+                                    return Err(anyhow!("Near Contract Access denied!"));
+                                }
+                            }
+                            AccessKey::EcdsaSignature(signature) => {
+                                match access_key.verify_access(&cfrag.access_condition, reverie_id) {
+                                    false => return Err(anyhow!("Invalid signature for fragment request for {reverie_id}".to_string())),
+                                    true => info!("{}", format!("Signature verified!").green())
+                                }
+                            }
+                            AccessKey::UmbralSignature(signature) => {
+                                match access_key.verify_access(&cfrag.access_condition, reverie_id) {
+                                    false => return Err(anyhow!("Invalid signature for fragment request for {reverie_id}".to_string())),
+                                    true => info!("{}", format!("Signature verified!").green())
+                                }
+                            }
+                            AccessKey::Ed25519Signature(signature) => {
+                                return Err(anyhow!("Ed25519 signatures are not implemented yet"));
+                            }
+                            AccessKey::EthContract(
+                                contract_address,
+                                contract_method_name,
+                                contract_args
+                            ) => {
+                                return Err(anyhow!("EthContract access keys are not implemented yet"));
+                            }
+                        };
 
                         let cfrag_bytes = serde_json::to_vec::<ReverieCapsulefrag>(&cfrag)
                             .map_err(|e| SendError(e.to_string()));

@@ -112,15 +112,11 @@ impl NetworkEvents {
                         }
                     }
                     KademliaKey::ReverieIdToNameKey(key) => {
-                        if let Some(oneshot_sender) = self.pending.get_reverie_agent_name.remove(&key) {
+                        if let Some(sender) = self.pending.get_reverie_agent_name.remove(&key) {
                             match serde_json::from_slice::<ReverieId>(&record.value) {
-                                Ok(reverie_id) => {
-                                    oneshot_sender.send(Some(reverie_id)).ok();
-                                }
-                                Err(e) => {
-                                    oneshot_sender.send(None).ok();
-                                },
-                            }
+                                Ok(reverie_id) => sender.send(Some(reverie_id)).ok(),
+                                Err(e) => sender.send(None).ok(),
+                            };
                         }
                     }
                     KademliaKey::ReverieIdToReverie(reverie_id) => {
