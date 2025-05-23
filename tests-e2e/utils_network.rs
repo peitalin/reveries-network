@@ -342,7 +342,48 @@ impl TestNodes {
         info!("Running final cleanup on ports: {:?}...", &self.all_ports());
         kill_processes_on_ports(&self.all_ports());
     }
+
+    pub async fn wait_for_llm_proxy_key_registration(self, node_number: usize) -> Result<Self> {
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        // TODO: order matters, need to create rpc clients first so refactor Builder to
+        // account for this
+        let port = self.rpc_ports[node_number - 1];
+        if self.rpc_clients.get(&port).is_none() {
+            return Err(anyhow!("RPC client missing on port {}, call create_rpc_clients() first", port));
+        }
+
+        println!("NodeClient: Waiting for llm-proxy to register its P256 public key...");
+        let wait_duration = std::time::Duration::from_secs(20);
+        let poll_interval = std::time::Duration::from_millis(500);
+        let start_wait = tokio::time::Instant::now();
+
+        loop {
+            let (
+                proxy_public_key,
+                proxy_ca_cert
+            ): (Option<String>, Option<String>) = self.rpc_clients[&port].request(
+                "get_proxy_public_key",
+                jsonrpsee::rpc_params![]
+            ).await?;
+
+            if proxy_public_key.is_some() && proxy_ca_cert.is_some() {
+                println!("NodeClient: llm-proxy's public key and CA certificate have been registered.");
+                break;
+            }
+            println!("still waiting for proxy_public_key: {:?}", proxy_public_key);
+            println!("still waiting for proxy_ca_cert: {:?}", proxy_ca_cert);
+            if start_wait.elapsed() > wait_duration {
+                error!("NodeClient: Timeout waiting for llm-proxy to register its public key.");
+                let _ = std::process::Command::new("docker").args(["logs", "llm-proxy"]).status();
+                return Err(anyhow!("Timeout waiting for llm-proxy key registration"));
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+        Ok(self)
+    }
 }
+
 
 fn kill_processes_on_ports(ports: &[u16]) {
     // Get our own process ID to avoid killing ourselves

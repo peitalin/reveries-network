@@ -31,6 +31,8 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 nanoid = { workspace = true }
 once_cell = { workspace = true }
+near-primitives = { workspace = true }
+
 
 [dev-dependencies]
 serial_test = { workspace = true }
