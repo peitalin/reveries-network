@@ -37,7 +37,7 @@ async fn main() -> color_eyre::Result<()> {
             use crate::near_runtime::{NearConfig, NearRuntime};
             let near_account_str = "cyan-loong.testnet";
             let config = NearConfig::default();
-            let runtime = NearRuntime::new(config).await?;
+            let runtime = NearRuntime::new(config)?;
             let balance = runtime.get_near_account_balance(near_account_str).await?;
             tracing::info!("NEAR balance for {}: {}", near_account_str, balance);
         }

@@ -32,10 +32,16 @@ pub struct NearConfig {
     pub near_rpc_url: String,
 }
 
+const DEFAULT_NEAR_RPC_URL: &str = "https://rpc.testnet.near.org";
+
 impl Default for NearConfig {
     fn default() -> Self {
+        dotenv::dotenv().ok();
         Self {
-            near_rpc_url: "https://rpc.testnet.near.org".to_string(),
+            near_rpc_url: std::env::var("NEAR_RPC_URL").unwrap_or_else(|_| {
+                tracing::debug!("NEAR_RPC_URL env var not set, defaulting to: {}", DEFAULT_NEAR_RPC_URL);
+                DEFAULT_NEAR_RPC_URL.to_string()
+            }),
         }
     }
 }
@@ -54,9 +60,9 @@ pub enum AccessCondition {
     Ecdsa(String),
     Ed25519(String),
     Contract {
-        address: String,
-        access_function_name: String,
-        access_function_args: String,
+        contract_account_id: String, // address of the contract
+        user_account_id: String, // address of the user
+        amount: u128, // amount of tokens
     },
 }
 
@@ -66,7 +72,7 @@ pub struct NearRuntime {
 }
 
 impl NearRuntime {
-    pub async fn new(config: NearConfig) -> Result<Self> {
+    pub fn new(config: NearConfig) -> Result<Self> {
         info!("NEAR RPC URL: {}", config.near_rpc_url);
         let near_client = JsonRpcClient::connect(&config.near_rpc_url);
 
@@ -145,7 +151,6 @@ impl NearRuntime {
         let signer_account_id = AccountId::from_str(signer_account_id_str)?;
         let signer_secret_key = SecretKey::from_str(signer_secret_key_str)?;
         let signer = InMemorySigner::from_secret_key(signer_account_id.clone(), signer_secret_key);
-
         let receiver_id = AccountId::from_str(receiver_id_str)?;
 
         // 1. Fetch latest nonce for the signer's access key
@@ -255,14 +260,14 @@ impl NearRuntime {
         description: &str,
         access_condition: AccessCondition,
     ) -> Result<FinalExecutionOutcomeView> {
+
         let args_json = serde_json::json!({
             "reverie_id": reverie_id,
             "reverie_type": reverie_type,
             "description": description,
             "access_condition": access_condition
         });
-
-        info!("Creating reverie with args: {}", args_json);
+        println!("Creating reverie with args: {}", args_json);
 
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "create_reverie".to_string(),
@@ -470,14 +475,12 @@ mod tests {
     use color_eyre::eyre::eyre;
     use dotenv::dotenv;
     use std::time::Duration;
-    use chrono;
 
     use near_primitives::transaction::{Transaction, TransactionV0};
     use near_primitives::views::FinalExecutionStatus;
     use near_token::NearToken;
 
     const TEST_CONTRACT_ID: &str = "payments.cyan-loong.testnet";
-    const TEST_ACCOUNT_ID: &str = "cyan-loong.testnet";
     const TEST_REVERIE_ID: &str = "test-reverie-1";
 
     fn setup_test_logger() {
@@ -488,7 +491,7 @@ mod tests {
     async fn test_read_trusted_account() -> Result<()> {
         setup_test_logger();
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
         let trusted_account = runtime.get_trusted_account(TEST_CONTRACT_ID).await?;
         info!("Trusted account from contract {}: {}", TEST_CONTRACT_ID, trusted_account);
         assert!(!trusted_account.is_empty(), "Trusted account should not be empty");
@@ -654,7 +657,7 @@ mod tests {
         dotenv().ok();
         setup_test_logger();
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
         let (signer_id, signer_pk) = get_test_signer_info()?;
 
         let reverie_id_tx_example = "tx-example-reverie";
@@ -685,7 +688,7 @@ mod tests {
         setup_test_logger();
         let (signer_id, signer_pk) = get_test_signer_info()?;
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
 
         // Cleanup all reveries first
         runtime.delete_all_reveries(TEST_CONTRACT_ID, &signer_id, &signer_pk).await?;
@@ -695,7 +698,12 @@ mod tests {
         let reverie_id = TEST_REVERIE_ID;
         let reverie_type = "Ed25519";
         let description = "desc";
-        let access_condition = AccessCondition::Ecdsa("pubkey".to_string());
+        // let access_condition = AccessCondition::Ecdsa("pubkey".to_string());
+        let access_condition = AccessCondition::Contract {
+            contract_account_id: "payments.reveriesapp.testnet".to_string(),
+            user_account_id: "some_user.testnet".to_string(),
+            amount: 1_000,
+        };
 
         // Dispatch create_reverie TX
         let outcome = runtime.create_reverie(
@@ -747,7 +755,7 @@ mod tests {
         setup_test_logger();
         let (signer_id, signer_pk) = get_test_signer_info()?; // Don't need PK for view call
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
 
         // Cleanup all reveries first
         runtime.delete_all_reveries(TEST_CONTRACT_ID, &signer_id, &signer_pk).await?;
@@ -831,7 +839,7 @@ mod tests {
         // This signer_id MUST be the contract's trusted_account for record_spend to succeed.
         // It will also be the user making the deposit and being debited in this test.
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
 
         let user_to_debit_str = signer_id.clone(); // Using signer_id as the user to debit
         let deposit_amount = NearToken::from_millinear(2).as_yoctonear(); // 0.002 NEAR
@@ -915,7 +923,7 @@ mod tests {
     async fn test_contract_get_trusted_account() -> Result<()> {
         setup_test_logger();
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
         let trusted_account = runtime.get_trusted_account(TEST_CONTRACT_ID).await?;
         info!("Contract trusted account: {}", trusted_account);
         // assert_eq!(trusted_account, TEST_CONTRACT_ID, "Trusted account mismatch");
@@ -936,7 +944,7 @@ mod tests {
         }
 
         let config = NearConfig::default();
-        let runtime = NearRuntime::new(config).await?;
+        let runtime = NearRuntime::new(config)?;
 
         let original_trusted_account = runtime.get_trusted_account(TEST_CONTRACT_ID).await?;
         info!("Original trusted account: {}", original_trusted_account);
