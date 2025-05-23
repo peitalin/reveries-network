@@ -40,6 +40,7 @@ use crate::node_client::{NodeClient, ContainerManager};
 use crate::usage_db::init_usage_db;
 use crate::env_var::EnvVars;
 use crate::utils::pubkeys::generate_peer_keys;
+use runtime::near_runtime::{NearConfig, NearRuntime};
 
 /// Creates the network components, namely:
 /// - The network client to interact with the network layer from anywhere within your application.
@@ -51,7 +52,6 @@ pub async fn new(
     bootstrap_nodes: Vec<(String, Multiaddr)>,
 ) -> Result<NodeClient> {
 
-    // Create a public/private key pair, either random or based on a seed.
     let (
         peer_id,
         id_keys,
@@ -65,13 +65,11 @@ pub async fn new(
     // Replace with NODE_SEED_NUM
     let seed = secret_key_seed.unwrap_or(0);
 
-    // Channels
     let (heartbeat_failure_sender, heartbeat_failure_receiver) = tokio::sync::mpsc::channel(100);
     let (heartbeat_sender, heartbeat_receiver) = async_channel::bounded(100);
     let (command_sender, command_receiver) = mpsc::channel(100);
     let (network_events_sender, network_events_receiver) = mpsc::channel(100);
 
-    // Swarm Setup
     let swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys.clone())
         .with_tokio()
         .with_tcp(
@@ -130,7 +128,6 @@ pub async fn new(
                     heartbeat_failure_sender,
                     heartbeat_sender,
                 ),
-                // gossipsub: gossipsub,
                 identify: identify,
                 request_response: libp2p::request_response::cbor::Behaviour::new(
                     [(
@@ -160,6 +157,11 @@ pub async fn new(
         umbral_key.clone(),
     );
 
+    // Create a NearRuntime instance
+    let near_runtime = Arc::new(
+        NearRuntime::new(NearConfig::default())?
+    );
+
     // 1. First spawn listen to incoming commands and network events, run in the background.
     tokio::task::spawn(
         NetworkEvents::new(
@@ -168,7 +170,8 @@ pub async fn new(
             command_receiver,
             network_events_sender,
             heartbeat_failure_receiver,
-            container_manager.clone()
+            container_manager.clone(),
+            near_runtime.clone(),
         ).init_listen_for_network_events()
     );
 
@@ -181,6 +184,7 @@ pub async fn new(
         umbral_key,
         heartbeat_receiver,
         usage_db_pool,
+        near_runtime.clone(),
     );
 
     // 2. Start listening for peers on the network

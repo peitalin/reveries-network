@@ -16,7 +16,8 @@ use std::str::FromStr;
 use alloy_primitives::hex;
 
 type SignatureBytes = Vec<u8>;
-type ContractCalldata = Vec<u8>;
+type ContractMethod = String;
+type ContractArgs = serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessKey {
@@ -26,6 +27,18 @@ pub enum AccessKey {
     UmbralSignature(SignatureBytes),
     /// Requires valid ED25519 signature (e.g. from Solana or NEAR)
     Ed25519Signature(SignatureBytes),
+    /// NEAR Contract Access Condition
+    NearContract(
+        String, // contract address
+        String, // spender address
+        u128 // amount
+    ),
+    /// Ethereum Contract Access Condition
+    EthContract(
+        alloy_primitives::Address, // contract address
+        ContractMethod, // contract method name
+        ContractArgs // contract calldata
+    ),
 }
 
 impl From<Signature> for AccessKey {
@@ -69,30 +82,45 @@ impl AccessKey {
             AccessKey::Ed25519Signature(sig_bytes) => {
                 unimplemented!("Ed25519 signatures are not implemented yet");
             },
+            AccessKey::NearContract(
+                address,
+                method_name,
+                calldata
+            ) => {
+                unimplemented!("NearContract access keys are not implemented yet");
+            },
+            AccessKey::EthContract(
+                address,
+                method_name,
+                calldata
+            ) => {
+                unimplemented!("EthContract access keys are not implemented yet");
+            },
         }.map_err(|e| anyhow!("Failed to deserialize signature: {}", e))
     }
 
-    pub fn verify_sig(&self, verifying_key: &AccessCondition, message_hash: &[u8]) -> bool {
+    pub fn verify_access<T: ToString>(&self, access_condition: &AccessCondition, reverie_id: T) -> bool {
+        let digest = Keccak256::digest(reverie_id.to_string().as_bytes());
+        let message_hash = digest.as_slice();
         match self {
             AccessKey::UmbralSignature(sig_bytes) => {
-                if let Ok(signature) = serde_json::from_slice::<UmbralSignature>(sig_bytes) {
-                    if let AccessCondition::Umbral(umbral_verifying_key) = verifying_key {
-                        if signature.verify(&umbral_verifying_key, message_hash) {
+                if let AccessCondition::Umbral(expected_address) = access_condition {
+                    if let Ok(signature) = serde_json::from_slice::<UmbralSignature>(sig_bytes) {
+                        if signature.verify(&expected_address, message_hash) {
                             return true;
                         } else {
                             tracing::warn!("Umbral signature verification failed");
-                            return false;
                         }
                     } else {
-                        tracing::warn!("Verifying key must be an Umbral key for Umbral signature verification");
+                        tracing::warn!("Failed to deserialize Umbral signature from bytes");
                     }
                 } else {
-                   tracing::warn!("Failed to deserialize Umbral signature from bytes");
+                    tracing::warn!("AccessKey::UmbralSignature cannot be used for AccessCondition::{}", access_condition.get_type());
                 }
                 false
             },
             AccessKey::EcdsaSignature(sig_bytes) => {
-                if let AccessCondition::Ecdsa(expected_address) = verifying_key {
+                if let AccessCondition::Ecdsa(expected_address) = access_condition {
                     // Convert message hash slice to B256
                     let hash = B256::from_slice(message_hash);
                     // Parse the signature bytes into an alloy Signature using TryFrom
@@ -123,8 +151,28 @@ impl AccessKey {
             AccessKey::Ed25519Signature(_) => {
                 unimplemented!("Ed25519 signatures are not implemented yet");
             },
+            AccessKey::NearContract(
+                contract_address,
+                contract_method_name,
+                contract_args
+            ) => {
+                unimplemented!("NearContract access keys are not implemented yet");
+            },
+            AccessKey::EthContract(
+                contract_address,
+                contract_method_name,
+                contract_args
+            ) => {
+                unimplemented!("EthContract access keys are not implemented yet");
+            },
         }
     }
+}
+
+pub fn create_digest_hash(reverie_id: &ReverieId, nonce: usize, timestamp: usize) -> B256 {
+    let digest = Keccak256::digest(reverie_id.as_bytes());
+    let hash = B256::from_slice(digest.as_slice());
+    hash
 }
 
 impl std::fmt::Display for AccessKey {
@@ -139,6 +187,20 @@ impl std::fmt::Display for AccessKey {
             AccessKey::Ed25519Signature(sig_bytes) => {
                 format!("Ed25519Signature(0x{})", hex::encode(sig_bytes.clone()))
             }
+            AccessKey::NearContract(
+                address,
+                method_name,
+                calldata
+            ) => {
+                format!("NearContract({}, {}, {})", address, method_name, calldata)
+            }
+            AccessKey::EthContract(
+                address,
+                method_name,
+                calldata
+            ) => {
+                format!("EthContract(0x{}, {}, {})", address, method_name, calldata)
+            }
         };
         write!(f, "{}", hex_sig)
     }
@@ -150,6 +212,8 @@ impl AccessKey {
             AccessKey::UmbralSignature(_) => "umbral".to_string(),
             AccessKey::EcdsaSignature(_) => "ecdsa".to_string(),
             AccessKey::Ed25519Signature(_) => "ed25519".to_string(),
+            AccessKey::NearContract(_, _, _) => "near_contract".to_string(),
+            AccessKey::EthContract(_, _, _) => "eth_contract".to_string(),
         }
     }
 }
@@ -162,16 +226,26 @@ pub enum AccessCondition {
     Ecdsa(Address),
     /// Requires a signature matching the ED25519 address
     Ed25519(String),
-    /// TODO: Requires valid Contract evaluation (preconditions)
-    Contract(
+    /// Requires NEAR contract evaluation (preconditions)
+    NearContract(
         // contract address
-        Address,
+        near_primitives::types::AccountId,
+        // spender address
+        near_primitives::types::AccountId,
+        // amount
+        u128
+    ),
+    /// Requires ETH contract evaluation (preconditions)
+    EthContract(
+        // contract address
+        alloy_primitives::Address,
         // access function name
         String,
         // access function args
-        serde_json::Value
+        ContractArgs
     ),
 }
+
 
 impl std::fmt::Display for AccessCondition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -185,12 +259,19 @@ impl std::fmt::Display for AccessCondition {
             AccessCondition::Ed25519(pubkey) => {
                 format!("ed25519:{}", pubkey.to_string())
             }
-            AccessCondition::Contract(
+            AccessCondition::NearContract(
                 address,
                 access_function_name,
                 access_function_args
             ) => {
-                format!("contract:{}", address.to_string())
+                format!("near_contract:{}:{}:{}", address.to_string(), access_function_name, access_function_args)
+            }
+            AccessCondition::EthContract(
+                address,
+                access_function_name,
+                access_function_args
+            ) => {
+                format!("eth_contract:{}:{}:{}", address.to_string(), access_function_name, access_function_args)
             }
         };
         write!(f, "{}", hex_sig)
@@ -200,10 +281,11 @@ impl std::fmt::Display for AccessCondition {
 impl AccessCondition {
     pub fn get_type(&self) -> String {
         match self {
-            AccessCondition::Umbral(_) => "umbral".to_string(),
-            AccessCondition::Ecdsa(_) => "ecdsa".to_string(),
-            AccessCondition::Ed25519(_) => "ed25519".to_string(),
-            AccessCondition::Contract(_, _, _) => "contract".to_string(),
+            AccessCondition::Umbral(_) => "Umbral".to_string(),
+            AccessCondition::Ecdsa(_) => "Ecdsa".to_string(),
+            AccessCondition::Ed25519(_) => "Ed25519".to_string(),
+            AccessCondition::NearContract(_, _, _) => "NearContract".to_string(),
+            AccessCondition::EthContract(_, _, _) => "EthContract".to_string(),
         }
     }
 }
@@ -334,8 +416,8 @@ mod tests {
         let signer = create_test_signer().await?;
         let signer_address: Address = signer.address();
 
-        let test_message = b"Hello, world!";
-        let digest = Keccak256::digest(test_message);
+        let test_message = "Hello, world!";
+        let digest = Keccak256::digest(test_message.as_bytes());
         let hash = B256::from_slice(&digest);
 
         let signature = signer.sign_hash(&hash).await?;
@@ -347,16 +429,16 @@ mod tests {
 
         let verifying_key = AccessCondition::Ecdsa(signer_address);
 
-        assert!(signature_type.verify_sig(&verifying_key, &digest));
+        assert!(signature_type.verify_access(&verifying_key, &test_message));
 
-        let invalid_message = b"Invalid message";
-        let invalid_digest = Keccak256::digest(invalid_message);
-        assert!(!signature_type.verify_sig(&verifying_key, &invalid_digest));
+        let invalid_message = "Invalid message";
+        let invalid_digest = Keccak256::digest(invalid_message.as_bytes());
+        assert!(!signature_type.verify_access(&verifying_key, &invalid_message));
 
         let wrong_address_str = "0x1111111111111111111111111111111111111111";
         let wrong_address: Address = wrong_address_str.parse()?;
         let wrong_key = AccessCondition::Ecdsa(wrong_address);
-        assert!(!signature_type.verify_sig(&wrong_key, &digest));
+        assert!(!signature_type.verify_access(&wrong_key, &test_message));
 
         Ok(())
     }
