@@ -14,14 +14,19 @@ use hex;
 use color_eyre::eyre::{Result, anyhow};
 use tracing::{info, error, warn, debug};
 use once_cell::sync::Lazy;
-use crate::utils::pubkeys::generate_peer_keys;
-use crate::env_var::EnvVars;
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
-
+use p256::ecdsa::{
+    VerifyingKey as P256VerifyingKey,
+    Signature as P256Signature
+};
+use ecdsa::signature::Verifier;
+use elliptic_curve::pkcs8::DecodePublicKey;
+use crate::utils::pubkeys::generate_peer_keys;
+use crate::env_var::EnvVars;
 use llm_proxy::api_key_delegation_server::{
     ApiKeyPayload,
     ApiKeyIdentifier,
@@ -77,6 +82,70 @@ fn create_request_signature_headers(node_id_keypair: &IdentityKeypair, method: &
 }
 
 impl NodeClient {
+
+    pub async fn register_llm_proxy_pubkey(
+        &mut self,
+        payload: llm_proxy::types::LlmProxyPublicKeyPayload,
+    ) -> Result<String> {
+        info!("NodeClient: Processing LLM Proxy public key registration...");
+
+        // 1. Parse the PEM public key string to a P256VerifyingKey
+        let llm_proxy_pubkey = P256VerifyingKey::from_public_key_pem(&payload.pubkey_pem)
+            .map_err(|e| anyhow!("Failed to parse LLM Proxy public key PEM: {}", e))?;
+        debug!("NodeClient: Successfully parsed LLM Proxy public key PEM.");
+
+        // 2. Decode the Base64 signature
+        let signature_bytes = base64_standard.decode(&payload.signature_b64)
+            .map_err(|e| anyhow!("Failed to decode Base64 signature for LLM Proxy key: {}", e))?;
+        let signature = P256Signature::from_slice(&signature_bytes)
+            .map_err(|e| anyhow!("Failed to parse signature bytes for LLM Proxy key: {}", e))?;
+        debug!("NodeClient: Successfully decoded and parsed signature.");
+
+        // 3. Verify the signature
+        // The signature was made over the PEM string of the public key itself.
+        llm_proxy_pubkey.verify(payload.pubkey_pem.as_bytes(), &signature)
+            .map_err(|e| anyhow!("LLM Proxy public key signature verification failed: {}", e))?;
+        println!("NodeClient: LLM Proxy public key signature VERIFIED.");
+
+        // 4. Store the verified public key
+        let _ = self.llm_proxy_public_key.write().await.insert(llm_proxy_pubkey);
+
+        // 5. Store the CA certificate PEM string
+        info!("NodeClient: Storing LLM Proxy CA certificate PEM.\nPEM:\n{}", payload.ca_cert_pem);
+        let ca_cert = reqwest::Certificate::from_pem(payload.ca_cert_pem.as_bytes())?;
+        let _ = self.llm_proxy_ca_cert.write().await.insert(ca_cert);
+        info!("NodeClient: Successfully stored LLM Proxy CA certificate PEM.");
+
+        println!("Stored LLM Proxy public key: {:?}", &self.llm_proxy_public_key.read().await);
+        println!("Stored LLM Proxy CA certificate PEM: {:?}", &self.llm_proxy_ca_cert.read().await);
+
+        let pubkey_log = self.llm_proxy_public_key.read().await.clone();
+        let ca_cert_pem_log = self.llm_proxy_ca_cert.read().await.clone(); // Log the PEM string
+        let pubkey_log_str = format!("{:?}", pubkey_log);
+        let ca_cert_pem_log_str = format!("{:?}", ca_cert_pem_log); // Debug format of Option<String>
+
+        Ok(serde_json::json!({
+            "llm_proxy_public_key": pubkey_log_str,
+            "llm_proxy_ca_cert_pem": ca_cert_pem_log_str, // Updated field name in log
+        }).to_string())
+    }
+
+    pub async fn get_proxy_public_key(&self) -> Result<(Option<String>, Option<String>)> {
+        let proxy_public_key = self.llm_proxy_public_key.read().await;
+        let opt_public_key = proxy_public_key.as_ref();
+        let public_key_str = match opt_public_key {
+            Some(ref key) => Some(format!("{:?}", key)),
+            None => None
+        };
+
+        let ca_cert = self.llm_proxy_ca_cert.read().await;
+        let opt_ca_cert = ca_cert.as_ref();
+        let ca_cert_str = match opt_ca_cert {
+            Some(ref cert) => Some(format!("{:?}", cert)),
+            None => None
+        };
+        Ok((public_key_str, ca_cert_str))
+    }
 
     pub async fn add_proxy_api_key(
         &mut self,

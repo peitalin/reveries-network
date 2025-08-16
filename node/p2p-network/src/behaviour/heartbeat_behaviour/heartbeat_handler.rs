@@ -35,16 +35,16 @@ use super::tee_quote_parser;
 
 #[derive(Debug, Clone)]
 pub enum HeartbeatInEvent {
-    LatestHeartbeat(TeeAttestation),
+    SendLatestHeartBeatPayload(TeeAttestation),
 }
 
 #[derive(Debug, Clone)]
 pub enum HeartbeatOutEvent {
     HeartbeatPayload(TeeAttestation),
-    RequestHeartbeat,
+    RequestLocalHeartbeatPayloadToSend,
     ResetFailureCount,
     IncrementFailureCount(u32),
-    GenerateTeeAttestation
+    RefreshLocalTeeAttestation
 }
 
 /// Represents state of the Oubound stream
@@ -141,7 +141,7 @@ impl ConnectionHandler for HeartbeatHandler {
                     });
                     if !requested {
                         return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HeartbeatOutEvent::RequestHeartbeat,
+                            HeartbeatOutEvent::RequestLocalHeartbeatPayloadToSend,
                         ))
                     }
                     break
@@ -195,7 +195,7 @@ impl ConnectionHandler for HeartbeatHandler {
                         });
                         // generate new TEE attestation
                         return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HeartbeatOutEvent::GenerateTeeAttestation
+                            HeartbeatOutEvent::RefreshLocalTeeAttestation
                         ));
                     }
                 },
@@ -221,7 +221,7 @@ impl ConnectionHandler for HeartbeatHandler {
     }
 
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
-        let HeartbeatInEvent::LatestHeartbeat(heartbeat_payload) = event;
+        let HeartbeatInEvent::SendLatestHeartBeatPayload(heartbeat_payload) = event;
 
         match self.outbound.take() {
             // Respond to Heartbeat Request

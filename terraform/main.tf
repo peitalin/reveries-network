@@ -10,7 +10,7 @@ terraform {
 variable "project_id" {
   description = "GCP Project ID"
   type        = string
-  default     = "eigen-413918"
+  default     = "eigen-413918" # Edit this
 }
 
 variable "zone" {

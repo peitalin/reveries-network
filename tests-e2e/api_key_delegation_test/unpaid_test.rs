@@ -33,6 +33,8 @@ use crate::*;
 #[tokio::test]
 #[serial_test::serial]
 pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
+    // Initialize database path at the very beginning
+    crate::init();
 
     setup_test_environment_once_async().await?;
 
@@ -64,7 +66,7 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
     /////////////////////////////////////////////////////////
     //// Encrypt Secret #1: Anthropic API key
     /////////////////////////////////////////////////////////
-    println!("Step 1: Spawn API Key Reverie with encrypted Anthropic API key...");
+    println!("\nStep 1: Spawn memory reverie with encrypted Anthropic API key...");
     let api_keys_secrets = json!({
         "anthropic_api_key": std::env::var("ANTHROPIC_API_KEY").ok(),
         "deepseek_api_key": std::env::var("DEEPSEEK_API_KEY").ok(),
@@ -82,10 +84,10 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
         )
     ).await??;
 
-    println!("API Key reverie spawned on vessel: {} {}", api_key_reverie.id, api_key_reverie.description);
+    println!("API Key reverie spawned on vessel: {} description: {}", api_key_reverie.id, api_key_reverie.description);
     time::sleep(Duration::from_millis(2000)).await;
 
-    println!("Step 2: Delegate Anthropic API key to dev's server...");
+    println!("Step 2: Delegate Anthropic API key to a TEE node...");
     let access_key_dev = {
         let digest = Keccak256::digest(api_key_reverie.id.clone().as_bytes());
         let hash = B256::from_slice(digest.as_slice());
@@ -95,7 +97,7 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
     clients[&9902].request(
         "delegate_api_key",
         jsonrpsee::rpc_params![
-            api_key_reverie.id,
+            api_key_reverie.id.clone(),
             ReverieType::Memory,
             access_key_dev
         ]
@@ -119,7 +121,7 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
         )
     ).await??;
 
-    println!("Memory reverie spawned on vessel: {} {}", memory_reverie_result.id, memory_reverie_result.description);
+    println!("\tMemory reverie spawned on vessel: {} {}", memory_reverie_result.id, memory_reverie_result.description);
     time::sleep(Duration::from_millis(1000)).await;
 
     println!("Step 4: Execute LLM calls with secret memory and delegated API Key");
@@ -141,7 +143,7 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
         clients[&9902].request::<ExecuteWithMemoryReverieResult, _>(
             "execute_with_memory_reverie",
             jsonrpsee::rpc_params![
-                memory_reverie_result.id,
+                memory_reverie_result.id.clone(),
                 ReverieType::Memory,
                 access_key_user,
                 anthropic_prompt
@@ -153,12 +155,35 @@ pub async fn test_api_key_delegation_ecdsa() -> Result<()> {
     match rpc_result {
         Err(e) => println!("Error:\n{:?}", e),
         Ok(result) => {
-            println!("\nClaude Result: {:?}", result.claude);
-            println!("Usage Report: {:?}\n", result.usage_report);
+            println!("\n=== Claude Result ===\n{:?}", result.claude);
         }
     };
 
-    time::sleep(Duration::from_secs(1)).await;
+    // Wait for usage data to be written to database
+    println!("\nWaiting for usage data to be written to database...");
+    time::sleep(Duration::from_secs(2)).await;
+
+    // Read usage data from database for the API key reverie (since usage is associated with the API key)
+    let api_key_reverie_id = api_key_reverie.id.clone();
+    println!("\nReading usage data for API key reverie: {}", api_key_reverie_id);
+    let usage_data_result = tokio::time::timeout(
+        Duration::from_secs(5),
+        clients[&9901].request::<serde_json::Value, _>(
+            "read_usage_data_for_reverie",
+            jsonrpsee::rpc_params![api_key_reverie_id.clone()]
+        )
+    ).await;
+
+    match usage_data_result {
+        Ok(Ok(usage_data)) => {
+            println!("\n===== Usage Data for API key reverie {} =====\n {:?}", api_key_reverie_id, usage_data);
+        },
+        Ok(Err(e)) => println!("Error reading usage data: {:?}", e),
+        Err(_) => println!("Timeout reading usage data"),
+    }
+
+    // longer timeout to read docker output before it wipes
+    time::sleep(Duration::from_secs(10)).await;
     defer! { test_nodes.cleanup_ports(); }
     defer! { shutdown_docker_environment(3); }
     Ok(())

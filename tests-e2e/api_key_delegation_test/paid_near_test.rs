@@ -40,6 +40,18 @@ pub async fn test_api_key_delegation_near_contract() -> Result<()> {
 
     setup_test_environment_once_async().await?;
 
+    let contract_account_id = std::env::var("NEAR_CONTRACT_ACCOUNT_ID")
+        .expect("NEAR_CONTRACT_ACOUNT_ID must be set in env vars")
+        .parse::<near_primitives::types::AccountId>()?;
+
+    // Dev's account
+    let dev_account_id = std::env::var("NEAR_SIGNER_ACCOUNT_ID")
+        .expect("NEAR_SIGNER_ACCOUNT_ID must be set in env vars")
+        .parse::<near_primitives::types::AccountId>()?;
+
+    let dev_private_key = std::env::var("NEAR_SIGNER_PRIVATE_KEY")
+        .expect("NEAR_SIGNER_PRIVATE_KEY must be set in env vars");
+
     let test_nodes = TestNodes::new(5)
         .exec_docker_compose_with_node(
             TARGET_NODE_2,
@@ -54,14 +66,6 @@ pub async fn test_api_key_delegation_near_contract() -> Result<()> {
     /////////////////////////////////////////////////////////
     //// Access Conditions
     /////////////////////////////////////////////////////////
-
-    let contract_account_id = std::env::var("NEAR_CONTRACT_ACCOUNT_ID")?
-        .parse::<near_primitives::types::AccountId>()?;
-
-    // Dev's account
-    let dev_account_id = std::env::var("NEAR_SIGNER_ACCOUNT_ID")?
-        .parse::<near_primitives::types::AccountId>()?;
-    let dev_private_key = std::env::var("NEAR_SIGNER_PRIVATE_KEY")?;
 
     let access_condition_dev = AccessCondition::NearContract(
         contract_account_id.clone(),
@@ -193,7 +197,6 @@ pub async fn test_api_key_delegation_near_contract() -> Result<()> {
         Err(e) => println!("Error:\n{:?}", e),
         Ok(result) => {
             println!("\nClaude Result: {:?}", result.claude);
-            println!("Usage Report: {:?}\n", result.usage_report);
         }
     };
 

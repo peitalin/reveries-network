@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 # Import route modules
-from routes import anthropic, deepseek, health
+from routes import anthropic, health
 from mcp_client import MCPClient
 
 # Load environment variables
@@ -109,7 +109,6 @@ app.add_middleware(
 
 # Include routers from route modules
 app.include_router(anthropic.router)
-app.include_router(deepseek.router)
 app.include_router(health.router)
 
 if __name__ == "__main__":

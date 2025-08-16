@@ -39,16 +39,24 @@ CREATE INDEX IF NOT EXISTS idx_usage_reports_spender_address ON usage_reports(sp
 ";
 
 /// Initializes the SQLite database pool for usage reports.
-/// Reads P2P_USAGE_DB_PATH env var, defaults to in-memory if not set.
+/// Reads P2P_USAGE_DB_PATH env var, uses default filepath if not provided
 pub fn init_usage_db() -> Result<UsageDbPool> {
 
     dotenv::dotenv().ok();
     let db_path_opt = std::env::var("P2P_USAGE_DB_PATH").ok();
+    info!("P2P_USAGE_DB_PATH env var: {:?}", db_path_opt);
 
     let manager = match db_path_opt {
         None => {
-            info!("Initializing in-memory SQLite database pool for usage reports.");
-            SqliteConnectionManager::memory()
+            let default_path = "./temp-data/p2p_usage.db";
+            let db_path_obj = Path::new(default_path);
+            if let Some(parent) = db_path_obj.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| anyhow!("Failed to create usage DB directory '{}': {}", parent.display(), e))?;
+            }
+            SqliteConnectionManager::file(default_path)
+            // info!("Initializing in-memory SQLite database pool for usage reports.");
+            // SqliteConnectionManager::memory()
         },
         Some(ref path) => {
             info!("Initializing file-based SQLite database pool for usage reports at: {}", path);
@@ -75,6 +83,75 @@ pub fn init_usage_db() -> Result<UsageDbPool> {
 
     info!("Usage database pool initialized.");
     Ok(Arc::new(pool))
+}
+
+/// Reads usage data from the database for a specific reverie_id
+pub fn read_usage_data_for_reverie(pool: &UsageDbPool, reverie_id: &str) -> Result<Vec<UsageReportPayload>> {
+    info!("Reading usage data for reverie_id: {}", reverie_id);
+    let conn = pool.get()?;
+
+    let mut stmt = conn.prepare(
+        "SELECT request_id, timestamp, input_tokens, output_tokens,
+                cache_creation_tokens, cache_read_tokens, tool_id, tool_name,
+                tool_input, tool_type, linked_tool_id, reverie_id,
+                spender_address, spender_type
+         FROM usage_reports
+         WHERE reverie_id = ?
+         ORDER BY timestamp DESC"
+    )?;
+
+    let rows = stmt.query_map(params![reverie_id], |row| {
+        let tool_use = if let (Some(tool_id), Some(tool_name), Some(tool_input), Some(tool_type)) =
+            (row.get::<_, Option<String>>(6)?,
+             row.get::<_, Option<String>>(7)?,
+             row.get::<_, Option<String>>(8)?,
+             row.get::<_, Option<String>>(9)?) {
+            let input_json = serde_json::from_str(&tool_input).unwrap_or(serde_json::Value::Null);
+            Some(llm_proxy::usage::ToolUse {
+                id: tool_id,
+                name: tool_name,
+                input: input_json,
+                tool_type,
+            })
+        } else {
+            None
+        };
+
+        let usage_data = llm_proxy::usage::UsageData {
+            reverie_id: row.get(11)?,
+            spender: row.get(12)?,
+            spender_type: row.get(13)?,
+            input_tokens: row.get(2)?,
+            output_tokens: row.get(3)?,
+            cache_creation_input_tokens: row.get(4)?,
+            cache_read_input_tokens: row.get(5)?,
+            tool_use,
+        };
+
+        Ok(llm_proxy::usage::UsageReportPayload {
+            usage: usage_data,
+            timestamp: row.get(1)?,
+            linked_tool_use_id: row.get(10)?,
+            request_id: row.get(0)?,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for row_result in rows {
+        match row_result {
+            Ok(record) => {
+                info!("Successfully processed record: {}", record.request_id);
+                results.push(record);
+            },
+            Err(e) => {
+                error!("Failed to process row: {}", e);
+                return Err(anyhow!("Failed to process database row: {}", e));
+            }
+        }
+    }
+
+    info!("Found {} usage records for reverie_id: {}", results.len(), reverie_id);
+    Ok(results)
 }
 
 /// Stores a verified usage report payload in the database.

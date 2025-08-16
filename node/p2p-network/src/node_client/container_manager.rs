@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -23,9 +22,9 @@ pub enum RestartReason {
 /// Handles graceful shutdown and restart of the container
 pub struct ContainerManager {
     shutdown_signal: broadcast::Sender<RestartReason>,
-    is_shutting_down: Arc<AtomicBool>,
+    is_shutting_down: AtomicBool,
     max_duration_before_shutdown: Duration,
-    pub app_state: Arc<RwLock<AppState>>,
+    pub app_state: RwLock<AppState>,
 }
 
 impl ContainerManager {
@@ -33,9 +32,9 @@ impl ContainerManager {
         let (shutdown_signal, _) = broadcast::channel(1);
         ContainerManager {
             shutdown_signal,
-            is_shutting_down: Arc::new(AtomicBool::new(false)),
+            is_shutting_down: AtomicBool::new(false),
             max_duration_before_shutdown,
-            app_state: Arc::new(RwLock::new(AppState::default())),
+            app_state: RwLock::new(AppState::default()),
         }
     }
 
@@ -66,28 +65,13 @@ impl ContainerManager {
     }
 
     async fn wait_for_graceful_shutdown(&self) -> Result<(), Box<dyn Error>> {
-        // let start = std::time::Instant::now();
-        // let state = self.app_state.clone();
-        // while start.elapsed() < self.max_duration_before_shutdown {
-        //     let current_state = state.read().await;
-        //     if current_state.pending_operations == 0 && current_state.connections == 0 {
-        //         return Ok(());
-        //     }
-        //     println!(
-        //         "Waiting for shutdown: {} pending operations, {} connections",
-        //         current_state.pending_operations, current_state.connections
-        //     );
-        //     sleep(Duration::from_secs(1)).await;
-        // }
-        // println!("Shutdown timeout reached, forcing restart");
+        // Do something here to wait from pending operations to finish before shutting down
         Ok(())
     }
 
     async fn save_state(&self) -> Result<(), Box<dyn Error>> {
         // let state = self.app_state.clone();
-        // let save_state = state.read().await;
-        // TODO: Save to an ecrypted persistent volume or on MPC network
-        // encrypt and save somewhere threshold decryptable by MPC network
+        // Do something to save state: e.g save to an encrypted persistent volume
         Ok(())
     }
 

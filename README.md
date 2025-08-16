@@ -1,86 +1,116 @@
 
-### Agent Reincarnation Network
+### API Key Delegation Network
 
-This network hosts autonomous AI agents that own their own private wallets, have their own private memories inside of TEE (Trusted Execution Environment) nodes and transplants agents (and their private states) into new "vessel" nodes whenever an agents TEE server crashes so that the agent never loses access to their funds, keys, or encrypted memories.
+This network uses threshold proxy re-encryption (Umbral) to transplant secret keys, context, API Keys, and other secret state between TEE (Trusted Execution Environment) nodes in a p2p network.
 
-We use threshold proxy re-encryption to transplant AI Agent secret keys, memories, model weights, and other secret state between encrypted TEE vessels in the p2p network, ensuring digitally immortable sovereign agents to run in perpetuity. If an agent's vessel node dies, let it die and reincarnate.
+In the first example, agents have private context and keys inside of TEE nodes and the network transplants their private states into new TEE "vessels" whenever their housing vessel/server crashes, to preserve access to private keys, or encrypted contexts.
+
+We use the same memory delegation process to delegate encrypted API keys to TEE nodes running a `llm-proxy` that intercepts LLM API requests, injects API keys into requests, tracks token usage (to enable the use of onchain payments to pay for LLM API access).
+- The hope is that we can tokenize LLM API_KEYs for lending and delegating LLM API access via onchain payments
 
 
 #### Starting the network locally
 
-Start the network locally, spinning up 5 nodes inside docker compose with:
+Install `just` with `cargo install just`.
+
+Start the network locally, spinning up 5 nodes with either:
+
 ```
-docker compose up
+# terminal tab 1
+just node1
+
+# terminal tab 2
+just node2
+
+# ...
+
+# terminal tab 5
+just node5
 ```
 
-Edit the `docker-compose.yml` file to add nodes.
-I've hardcoded nodes to rpc ports (9901-9905) for local development purposes.
+Or with docker:
+```
+# Build p2p-node image
+sh build-docker.sh
+
+# Then run all 6 nodes:
+docker-compose -f ./docker-compose-6-nodes.yaml up
+
+# or use:
+just run-local-nodes
+
+```
 
 #### Node heartbeat monitor dashboard
 
-Install pnpm:
+After launching the nodes, install [pnpm](https://pnpm.io/), then run:
 ```
-curl -fsSL https://get.pnpm.io/install.sh | sh -
-```
-
-Then run:
-```
-cd telemetry/heartbeat-monitor
-pnpm install
-npm run dev
+just run-react-app
 ```
 
 Navigate to `http://localhost:4000/?port=9901` to observe the node's state.
 You can open multiple browser tabs and change the `port=9902` to observe node1 to node5's state.
 
-Then you can interact with the nodes: spawn agents and trigger node failures.
+Then you can interact with the nodes:
 
-
-#### Spawning and respawning vessel nodes (agents)
-Install [just](https://github.com/casey/just):
-Rust:
+1) Spawn agent (with encrypted API key and private keys) on node1 on port 9901:
 ```
-cargo install just
-```
-npm:
-```
-npm install -g rust-just
-```
-
-Once the nodes are running and you have installed `just`, spawn an agent on node1 (on port 9901) with:
-```
+# The node generates re-encryption fragments and broadcasts them to peers.
 just spawn-agent 9901
 ```
-The node will generate re-encryption fragments and broadcast them to peers.
-It will also select a node to be the next vessel to reincarnate the agent in, once it fails.
 
-Then trigger a network failure for node1 (triggering agent reincarnation in the new vessel node):
+2) trigger node failure on node1 on port 9901:
 ```
 just trigger-node-failure 9901
 ```
 
-Node1 running on port 9901 will go offline, and the next vessel node will detect node failure and begin the agent reincarnation protocol.
+Node1 running on port 9901 will go offline, then the TEE heartbeats will timeout between the nodes and trigger the respawn process (threshold proxy re-encryption).
 
-If you watch the Node heartbeat-monitor react app, you will see the "Agent in Vessel" move from node1 to the next node.
-
-The new agent's name will have an incremented nonce, e.g:
+One of the peer nodes (a random node e.g `http://localhost:4000/?port=9902`) will now have the agent's decrypted secrets, you will see the "Agent in Vessel" move from node1 to the next node. The new agent's name will have an incremented nonce, e.g:
 ```
 auron-0 -> auron-1
 ```
 
 Failed nodes will reboot after a timeout, and so you should be able to constantly trigger node failures and see the agent reincarnate and move around from vessel to vessel (still testing this).
 
+NOTE: the TEE attestations in the heartbeats will only be valid in TEE enabled VMs. If running locally, mock TEE attestations will be used instead.
 
-
-#### Runtime
-Debug run the runtime that handles TEE attestations, houses the LLM, and generates Umbral keys.
+You can also just run the e2e test for respawning an agent:
 ```
-cargo run --bin runtime
+# Build p2p-node image
+sh build-docker.sh
+
+# run agent respawn test
+just test-agent-respawn-after-failure
 ```
 
 
+### Testing API Key Delegation (experimental)
 
-### Deployment: TEE VM Setup
+If docker is installed, there are tests in `tests-e2e` module that outline the flow of:
+
+1. Encrypt Anthropic API key, re-encrypt it, and broadcast to peers
+2. Delegate Anthropic API key to a TEE node
+3. Delegate secret context/memories for an agent
+4. Execute LLM calls with secret memory and delegated API key
+5. Measure token usage via llm-proxy and report back to the p2p-node
+
+To run the test, move `env.example` to `.env` and add an Anthropic API KEY to `.env`
+Then run:
+```
+# build llm-proxy and python MCP services
+docker compose -f docker-compose-llm-proxy-test.yml build
+
+# run test
+just test-api-key-delegation
+```
+
+Future steps:
+- integrate contracts for minting/tokenizing API keys
+- onchain usage metrics, accounts, and billing for accessing delegated keys
+
+
+## Deployment: TEE VM Setup
 
 Deploy TDK confidential VMs on Google Cloud with terraform:
 ```
@@ -115,14 +145,6 @@ curl -X POST http://<TEE_IP_ADDRESS>:9901 \
 
 I will later put this RPC interface behind a proper HTTP API (caddy) on port 80.
 
-Test websocket heartbeat monitor with `websocat`:
-```
-cargo install websocat
-websocat ws://34.143.238.248:9901
-
-# then paste in JSOn input
-{"jsonrpc":"2.0","method":"subscribe_hb","params":[0],"id":1}
-```
 
 ### Misc Deployment Notes
 
@@ -158,6 +180,5 @@ gcloud compute instances create tee09-instance-20250221-042942 \
     --labels=goog-ec-src=vm_add-gcloud \
     --reservation-affinity=any
 ```
-
 
 kill -9 $(lsof -ti:9901)

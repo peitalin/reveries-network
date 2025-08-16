@@ -195,13 +195,13 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                 self.internal_fail_count = 0.into();
             }
             // Dispatch request for a Heartbeat from other Peers
-            HeartbeatOutEvent::RequestHeartbeat => {
+            HeartbeatOutEvent::RequestLocalHeartbeatPayloadToSend => {
                 // push onto pending_events, which will be poll()'d and executed
                 self.pending_events.push_back(
                     HeartbeatAction::HeartbeatRequest  {
                         peer_id,
                         connection_id,
-                        in_event: HeartbeatInEvent::LatestHeartbeat(
+                        in_event: HeartbeatInEvent::SendLatestHeartBeatPayload(
                             self.current_heartbeat_payload.clone(),
                         ),
                     }
@@ -224,7 +224,7 @@ impl NetworkBehaviour for HeartbeatBehaviour {
                     self.config.max_failures
                 );
             }
-            HeartbeatOutEvent::GenerateTeeAttestation => {
+            HeartbeatOutEvent::RefreshLocalTeeAttestation => {
 
                 let (
                     _tee_quote,

@@ -1,5 +1,9 @@
+use base64::{Engine, engine::general_purpose::STANDARD as base64_standard};
 use color_eyre::eyre::{Result, anyhow};
 use colored::Colorize;
+use dcap_rs::types::VerifiedOutput;
+use elliptic_curve::pkcs8::DecodePublicKey;
+use p256::ecdsa::{VerifyingKey, Signature};
 use std::{
     error::Error as StdError,
     fmt,
@@ -7,23 +11,23 @@ use std::{
     path::Path,
     time::Duration,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error, debug};
-
-use base64::{Engine, engine::general_purpose::STANDARD as base64_standard};
-use elliptic_curve::pkcs8::DecodePublicKey;
-use p256::ecdsa::{VerifyingKey, Signature};
 use signature::Verifier;
+use sha2::{Sha256, Digest};
+use tracing::{info, warn, error, debug};
+use tokio::time::sleep as tokio_sleep;
+
 use llm_proxy::usage::{
     UsageData,
     SignedUsageReport,
     UsageReportPayload,
 };
-use tokio::time::sleep as tokio_sleep;
 use runtime::tee_attestation::{self, QuoteV4, QuoteBody, TcbStatus};
-use sha2::{Sha256, Digest};
-use std::time::{SystemTime, UNIX_EPOCH};
-use dcap_rs::types::VerifiedOutput;
+use runtime::llm::MCPToolUsageMetrics;
+use crate::usage_db::{UsageDbPool, store_usage_payload, read_usage_data_for_reverie};
+use super::{NodeClient, NodeCommand};
+
 
 #[derive(Debug)]
 pub enum VerificationError {
@@ -81,6 +85,83 @@ impl From<runtime::tee_attestation::DcapError> for VerificationError {
             runtime::tee_attestation::DcapError::VerificationFailed(s) => VerificationError::DcapVerificationFailed(s),
             runtime::tee_attestation::DcapError::TcbStatusNotOk(s) => VerificationError::DcapTcbStatusNotOk(s),
         }
+    }
+}
+
+
+impl NodeClient {
+    /// Verifies and potentially stores a usage report received from a proxy.
+    /// TODO: move to network_events and dispatch on-chain
+    pub async fn report_usage(&mut self, signed_usage_report: SignedUsageReport) -> Result<String> {
+        info!("Received usage report: Payload(first 50)={:?}, Signature(first 10)={:?}",
+              &signed_usage_report.payload[..signed_usage_report.payload.len().min(50)],
+              &signed_usage_report.signature[..signed_usage_report.signature.len().min(10)]);
+
+        // Get the public key from self.proxy_public_key
+        let proxy_public_key = self.llm_proxy_public_key.read().await;
+        let opt_public_key = proxy_public_key.as_ref();
+        let public_key = match opt_public_key {
+            Some(ref key) => key,
+            None => {
+                error!("NodeClient: LLM Proxy public key not available for usage report verification. Has it registered yet?");
+                return Err(anyhow!("LLM Proxy public key not available. Cannot verify usage report."));
+            }
+        };
+
+        match verify_usage_report(&signed_usage_report, public_key) { // Pass the borrowed key
+            Ok(payload) => {
+                info!("NodeClient: Usage report verified successfully.");
+                // Verification successful, now store the payload
+                if let Err(db_err) = store_usage_payload(&self.usage_db_pool, &payload) {
+                    error!("NodeClient: Failed to store verified usage payload in DB: {}", db_err);
+                }
+                Ok("Usage report verified.".to_string())
+            }
+            Err(verification_error) => {
+                error!("NodeClient: Usage report verification failed: {}", verification_error);
+                Err(anyhow!("Usage report verification failed: {}", verification_error))
+            }
+        }
+    }
+
+    pub fn read_usage_data_for_reverie(&self, reverie_id: &str) -> Result<MCPToolUsageMetrics> {
+
+        let mut metrics = MCPToolUsageMetrics::default();
+        // Read usage data from database for this reverie (after LLM calls)
+        info!("About to read usage data for reverie: {}", reverie_id);
+        match read_usage_data_for_reverie(&self.usage_db_pool, &reverie_id) {
+            Ok(usage_records) => {
+                info!("Found {} usage records for reverie {}", usage_records.len(), reverie_id);
+
+                // Convert usage records to MCPToolUsageMetrics format
+                for record in usage_records {
+                    info!("Processing usage record: {}", record.request_id);
+                    let usage_record = runtime::llm::UsageRecord {
+                        request_id: record.request_id,
+                        timestamp: record.timestamp,
+                        input_tokens: record.usage.input_tokens,
+                        output_tokens: record.usage.output_tokens,
+                        cache_creation_tokens: record.usage.cache_creation_input_tokens,
+                        cache_read_tokens: record.usage.cache_read_input_tokens,
+                        tool_name: record.usage.tool_use.as_ref().map(|tu| tu.name.clone()),
+                        tool_type: record.usage.tool_use.as_ref().map(|tu| tu.tool_type.clone()),
+                        linked_tool_id: record.linked_tool_use_id,
+                        reverie_id: record.usage.reverie_id,
+                        spender_address: record.usage.spender,
+                        spender_type: record.usage.spender_type,
+                    };
+                    metrics.add_usage_record(usage_record);
+                }
+            },
+            Err(e) => {
+                error!("Failed to read usage data from database for reverie {}: {}", reverie_id, e);
+            }
+        }
+
+        let usage_report = metrics.generate_report();
+        println!("{}", usage_report);
+
+        Ok(metrics)
     }
 }
 

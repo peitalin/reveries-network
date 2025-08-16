@@ -1,6 +1,6 @@
 use dotenv::dotenv;
 use std::env;
-use tracing::debug;
+use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case)]
@@ -53,9 +53,18 @@ impl EnvVars {
                     debug!("NEAR_RPC_URL env var not set, defaulting to: {}", DEFAULT_NEAR_RPC_URL);
                     DEFAULT_NEAR_RPC_URL.to_string()
                 }),
-                NEAR_CONTRACT_ACCOUNT_ID: env::var("NEAR_CONTRACT_ACCOUNT_ID").expect("NEAR_CONTRACT_ACCOUNT_ID env var not set"),
-                NEAR_SIGNER_ACCOUNT_ID: env::var("NEAR_SIGNER_ACCOUNT_ID").expect("NEAR_SIGNER_ACCOUNT_ID env var not set"),
-                NEAR_SIGNER_PRIVATE_KEY: env::var("NEAR_SIGNER_PRIVATE_KEY").expect("NEAR_SIGNER_PRIVATE_KEY env var not set"),
+                NEAR_CONTRACT_ACCOUNT_ID: env::var("NEAR_CONTRACT_ACCOUNT_ID").unwrap_or_else(|_| {
+                    error!("NEAR_CONTRACT_ACCOUNT_ID env var not set. NEAR contract calls will fail");
+                    "".to_string()
+                }),
+                NEAR_SIGNER_ACCOUNT_ID: env::var("NEAR_SIGNER_ACCOUNT_ID").unwrap_or_else(|_| {
+                    error!("NEAR_SIGNER_ACCOUNT_ID env var not set. NEAR contract calls will fail");
+                    "".to_string()
+                }),
+                NEAR_SIGNER_PRIVATE_KEY: env::var("NEAR_SIGNER_PRIVATE_KEY").unwrap_or_else(|_| {
+                    error!("env var not set. NEAR contract calls will fail");
+                    "".to_string()
+                }),
             },
         }
     }

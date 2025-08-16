@@ -6,6 +6,17 @@ mod utils_network;
 mod paid_near_test;
 mod unpaid_test;
 
+// Set the database path at module load time
+static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+fn init() {
+    INIT.get_or_init(|| {
+        // Ensure the database path is set before any database initialization
+        if std::env::var("P2P_USAGE_DB_PATH").is_err() {
+            std::env::set_var("P2P_USAGE_DB_PATH", "./temp-data/p2p_usage.db");
+        }
+    });
+}
+
 use alloy_signer_local::PrivateKeySigner;
 use color_eyre::{Result, eyre::Error};
 use serde_json::json;
@@ -33,6 +44,10 @@ pub async fn setup_test_environment_once_async() -> Result<()> {
     TEST_ENV_SETUP_ONCE.get_or_try_init(|| async {
         init_test_logger();
         dotenv::dotenv().ok();
+        // Ensure the database path is set for tests
+        if std::env::var("P2P_USAGE_DB_PATH").is_err() {
+            std::env::set_var("P2P_USAGE_DB_PATH", "./temp-data/p2p_usage.db");
+        }
         Ok::<(), Error>(())
     }).await?;
 

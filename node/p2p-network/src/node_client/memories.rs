@@ -3,14 +3,9 @@ use colored::Colorize;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tracing::{info, debug, error, warn};
 use std::convert::TryFrom;
-
-use crate::types::{
-    Reverie,
-    ReverieId,
-    ReverieType,
-    AccessCondition as P2PNetworkAccessCondition,
-    AccessKey,
-};
+use hex;
+use std::str::FromStr;
+use sha3::{Digest, Keccak256};
 use runtime::llm::{
     MCPToolUsageMetrics,
     call_anthropic,
@@ -20,17 +15,33 @@ use runtime::near_runtime::{
     AccessCondition as NearRuntimeAccessCondition,
     ReverieMetadata as NearReverieMetadata,
 };
+use crate::types::{
+    Reverie,
+    ReverieId,
+    ReverieType,
+    AccessCondition as P2PNetworkAccessCondition,
+    AccessKey,
+};
 use crate::env_var::EnvVars;
-use hex;
-use alloy_primitives::Address;
-use std::str::FromStr;
-use sha3::{Digest, Keccak256};
-
-// Define constants at the module level, after all imports
-const PLACEHOLDER_COST_PER_LLM_CALL: u128 = 1_000_000_000_000_000_000_000; // 0.001 NEAR in yoctoNEAR (1e21)
-
+use crate::usage_db::{UsageDbPool, read_usage_data_for_reverie};
 use super::NodeClient;
 
+// ===============================================
+
+#[derive(Deserialize, Debug, Clone, Serialize)]
+pub struct AnthropicQuery {
+    pub prompt: String,
+    pub tools: Option<serde_json::Value>,
+    pub stream: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecuteWithMemoryReverieResult {
+    pub claude: Option<serde_json::Value>,
+    pub deepseek: Option<serde_json::Value>,
+}
+
+// ===============================================
 
 impl NodeClient {
     /// Client sends some ReverieType over TLS or some secure channel.
@@ -64,7 +75,7 @@ impl NodeClient {
             access_condition // access_condition to be checked to request cfrags
         )?;
 
-        // 2c. Write Reverie metadata onchain
+        // 2a. Write Reverie metadata onchain
         if let P2PNetworkAccessCondition::NearContract(_, _, _) = &reverie.access_condition {
             let env_vars = EnvVars::load();
             let near_access_condition = NearRuntimeAccessCondition::try_from(&reverie.access_condition)?;
@@ -95,7 +106,7 @@ impl NodeClient {
             );
         }
 
-        // 2a. Broadcast Reverie keyfrags to the network
+        // 2b. Broadcast Reverie keyfrags to the network
         let broadcast_keyfrags_outcome = self.broadcast_reverie_keyfrags(
             &reverie,
             target_vessel.peer_id,
@@ -214,12 +225,9 @@ impl NodeClient {
             access_key.clone()
         ).await?;
 
-        let mut metrics = MCPToolUsageMetrics::default();
-
         // Then execute LLM with Reverie as context:
         // 1. Test LLM API key from decrypted Reverie works
         println!("Decrypted secret memory, querying Claude with private contexts...");
-        metrics.record_attempt();
         let node_keypair = &self.node_id.id_keys.clone();
         let secret_context = memory_secrets_json["memories"].to_string();
 
@@ -229,7 +237,6 @@ impl NodeClient {
             &secret_context,
             anthropic_query.tools,
             anthropic_query.stream.unwrap_or(false),
-            &mut metrics
         ).await {
             Ok(result) => {
                 info!("\n{} {}\n", "Claude:".bright_black(), result.text.yellow());
@@ -241,53 +248,13 @@ impl NodeClient {
             }
         };
 
+        // 2. Skip DeepSeek API even if key is available
         let deepseek_result: Option<serde_json::Value> = None;
-        // // 2. Test DeepSeek API if key is available
-        // let deepseek_result = if let Some(deepseek_api_key) = memory_secrets_json["deepseek_api_key"].as_str() {
-        //     info!("Decrypted DeepSeek API key, querying DeepSeek...");
-        //     metrics.record_attempt();
-
-        //     match call_deepseek(
-        //         &prompt,
-        //         &memory_secrets_json["memories"].to_string(),
-        //         &mut metrics
-        //     ).await {
-        //         Ok(result) => {
-        //             info!("\n{} {}\n", "DeepSeek:".bright_black(), result.text.green());
-        //             serde_json::to_value(result).ok()
-        //         },
-        //         Err(e) => {
-        //             warn!("Failed to call DeepSeek API: {}", e);
-        //             None
-        //         }
-        //     }
-        // } else {
-        //     None
-        // };
-
-        let usage_report = metrics.generate_report();
-        println!("{}", usage_report);
 
         Ok(ExecuteWithMemoryReverieResult {
             claude: claude_result,
             deepseek: deepseek_result,
-            usage_report: metrics
         })
     }
-}
-
-
-#[derive(Deserialize, Debug, Clone, Serialize)]
-pub struct AnthropicQuery {
-    pub prompt: String,
-    pub tools: Option<serde_json::Value>,
-    pub stream: Option<bool>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExecuteWithMemoryReverieResult {
-    pub claude: Option<serde_json::Value>,
-    pub deepseek: Option<serde_json::Value>,
-    pub usage_report: MCPToolUsageMetrics,
 }
 
