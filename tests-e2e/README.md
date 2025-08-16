@@ -69,7 +69,6 @@ Some tests require API keys for external services (like Anthropic and DeepSeek).
 
 ```bash
 export ANTHROPIC_API_KEY=your_key_here
-export DEEPSEEK_API_KEY=your_key_here
 ```
 
 You can also create a `.env` file in the workspace root with these values.

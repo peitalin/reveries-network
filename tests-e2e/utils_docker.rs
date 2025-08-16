@@ -86,7 +86,7 @@ pub async fn setup_docker_environment(docker_compose_file: &str) -> Result<()> {
         tokio_sleep(LLM_PROXY_HEALTH_POLL_INTERVAL).await;
     }
 
-    info!("✅ Docker environment setup complete and llm-proxy is healthy using {}.", docker_compose_file);
+    info!("Docker environment setup complete and llm-proxy is healthy using {}.", docker_compose_file);
     Ok(())
 }
 
@@ -109,12 +109,12 @@ pub fn shutdown_docker_environment(docker_shutdown_timeout: usize) {
     match result {
         Ok(output) => {
             if output.status.success() {
-                info!("✅ 'docker-compose -f {} down -v -t {} ' executed successfully.", docker_compose_file, ttl_to_kill);
+                info!("'docker-compose -f {} down -v -t {} ' executed successfully.", docker_compose_file, ttl_to_kill);
                 debug!("docker-compose down stdout: {}", String::from_utf8_lossy(&output.stdout));
                 debug!("docker-compose down stderr: {}", String::from_utf8_lossy(&output.stderr));
             } else {
                 error!(
-                    "❌ 'docker-compose -f {} down -v -t {} ' command failed with status: {}.",
+                    "'docker-compose -f {} down -v -t {} ' command failed with status: {}.",
                     docker_compose_file,
                     ttl_to_kill,
                     output.status
@@ -124,7 +124,7 @@ pub fn shutdown_docker_environment(docker_shutdown_timeout: usize) {
             }
         }
         Err(e) => {
-            error!("❌ Failed to even execute 'docker-compose -f {} down -v -t {}': {}", docker_compose_file, ttl_to_kill, e);
+            error!("Failed to even execute 'docker-compose -f {} down -v -t {}': {}", docker_compose_file, ttl_to_kill, e);
         }
     }
 }
