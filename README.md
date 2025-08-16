@@ -3,9 +3,9 @@
 
 This network uses threshold proxy re-encryption (Umbral) to transplant secret keys, context, API Keys, and other secret state between TEE (Trusted Execution Environment) nodes in a p2p network.
 
-In the first example, agents have private context and keys inside of TEE nodes and the network transplants their private states into new TEE "vessels" whenever their housing vessel/server crashes, to preserve access to private keys, or encrypted contexts.
+In the [first test example](#test-1-testing-respawning-agent-secrets), agents have private context and keys inside of TEE nodes and the network transplants their state into new TEE "vessels" whenever their vessel/server crashes, preserving access to funds and contexts. Applications could include autonomous agents that generate keypairs within TEEs and persist ongoing.
 
-We use the same memory delegation process to delegate encrypted API keys to TEE nodes running a `llm-proxy` that intercepts LLM API requests, injects API keys into requests, tracks token usage (to enable the use of onchain payments to pay for LLM API access).
+In the [second test example](#test-2-testing-api-key-delegation-experimental), We use the same process to delegate encrypted API keys to TEE nodes running a `llm-proxy` that intercepts LLM API requests, injects API keys into requests, tracks token usage (to enable the use of onchain payments to pay for LLM API access).
 - The hope is that we can tokenize LLM API_KEYs for lending and delegating LLM API access via onchain payments
 
 
@@ -16,15 +16,15 @@ Install [just](https://github.com/casey/just) with `cargo install just`.
 Start the network locally, spinning up 5 nodes with either:
 
 ```
-# terminal tab 1
+# tab 1
 just node1
 
-# terminal tab 2
+# tab 2
 just node2
 
 # ...
 
-# terminal tab 5
+# tab 5
 just node5
 ```
 
@@ -47,6 +47,8 @@ After launching the nodes, install [pnpm](https://pnpm.io/), then run:
 ```
 just run-react-app
 ```
+
+### Test 1: Testing Respawning agent secrets
 
 Navigate to `http://localhost:4000/?port=9901` to observe the node's state.
 You can open multiple browser tabs and change the `port=9902` to observe node1 to node5's state.
@@ -84,14 +86,16 @@ sh build-docker.sh
 just test-agent-respawn-after-failure
 ```
 
+**NOTE**: Re-try tests is you get "not enough peers connected" errors.
 
-### Testing API Key Delegation (experimental)
 
-If docker is installed, there are tests in `tests-e2e` module that outline the flow of:
+### Test 2: Testing API Key Delegation (experimental)
 
-1. Encrypt Anthropic API key, re-encrypt it, and broadcast to peers
-2. Delegate Anthropic API key to a TEE node
-3. Delegate secret context/memories for an agent
+If docker is installed, you can try the API Key delegation example in `tests-e2e` that:
+
+1. Encrypts an Anthropic API key, re-encrypts it, and broadcasts to peers
+2. Delegates the Anthropic API key to a TEE node
+3. Delegates secret context/memories to an agent to execute
 4. Execute LLM calls with secret memory and delegated API key
 5. Measure token usage via llm-proxy and report back to the p2p-node
 
