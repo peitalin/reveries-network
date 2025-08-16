@@ -9,14 +9,15 @@ services:
     restart: unless-stopped
     environment:
       - RUST_LOG=info,llm_proxy=debug
-      ### NOTE: hardcoded to node2's port:
+      ## NOTE: hardcoded to node2's port for prototyping purposes:
       - REPORT_USAGE_URL=http://host.docker.internal:9902
       - INTERNAL_API_KEY_SERVER_PORT=7070 # Set the internal API port
       - CA_CERT_PATH=/certs_src/hudsucker.cer
       ## API key server
       - TEST_API=true
-      - P2P_NODE_PUBKEY=${P2P_NODE_PUBKEY} # Injected by p2p-node start command
-      - P2P_NODE_RPC_URL=${P2P_NODE_RPC_URL} # Needs to be set in p2p-node's env or passed
+      ## The p2p-node starts up docker and initiates the llm-proxy, env vars are not set here
+      - P2P_NODE_PUBKEY=${P2P_NODE_PUBKEY} # Injected by p2p-node start_docker_service() command
+      - P2P_NODE_RPC_URL=${P2P_NODE_RPC_URL} # Injected in p2p-node's start_docker_service() command
     volumes:
       # Mount host CA certs for runtime reading/writing of hudsucker certs
       - ./llm-proxy/certs:/certs_src
@@ -46,33 +47,8 @@ services:
       - llm-network # Can reach python-llm-server
       - default     # Can be reached from host
 
-  # ### TODO: configure router + port forwarding for
-  # ### NEAR inbound ports 24567
-  # nearcore-arm64:
-  #   # image: nearprotocol/nearcore:latest
-  #   image: nearcore-arm64
-  #   container_name: nearcore-arm64
-  #   build:
-  #     context: . # Build context is the project root
-  #     dockerfile: Dockerfile-neard # Path relative to context
-  #   restart: unless-stopped
-  #   volumes:
-  #     - near_data_volume:/root/.near
-  #   networks:
-  #     - default     # Can be reached from host
-  #   ports:
-  #     - "3030:3030"  # RPC port
-  #     - "24567:24567"  # Network port
-  #   deploy: # Requires Docker Compose V2+
-  #     resources:
-  #       limits:
-  #         memory: 24G # hits 20.5gb of memory
-  #       reservations:
-  #         memory: 8G
-  #   memswap_limit: 28g
-
   # #########################################################
-  # ## Dynamically deployed Python LLM agents
+  # ## Dynamically deployed Python LLM agents (deployed by p2p-network)
   # #########################################################
 
   # The Python LLM server that makes API calls
@@ -125,6 +101,8 @@ services:
     networks:
       - llm-network
       - default
+    environment:
+      - FASTMCP_HOST=0.0.0.0
     ports:
       - "8000:8000" # default FastAPI port
     command: python weather.py

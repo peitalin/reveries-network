@@ -41,7 +41,6 @@ services:
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
         '
 
-
   node3:
     image: reveries-network
     expose:
@@ -61,7 +60,6 @@ services:
         --listen-address "/ip4/0.0.0.0/tcp/9003" \
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '
-
 
   node4:
     image: reveries-network
@@ -83,7 +81,6 @@ services:
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '
 
-
   node5:
     image: reveries-network
     expose:
@@ -104,28 +101,25 @@ services:
         --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
       '
 
-
-
-  # prometheus:
-  #   image: prom/prometheus:latest
-  #   ports: ["9090:9090"]
-  #   volumes: ["./telemetry/prometheus.yml:/etc/prometheus/prometheus.yml"]
-
-  # grafana:
-  #   image: grafana/grafana-oss:latest
-  #   ports: ["3000:3000"]
-  #   depends_on: [prometheus]
-  #   volumes:
-  #     - ./telemetry/dashboards:/etc/grafana/provisioning/dashboards
-  #     - ./telemetry/datasources:/etc/grafana/provisioning/datasources
-  #     - ./telemetry/grafana.ini:/etc/grafana/grafana.ini
-  #   environment:
-  #     # GF_SECURITY_ADMIN_USER: "user"
-  #     # GF_SECURITY_ADMIN_PASSWORD: ""
-  #     # GF_PATHS_CONFIG: "/etc/grafana/grafana.ini"  # or use custom config
-  #     GF_AUTH_ANONYMOUS_ENABLED: "true"
-  #     GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"  # Full access
-  #     GF_AUTH_BASIC_ENABLED: "false"
+  node6:
+    image: reveries-network
+    expose:
+      - "9006"
+    ports:
+      - "9906:9906"
+      - "9006:9006"
+    restart: always
+    stdin_open: true
+    tty: true
+    networks:
+      - p2p-net
+    command: >
+      sh -c 'sleep 6 && cargo run --bin rpc -- \
+        --secret-key-seed 6 \
+        --rpc-port 9906 \
+        --listen-address "/ip4/0.0.0.0/tcp/9006" \
+        --bootstrap-peers "/dns4/node1/tcp/9001/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X"
+      '
 
 networks:
   p2p-net:
