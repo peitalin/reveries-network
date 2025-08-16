@@ -1,10 +1,6 @@
 # LLM Proxy
 
-This MITM (Man-in-the-Middle) proxy intercepts API calls made by Python LLM services to multiple API providers (Anthropic, OpenAI, Google Gemini, etc.) and tracks token usage for each provider.
-
-## How It Works
-
-The proxy uses a forked Hudsucker library to serve as a MITM HTTP/S proxy that:
+This proxy forks the Hudsucker library to serve as a MITM HTTP/S proxy that:
 
 1. Intercepts outgoing API calls from the Python server to different LLM providers
 2. Decrypts HTTPS traffic to inspect request and response contents
@@ -12,24 +8,11 @@ The proxy uses a forked Hudsucker library to serve as a MITM HTTP/S proxy that:
 4. Logs complete request/response data for analysis
 5. Works with any HTTP/HTTPS-based LLM API
 
-## Key Features
-
-- **MITM Capability**: Decrypts HTTPS traffic for inspection (requires CA certificate trust)
-- **Multi-Provider Support**: Works with Anthropic, OpenAI, Google, and others
-- **Token Usage Tracking**: Records and aggregates token consumption per provider
-- **JSON Response Parsing**: Extracts structured data from API responses
-- **Fallback Regex Extraction**: Can extract token data even from non-standard responses
-- **Detailed Logging**: Comprehensive logs with timestamps and formatted responses
+This llm-proxy is run in a docker, alongside the p2p-node (that handles proxy re-encryption events, and spawns python llm agents inside docker) to track token usage.
 
 ## Supported Providers
 
-Currently configured for:
-
-- Anthropic (Claude models)
-- OpenAI (GPT models)
-- Google (Gemini models)
-
-Additional providers can be added by updating the provider mapping.
+Currently configured for Anthropic Claude
 
 ## Running with Docker
 
@@ -77,16 +60,3 @@ export NO_PROXY=localhost,127.0.0.1
 cd agents/python/execute_with_memories
 python main.py
 ```
-
-## Technical Details
-
-Under the hood, this proxy uses the [hudsucker](https://github.com/omjadas/hudsucker) library to:
-1. Intercept and decrypt HTTPS traffic (MITM)
-2. Inspect request and response bodies
-3. Extract token usage information from JSON responses
-4. Track and log usage statistics
-
-The MITM approach allows the proxy to:
-- See the actual content of encrypted traffic
-- Extract token usage metrics from API responses
-- Provide accurate usage statistics for all providers

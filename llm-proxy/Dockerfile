@@ -12,14 +12,14 @@ WORKDIR /usr/src/llm-proxy
 COPY . .
 
 # Build the proxy (ensure -p flag is used if it's part of a workspace)
-RUN cargo build --release -p llm-proxy
+RUN cargo build -p llm-proxy
 
 # --- Final Stage ---
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary
-COPY --from=builder /usr/src/llm-proxy/target/release/llm-proxy /usr/local/bin/
+COPY --from=builder /usr/src/llm-proxy/target/debug/llm-proxy /usr/local/bin/
 
 # Create directories (if needed at runtime, though not strictly required by proxy)
 RUN mkdir -p /certs && chmod 777 /certs
