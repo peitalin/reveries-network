@@ -4,12 +4,15 @@ FROM python:3.10-slim
 # Set work directory
 WORKDIR /app
 
+# Install system dependencies including curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Copy only requirements first to leverage Docker cache
 COPY pyproject.toml ./
 
 # Install pip and dependencies
 RUN pip install --upgrade pip && \
-    pip install httpx>=0.28.1 mcp[cli]>=1.2.0
+    pip install httpx>=0.28.1 fastmcp uvicorn
 
 # Copy project files
 COPY . .

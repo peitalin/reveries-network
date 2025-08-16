@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.28.1",
-    "mcp[cli]==1.8.0",
+    "fastmcp",
 ]
 
 [build-system]
