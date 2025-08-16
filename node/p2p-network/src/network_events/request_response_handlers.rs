@@ -67,11 +67,6 @@ impl NetworkEvents {
                                 amount
                             ) => {
 
-                                println!("LLLLLL; reverie_id: {:?}", reverie_id);
-                                println!("KKKKKK; contract_account_id: {:?}", contract_account_id);
-                                println!("MMMMMM; spender_account_id: {:?}", spender_account_id);
-                                println!("JJJJJJ; amount: {:?}", amount);
-
                                 let can_spend = self.near_runtime.can_spend(
                                     contract_account_id,
                                     &reverie_id,
