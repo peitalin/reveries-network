@@ -11,7 +11,7 @@ We use the same memory delegation process to delegate encrypted API keys to TEE 
 
 #### Starting the network locally
 
-Install `just` with `cargo install just`.
+Install [just](https://github.com/casey/just) with `cargo install just`.
 
 Start the network locally, spinning up 5 nodes with either:
 
@@ -181,4 +181,3 @@ gcloud compute instances create tee09-instance-20250221-042942 \
     --reservation-affinity=any
 ```
 
-kill -9 $(lsof -ti:9901)
