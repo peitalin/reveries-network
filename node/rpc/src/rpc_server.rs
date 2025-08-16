@@ -246,6 +246,20 @@ pub async fn run_server(rpc_port: usize, network_client: NodeClient) -> Result<S
         }
     )?;
 
+    rpc_server.add_route_mut(
+        "read_usage_data_for_reverie",
+        |params, nc, _| async move {
+            let reverie_id = params.one::<String>()?;
+
+            let usage_records = nc.read_usage_data_for_reverie(&reverie_id)
+                .map_err(RpcError::from)?;
+
+            let usage_report = serde_json::to_value(usage_records).map_err(RpcError::from)?;
+
+            Ok::<serde_json::Value, RpcError>(usage_report)
+        }
+    )?;
+
     rpc_server.add_route(
         "get_connected_peers",
         |_, nc_arc: Arc<NodeClient>, _| async move {
@@ -506,6 +520,12 @@ impl From<ErrorObject<'_>> for RpcError {
 
 impl From<alloy_primitives::hex::FromHexError> for RpcError {
     fn from(e: alloy_primitives::hex::FromHexError) -> Self {
+        RpcError(e.to_string())
+    }
+}
+
+impl From<serde_json::Error> for RpcError {
+    fn from(e: serde_json::Error) -> Self {
         RpcError(e.to_string())
     }
 }

@@ -4,7 +4,7 @@ mod agent_secrets_json;
 use color_eyre::{Result, eyre::anyhow};
 use serde::{Deserialize, Serialize};
 use reqwest;
-pub use mcp_tool_usage::MCPToolUsageMetrics;
+pub use mcp_tool_usage::{MCPToolUsageMetrics, UsageRecord};
 pub use agent_secrets_json::{AgentSecretsJson, AgentKeypair, read_agent_secrets};
 
 
@@ -52,7 +52,6 @@ pub async fn call_anthropic(
     context: &str,
     tools: Option<serde_json::Value>,
     stream: bool,
-    _metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
     call_python_llm_server("anthropic", prompt, context, tools, stream).await
 }
@@ -62,7 +61,6 @@ pub async fn call_deepseek(
     context: &str,
     tools: Option<serde_json::Value>,
     stream: bool,
-    _metrics: &mut MCPToolUsageMetrics
 ) -> Result<LlmResult> {
     call_python_llm_server("deepseek", prompt, context, tools, stream).await
 }
